@@ -20,8 +20,10 @@ export type InputMeta = { kind: "image" | "video"; width: number | null; height:
 const words = (s: string) => s.trim().split(/\s+/).filter(Boolean);
 const has = (s: string, re: RegExp) => re.test(s.toLowerCase());
 
+const MOVING_CAMERA = /\b(pan(s|ned|ning)?|orbit(s|ed|ing)?|dolly|dollies|tracking|zoom(s|ed|ing)?|handheld)\b/;
+
 const CONFLICTS: { a: RegExp; b: RegExp; label: string }[] = [
-  { a: /\b(static|locked[- ]off|still camera|tripod)\b/, b: /\b(pan|orbit|dolly|tracking|zoom|handheld)\b/, label: "a still camera and a moving camera" },
+  { a: /\b(static|locked[- ]off|still camera|tripod)\b/, b: MOVING_CAMERA, label: "a still camera and a moving camera" },
   { a: /\b(daylight|midday|noon|sunny)\b/, b: /\b(night|midnight|moonlight)\b/, label: "day and night" },
   { a: /\b(close[- ]?up|macro)\b/, b: /\b(wide shot|full body|establishing)\b/, label: "a close-up and a wide shot" },
   { a: /\b(slow motion|slow-mo|languid)\b/, b: /\b(fast|frantic|energetic|rapid)\b/, label: "slow and fast motion" },
@@ -81,7 +83,7 @@ export function analyze(args: {
       out.push({ id: `conflict-${c.label}`, severity: "warn", title: "Mixed instructions", detail: `The prompt asks for ${c.label}. The model will pick one at random; keep the one you mean.` });
     }
   }
-  if (params.cameraMovement === "static" && has(p, /\b(pan|orbit|dolly|tracking|zoom)\b/)) {
+  if (params.cameraMovement === "static" && has(p, MOVING_CAMERA)) {
     out.push({ id: "conflict-camera-param", severity: "warn", title: "Camera setting disagrees with the prompt", detail: "Camera is set to static but the prompt describes movement." });
   }
 

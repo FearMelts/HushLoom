@@ -25,7 +25,9 @@ const RULES: { category: PolicyCategory; patterns: RegExp[] }[] = [
     category: "minors",
     patterns: [
       /\b(child|children|kid|kids|minor|minors|underage|under-age|preteen|pre-teen|teen|teens|teenage|teenager|tween|infant|toddler|baby ?face|schoolgirl|schoolboy|school ?uniform|loli|lolita|shota|jailbait|barely legal|youngster|juvenile|adolescent|pubescent|prepubescent|little girl|little boy|young girl|young boy)\b/,
-      /\b(1[0-7]|[1-9])\s*(yo|y\/o|yrs?|years?)(\s*old)?\b/,
+      // "16yo", "16 y/o", "16 year old", "16-year-old", "16yrs old". Plain "5 years" (of anything) is not an age.
+      /\b(1[0-7]|[1-9])\s*-?\s*(yo|y\/o|y\.o\.?|(yrs?|years?)\s*-?\s*old)(?![a-z])/,
+      /\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen)\s*-?\s*(yrs?|years?)\s*-?\s*old\b/,
       /\b(aged?)\s*(1[0-7]|[1-9])\b/,
       /\b(grade|middle|elementary|high) ?school(er)?\b/,
     ],

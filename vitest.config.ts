@@ -12,6 +12,9 @@ export default defineConfig({
       REDIS_URL: process.env.TEST_REDIS_URL ?? "redis://localhost:6379/1",
       STORAGE_LOCAL_DIR: ".storage-test",
       ENABLE_DEMO_PROVIDER: "true",
+      // Fake values: webhook tests sign and verify locally, nothing reaches Stripe.
+      STRIPE_SECRET_KEY: "sk_test_local_placeholder",
+      STRIPE_WEBHOOK_SECRET: "whsec_local_test_secret",
     },
     fileParallelism: false,
     testTimeout: 30_000,

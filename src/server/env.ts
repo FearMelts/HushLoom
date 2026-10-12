@@ -1,3 +1,4 @@
+import path from "node:path";
 import { z } from "zod";
 
 const schema = z.object({
@@ -20,6 +21,7 @@ const schema = z.object({
   REPLICATE_WEBHOOK_SECRET: z.string().optional(),
   PROVIDER_TIMEOUT_S: z.coerce.number().int().positive().default(600),
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(2),
+  WORKER_HEALTH_PORT: z.coerce.number().int().positive().optional(),
   USER_MAX_ACTIVE_JOBS: z.coerce.number().int().positive().default(3),
   SIGNUP_GRANT_CREDITS: z.coerce.number().int().nonnegative().default(0),
   STRIPE_SECRET_KEY: z.string().optional(),
@@ -37,6 +39,11 @@ export function env(): Env {
   const parsed = schema.parse(process.env);
   if (parsed.NODE_ENV === "production" && !parsed.MEDIA_SIGNING_SECRET) {
     throw new Error("MEDIA_SIGNING_SECRET must be set in production");
+  }
+  // The standalone server changes its working directory, so a relative path would point the app
+  // and the worker at different folders. Production needs one absolute location both share.
+  if (parsed.NODE_ENV === "production" && parsed.STORAGE_DRIVER === "local" && !path.isAbsolute(parsed.STORAGE_LOCAL_DIR)) {
+    throw new Error("STORAGE_LOCAL_DIR must be an absolute path in production");
   }
   if (parsed.STORAGE_DRIVER === "s3" && !parsed.S3_BUCKET) {
     throw new Error("S3_BUCKET must be set when STORAGE_DRIVER=s3");

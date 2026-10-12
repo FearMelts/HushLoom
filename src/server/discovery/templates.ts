@@ -176,7 +176,7 @@ export async function similarTemplates(templateId: string, viewerId: string | nu
   if (!t) return [];
   const overlap = sql<number>`(
     (case when ${templates.categoryId} = ${t.categoryId} then 2 else 0 end)
-    + coalesce(array_length(array(select unnest(${templates.tags}) intersect select unnest(${t.tags}::text[])), 1), 0)
+    + coalesce(array_length(array(select unnest(${templates.tags}) intersect select unnest(src.tags) from ${templates} src where src.id = ${t.id}), 1), 0)
   )`;
   const rows = await selectCards()
     .where(and(published, ne(templates.id, templateId), sql`${overlap} > 0`))

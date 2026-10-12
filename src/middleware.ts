@@ -9,7 +9,9 @@ export function middleware(req: NextRequest) {
   // API must come from this origin. Webhooks authenticate by signature instead.
   if (pathname.startsWith("/api/") && MUTATING.has(req.method) && !pathname.startsWith("/api/webhooks/")) {
     const origin = req.headers.get("origin");
-    if (origin && origin !== req.nextUrl.origin) {
+    // Behind a proxy the request URL may carry the internal host, so the public APP_URL also counts.
+    const publicOrigin = process.env.APP_URL ? new URL(process.env.APP_URL).origin : null;
+    if (origin && origin !== req.nextUrl.origin && origin !== publicOrigin) {
       return NextResponse.json({ error: { code: "bad_origin", message: "Cross-site request refused." } }, { status: 403 });
     }
   }

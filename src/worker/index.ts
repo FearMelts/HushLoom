@@ -1,3 +1,4 @@
+import { createServer } from "node:http";
 import { Worker } from "bullmq";
 import { closeDb } from "@/server/db";
 import { env } from "@/server/env";
@@ -42,10 +43,20 @@ const sweepTimer = setInterval(sweep, 60_000);
 const purgeTimer = setInterval(purge, 3_600_000);
 logger.info("worker started", { concurrency });
 
+// Optional liveness endpoint for orchestrators (and the e2e runner) to see the worker is up.
+const healthPort = env().WORKER_HEALTH_PORT;
+const health = healthPort
+  ? createServer((req, res) => {
+      const ok = req.url === "/health" && worker.isRunning();
+      res.writeHead(ok ? 200 : 503, { "Content-Type": "application/json" }).end(JSON.stringify({ ok }));
+    }).listen(healthPort)
+  : null;
+
 async function shutdown(signal: string) {
   logger.info("worker stopping", { signal });
   clearInterval(sweepTimer);
   clearInterval(purgeTimer);
+  health?.close();
   await worker.close();
   await closeRedis();
   await closeDb();

@@ -31,8 +31,10 @@ export async function GET(req: NextRequest) {
 
   const range = req.headers.get("range")?.match(/^bytes=(\d*)-(\d*)$/);
   if (range) {
-    const start = range[1] ? Number(range[1]) : 0;
-    const end = range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
+    // "bytes=-N" asks for the last N bytes.
+    const suffix = !range[1] && range[2] ? Number(range[2]) : null;
+    const start = suffix !== null ? Math.max(0, body.length - suffix) : range[1] ? Number(range[1]) : 0;
+    const end = suffix === null && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
     if (start > end || start >= body.length) return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${body.length}` } });
     return new NextResponse(new Uint8Array(body.subarray(start, end + 1)), {
       status: 206,
