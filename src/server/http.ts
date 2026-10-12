@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { ZodError, type ZodType } from "zod";
+import { ZodError, type ZodTypeAny, type output } from "zod";
 import { getCurrentUser, type SessionUser } from "@/server/auth/session";
 import { InsufficientCreditsError } from "@/server/credits/ledger";
 import { logger } from "@/server/log";
@@ -32,7 +32,7 @@ export async function requireAdmin(): Promise<SessionUser> {
   return user;
 }
 
-export async function parseJson<T>(req: Request, schema: ZodType<T>): Promise<T> {
+export async function parseJson<S extends ZodTypeAny>(req: Request, schema: S): Promise<output<S>> {
   let body: unknown;
   try {
     body = await req.json();
@@ -63,8 +63,19 @@ export function route<C>(handler: (req: NextRequest, ctx: C) => Promise<Response
           { status: 402 },
         );
       }
+      if (isBadIdentifier(err)) {
+        return NextResponse.json({ error: { code: "not_found", message: "Not found." } }, { status: 404 });
+      }
       logger.error("unhandled route error", { path: req.nextUrl.pathname, err });
       return NextResponse.json({ error: { code: "internal", message: "Something went wrong on our side." } }, { status: 500 });
     }
   };
+}
+
+/** Postgres rejects a malformed uuid with 22P02. To a client that is simply a missing record. */
+function isBadIdentifier(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e && depth < 3; e = (e as { cause?: unknown }).cause, depth++) {
+    if ((e as { code?: unknown }).code === "22P02") return true;
+  }
+  return false;
 }

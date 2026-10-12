@@ -163,7 +163,7 @@ export function Sheet({ open, onClose, title, children, wide }: { open: boolean;
 
 // ── Toasts ──
 
-type Toast = { id: number; message: string; tone: "plain" | "success" | "error"; action?: { label: string; href: string } };
+type Toast = { id: number; message: string; tone?: "plain" | "success" | "error"; action?: { label: string; href: string } };
 const ToastCtx = createContext<(t: Omit<Toast, "id">) => void>(() => undefined);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
