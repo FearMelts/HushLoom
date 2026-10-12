@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10100f">
+    <meta name="description" content="Find a spark. Make it yours. Explore the Playbox creative playground.">
+    <title>Playbox — make a little magic</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script type="module" src="/src/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to templates</a>
+    <header class="topbar">
+      <a class="brand" href="#explore" aria-label="Playbox home">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span>playbox<span class="brand-period">.</span></span>
+      </a>
+      <nav class="top-nav" aria-label="Main navigation">
+        <a class="nav-link is-active" href="#explore" data-view-link="explore">Explore</a>
+        <a class="nav-link" href="#collection" data-view-link="collection">Collection</a>
+      </nav>
+      <div class="top-actions">
+        <label class="search-box">
+          <span class="sr-only">Search templates</span>
+          <svg aria-hidden="true" viewBox="0 0 20 20"><circle cx="8.8" cy="8.8" r="5.8"></circle><path d="m13.2 13.2 4 4"></path></svg>
+          <input id="search" type="search" placeholder="Search templates" autocomplete="off">
+          <kbd>/</kbd>
+        </label>
+        <button class="avatar" type="button" aria-label="Account sign-in is not available in this preview" title="Account sign-in is not connected">Y</button>
+      </div>
+    </header>
+
+    <main id="main">
+      <section id="welcome" class="welcome" aria-labelledby="welcome-title">
+        <div class="welcome-copy">
+          <p class="eyebrow"><span class="sparkle" aria-hidden="true">✳</span> YOUR CREATIVE PLAYGROUND</p>
+          <h1 id="welcome-title">A little <span>inspiration.</span><br>A lot of possibility.</h1>
+          <p class="welcome-subtitle">Pick a starting point. Make it feel like yours.</p>
+        </div>
+        <div class="welcome-note">
+          <span class="note-orbit" aria-hidden="true">✳</span>
+          <p>Curiosity looks<br>good on you.</p>
+          <span class="note-caption">No wrong turns here</span>
+        </div>
+      </section>
+
+      <div class="workspace">
+        <aside class="side-nav" aria-label="Explore filters">
+          <p class="side-label">YOUR PLAYGROUND</p>
+          <button class="side-link is-selected" type="button" data-category="For you"><span class="side-icon">✳</span> For you</button>
+          <button class="side-link" type="button" data-category="All templates"><span class="side-icon">▦</span> All templates</button>
+          <button class="side-link" type="button" data-category="Images"><span class="side-icon">▧</span> Images</button>
+          <button class="side-link" type="button" data-category="Videos"><span class="side-icon">▷</span> Videos</button>
+          <button class="side-link" type="button" data-category="Recently viewed"><span class="side-icon">◷</span> Recently viewed</button>
+          <button class="side-link" type="button" data-category="Saved"><span class="side-icon">♡</span> Saved <span class="saved-count" id="saved-count">0</span></button>
+          <div class="sidebar-note">
+            <span class="tiny-star" aria-hidden="true">✳</span>
+            <p>Good ideas like company.</p>
+            <span>Save a template to find it here later.</span>
+          </div>
+        </aside>
+
+        <section class="gallery" aria-labelledby="gallery-title">
+          <div class="gallery-heading">
+            <div>
+              <p class="eyebrow section-eyebrow" id="gallery-kicker">A FRESH BATCH OF INSPIRATION</p>
+              <h2 id="gallery-title">Made for wandering<span class="heading-dot">.</span></h2>
+            </div>
+            <div class="gallery-actions">
+              <button id="clear-history" class="clear-history" type="button" hidden>Clear history</button>
+              <span class="result-count" id="result-count" aria-live="polite"></span>
+            </div>
+          </div>
+          <div class="category-strip" aria-label="Quick filters">
+            <button type="button" class="category-chip is-selected" data-category="For you">For you</button>
+            <button type="button" class="category-chip" data-category="All templates">All templates</button>
+            <button type="button" class="category-chip" data-category="Images">Images</button>
+            <button type="button" class="category-chip" data-category="Videos">Videos</button>
+            <button type="button" class="category-chip" data-category="Saved">Saved <span id="chip-saved-count">0</span></button>
+          </div>
+          <div id="template-grid" class="template-grid" aria-live="polite"></div>
+          <div id="empty-state" class="empty-state" hidden>
+            <span aria-hidden="true">✳</span>
+            <h3>Nothing in this corner just yet.</h3>
+            <p>Try another filter or search for something new.</p>
+            <button class="text-button" id="clear-filters" type="button">Back to exploring <span aria-hidden="true">↗</span></button>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <span>Made for curiosity <span class="footer-star">✳</span></span>
+      <span>Playbox preview <span class="footer-separator">·</span> Generation and accounts are not connected</span>
+    </footer>
+
+    <dialog id="template-dialog" class="template-dialog" aria-labelledby="dialog-title">
+      <button class="dialog-close" type="button" aria-label="Close template details">×</button>
+      <div class="dialog-art" id="dialog-art" aria-hidden="true"></div>
+      <div class="dialog-content">
+        <p class="eyebrow" id="dialog-kicker"></p>
+        <h2 id="dialog-title"></h2>
+        <p class="dialog-description" id="dialog-description"></p>
+        <div class="creator-line"><span class="creator-avatar">p</span><span>Playbox picks</span><span class="creator-dot">·</span><span id="dialog-type"></span></div>
+        <label class="field-label" for="prompt">Your starting prompt</label>
+        <textarea id="prompt" rows="3" maxlength="500" spellcheck="true"></textarea>
+        <details class="advanced-settings">
+          <summary><span class="settings-icon" aria-hidden="true">✳</span> Make it more yours <span class="optional-tag">OPTIONAL</span></summary>
+          <div class="setting-row">
+            <label for="aspect-ratio">Frame shape</label>
+            <select id="aspect-ratio">
+              <option value="template">Keep template default</option>
+              <option value="portrait">Portrait · 9:16</option>
+              <option value="square">Square · 1:1</option>
+              <option value="landscape">Landscape · 16:9</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label for="motion">Motion feeling <span id="motion-value">Gentle</span></label>
+            <input id="motion" type="range" min="1" max="3" value="1">
+          </div>
+          <p class="settings-note">These are saved on this device as a creative note. No model has validated or received them.</p>
+        </details>
+        <button id="generate-button" class="generate-button" type="button">Start creating <span aria-hidden="true">↗</span></button>
+        <p id="generation-notice" class="generation-notice" role="status" hidden></p>
+        <p class="privacy-note"><span aria-hidden="true">◈</span> Nothing is uploaded or generated in this preview.</p>
+      </div>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </body>
+</html>

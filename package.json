@@ -1,0 +1,12 @@
+{
+  "name": "hushloom",
+  "version": "1.0.0",
+  "description": "A lightweight, media-first Playbox creative playground prototype.",
+  "private": true,
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  },
+  "type": "module"
+}
