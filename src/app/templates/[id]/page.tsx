@@ -114,6 +114,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
               signedIn={Boolean(user)}
               balance={ctx.balance}
               characterRefs={ctx.characterRefs}
+            copilot={ctx.copilot}
               projects={ctx.projects}
               template={{
                 id: t.id,

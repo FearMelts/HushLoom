@@ -33,6 +33,7 @@ export type CreatePrefill = {
   params?: GenerationParams;
   projectId?: string;
   sceneId?: string;
+  characterReferenceId?: string;
   continuityNote?: string;
 };
 
@@ -50,6 +51,7 @@ export function CreatePanel({
   characterRefs = [],
   projects = [],
   studio = false,
+  copilot = true,
 }: {
   output: "image" | "video";
   models: ModelAvailability[];
@@ -60,6 +62,8 @@ export function CreatePanel({
   characterRefs?: { id: string; name: string }[];
   projects?: { id: string; title: string; scenes: { id: string; title: string }[] }[];
   studio?: boolean;
+  /** When the viewer turns the assistant off, only blocking problems are shown. */
+  copilot?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -82,7 +86,7 @@ export function CreatePanel({
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [characterRefId, setCharacterRefId] = useState(characterRefs[0]?.id ?? "");
+  const [characterRefId, setCharacterRefId] = useState(prefill?.characterReferenceId ?? characterRefs[0]?.id ?? "");
   const [projectId, setProjectId] = useState(prefill?.projectId ?? "");
   const [sceneId, setSceneId] = useState(prefill?.sceneId ?? "");
   const [showTweaks, setShowTweaks] = useState(studio);
@@ -105,10 +109,10 @@ export function CreatePanel({
     () =>
       model
         ? analyze({ prompt, negativePrompt, params, mode, model, input: upload ? { kind: upload.kind, width: upload.width, height: upload.height } : null }).filter(
-            (s) => !dismissed.includes(s.id),
+            (s) => !dismissed.includes(s.id) && (copilot || s.severity === "block"),
           )
         : [],
-    [prompt, negativePrompt, params, mode, model, upload, dismissed],
+    [prompt, negativePrompt, params, mode, model, upload, dismissed, copilot],
   );
   const blocked = suggestions.some((s) => s.severity === "block");
 

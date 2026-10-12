@@ -1,4 +1,4 @@
-import { and, eq, isNotNull, lt, notLike } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lt, notLike } from "drizzle-orm";
 import sharp from "sharp";
 import { getDb } from "@/server/db";
 import { consentRecords, mediaAssets, uploads } from "@/server/db/schema";
@@ -97,6 +97,20 @@ export async function purgeDeletedMedia(retentionDays: number): Promise<number> 
     .from(mediaAssets)
     .where(and(isNotNull(mediaAssets.deletedAt), lt(mediaAssets.deletedAt, cutoff), notLike(mediaAssets.storageKey, "purged/%")))
     .limit(500);
+  return purgeRows(rows);
+}
+
+/** Removes the files of already soft-deleted assets right away, without waiting for the retention window. */
+export async function purgeAssetsNow(assetIds: string[]): Promise<number> {
+  if (!assetIds.length) return 0;
+  const rows = await getDb()
+    .select({ id: mediaAssets.id, key: mediaAssets.storageKey })
+    .from(mediaAssets)
+    .where(and(inArray(mediaAssets.id, assetIds), isNotNull(mediaAssets.deletedAt), notLike(mediaAssets.storageKey, "purged/%")));
+  return purgeRows(rows);
+}
+
+async function purgeRows(rows: { id: string; key: string }[]): Promise<number> {
   let n = 0;
   for (const r of rows) {
     try {

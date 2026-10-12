@@ -8,6 +8,7 @@ import { getDb } from "@/server/db";
 import { generationJobs, generationOutputs, mediaAssets, templates } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { logger } from "@/server/log";
+import { purgeAssetsNow } from "@/server/media";
 import { newStorageKey, sha256, storage } from "@/server/storage";
 import { enqueueGeneration } from "./queue";
 
@@ -170,18 +171,23 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
     stored.push({ assetId: asset!.id, report });
   }
 
-  await db.transaction(async (tx) => {
+  const storedIds = stored.map((s) => s.assetId);
+  const kept = await db.transaction(async (tx) => {
     const [current] = await tx.select().from(generationJobs).where(eq(generationJobs.id, job.id)).for("update");
-    if (!current || current.status !== "processing") return;
     const now = new Date();
+    if (!current || current.status !== "processing") {
+      // Someone else closed the job (reconciler timeout). The files we just wrote belong to nothing.
+      await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, storedIds));
+      return false;
+    }
     if (current.cancelRequested) {
-      await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, stored.map((s) => s.assetId)));
+      await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, storedIds));
       await releaseJob(tx, current.userId, current.id, current.costCredits, "cancelled during processing");
       await tx
         .update(generationJobs)
         .set({ status: "cancelled", failureCode: "cancelled", failureMessage: USER_FACING_ERRORS.cancelled, finishedAt: now, updatedAt: now })
         .where(eq(generationJobs.id, current.id));
-      return;
+      return false;
     }
     for (const s of stored) {
       await tx.insert(generationOutputs).values({
@@ -203,7 +209,13 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
         .set({ generationCount: sql`${templates.generationCount} + 1` })
         .where(eq(templates.id, current.templateId));
     }
+    return true;
   });
+  if (!kept) {
+    await purgeAssetsNow(storedIds);
+    logger.info("generation.discarded", log);
+    return;
+  }
   logger.info("generation.done", log);
 }
 

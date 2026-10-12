@@ -20,6 +20,7 @@ import {
 } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { HttpError } from "@/server/http";
+import { purgeAssetsNow } from "@/server/media";
 import { ADULT_AGE, ageOn } from "@/server/safety/policy";
 import { destroyAllSessions, hashPassword, verifyPassword } from "./session";
 
@@ -108,7 +109,7 @@ export async function authenticate(email: string, password: string) {
 
 /** Withdrawing consent removes everything made from what it covered. */
 export async function withdrawConsent(userId: string, consentId: string) {
-  await getDb().transaction(async (tx) => {
+  const removed = await getDb().transaction(async (tx) => {
     const [record] = await tx
       .update(consentRecords)
       .set({ withdrawnAt: new Date() })
@@ -139,7 +140,10 @@ export async function withdrawConsent(userId: string, consentId: string) {
     }
     if (assetIds.length) await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, assetIds));
     await audit(userId, "consent.withdraw", "consent_record", consentId, { removedAssets: assetIds.length }, tx);
+    return assetIds;
   });
+  // Withdrawn likeness or upload consent is the case where waiting out the retention window would do harm.
+  await purgeAssetsNow(removed);
 }
 
 /** Deletes an account: sessions end now, content is soft-deleted and purged after the retention window. */

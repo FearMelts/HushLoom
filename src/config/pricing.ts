@@ -27,7 +27,7 @@ export const pricing = {
       label: "Studio Pass",
       monthlyCredits: 1500,
       priceCents: 5999,
-      perks: ["1,500 credits each month", "VIP templates", "4K output where offered", "6 generations at once"],
+      perks: ["1,500 credits each month", "VIP templates", "6 generations at once"],
       maxActiveJobs: 6,
       vip: true,
     },

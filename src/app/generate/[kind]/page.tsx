@@ -16,7 +16,7 @@ export async function generateMetadata({ params }: { params: Promise<{ kind: str
 }
 
 /** Builds a prefill from ?from=<jobId> (remix / reuse settings) or ?scene=<sceneId> (project continuity). */
-async function prefillFor(userId: string | undefined, sp: Record<string, string | undefined>): Promise<CreatePrefill | undefined> {
+async function prefillFor(userId: string | undefined, kind: "image" | "video", sp: Record<string, string | undefined>): Promise<CreatePrefill | undefined> {
   if (!userId) return undefined;
   const db = getDb();
   if (isUuid(sp.from)) {
@@ -51,10 +51,14 @@ async function prefillFor(userId: string | undefined, sp: Record<string, string 
         params: { ...(c.lighting ? { lighting: c.lighting } : {}), ...(c.framing ? { framing: c.framing } : {}) },
         projectId: row.project.id,
         sceneId: row.scene.id,
+        characterReferenceId: c.characterReferenceId,
+        // Only still models take a character reference in this build; clips keep continuity through the guide text and settings.
+        mode: c.characterReferenceId && kind === "image" ? "reference_guided" : undefined,
         continuityNote: note || undefined,
       };
     }
   }
+  if (isUuid(sp.character) && kind === "image") return { mode: "reference_guided", characterReferenceId: sp.character };
   return undefined;
 }
 
@@ -63,7 +67,7 @@ export default async function GeneratePage({ params, searchParams }: { params: P
   if (kind !== "image" && kind !== "video") notFound();
   const sp = await searchParams;
   const user = await getCurrentUser();
-  const [ctx, prefill] = await Promise.all([createContext(user), prefillFor(user?.id, sp)]);
+  const [ctx, prefill] = await Promise.all([createContext(user), prefillFor(user?.id, kind, sp)]);
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
@@ -88,6 +92,7 @@ export default async function GeneratePage({ params, searchParams }: { params: P
           signedIn={Boolean(user)}
           balance={ctx.balance}
           characterRefs={ctx.characterRefs}
+            copilot={ctx.copilot}
           projects={ctx.projects}
           prefill={prefill}
           studio={Boolean(prefill?.sceneId)}

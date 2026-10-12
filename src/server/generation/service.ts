@@ -78,21 +78,24 @@ type RequestContext = { country: string | null };
 
 const ACTIVE: Job["status"][] = ["queued", "processing"];
 
-async function hasVip(userId: string): Promise<boolean> {
-  const vipPlans = pricing.plans.filter((p) => p.vip).map((p) => p.key);
-  const [row] = await getDb()
-    .select({ id: subscriptions.id })
+/** The user's best active plan, if any. A plan counts while Stripe reports it active or trialing and its period has not ended. */
+export async function activePlan(userId: string) {
+  const rows = await getDb()
+    .select({ planKey: subscriptions.planKey })
     .from(subscriptions)
     .where(
       and(
         eq(subscriptions.userId, userId),
-        inArray(subscriptions.planKey, vipPlans),
         inArray(subscriptions.status, ["active", "trialing"]),
         or(isNull(subscriptions.currentPeriodEnd), gt(subscriptions.currentPeriodEnd, new Date())),
       ),
-    )
-    .limit(1);
-  return Boolean(row);
+    );
+  const plans = rows.map((r) => pricing.plans.find((p) => p.key === r.planKey)).filter((p) => p !== undefined);
+  return plans.sort((a, b) => b.maxActiveJobs - a.maxActiveJobs)[0] ?? null;
+}
+
+async function hasVip(userId: string): Promise<boolean> {
+  return Boolean((await activePlan(userId))?.vip);
 }
 
 export { hasVip };
@@ -271,7 +274,7 @@ export async function createDraft(user: SessionUser, input: DraftInput, ctx: Req
 
 /** Reserves credits and queues the job. Safe to call repeatedly. */
 export async function confirmJob(user: SessionUser, jobId: string, expectedCost: number): Promise<Job> {
-  const maxActive = env().USER_MAX_ACTIVE_JOBS;
+  const maxActive = Math.max(env().USER_MAX_ACTIVE_JOBS, (await activePlan(user.id))?.maxActiveJobs ?? 0);
   const result = await getDb().transaction(async (tx) => {
     const [job] = await tx
       .select()
