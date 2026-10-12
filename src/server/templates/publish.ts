@@ -59,7 +59,7 @@ export async function publishTemplate(user: SessionUser, input: z.infer<typeof p
     throw new HttpError(422, "policy_blocked", verdict.message);
   }
   const [out] = await db
-    .select({ asset: mediaAssets })
+    .select({ asset: mediaAssets, posterAssetId: generationOutputs.posterAssetId })
     .from(generationOutputs)
     .innerJoin(mediaAssets, eq(mediaAssets.id, generationOutputs.assetId))
     .where(and(eq(generationOutputs.jobId, job.id), isNull(generationOutputs.deletedAt)))
@@ -70,6 +70,10 @@ export async function publishTemplate(user: SessionUser, input: z.infer<typeof p
   const ext = out.asset.mime === "video/mp4" ? "mp4" : "webp";
   const key = newStorageKey("templates", user.id, ext);
   await storage().put(key, bytes, out.asset.mime);
+  // A clip's poster frame becomes the template's cover, also as a separate public copy.
+  const [poster] = out.posterAssetId ? await db.select().from(mediaAssets).where(eq(mediaAssets.id, out.posterAssetId)) : [];
+  const posterKey = poster ? newStorageKey("templates", user.id, "webp") : null;
+  if (poster && posterKey) await storage().put(posterKey, await storage().get(poster.storageKey), poster.mime);
 
   const category = input.categorySlug
     ? (await db.select().from(templateCategories).where(eq(templateCategories.slug, input.categorySlug)))[0]
@@ -82,6 +86,13 @@ export async function publishTemplate(user: SessionUser, input: z.infer<typeof p
       .values({ ...out.asset, id: undefined, storageKey: key, visibility: "public", createdAt: new Date(), deletedAt: null })
       .returning();
     const isVideo = out.asset.kind === "video";
+    const [publicPoster] =
+      poster && posterKey
+        ? await tx
+            .insert(mediaAssets)
+            .values({ ...poster, id: undefined, storageKey: posterKey, visibility: "public", createdAt: new Date(), deletedAt: null })
+            .returning()
+        : [];
     const [t] = await tx
       .insert(templates)
       .values({
@@ -97,7 +108,7 @@ export async function publishTemplate(user: SessionUser, input: z.infer<typeof p
         isVip: input.isVip,
         quality: job.params.quality ?? "hd",
         durationS: isVideo ? (job.params.durationS ?? null) : null,
-        posterAssetId: isVideo ? null : publicAsset!.id,
+        posterAssetId: isVideo ? (publicPoster?.id ?? null) : publicAsset!.id,
         previewAssetId: isVideo ? publicAsset!.id : null,
         remixedFromId: job.templateId,
         publishedAt: new Date(),

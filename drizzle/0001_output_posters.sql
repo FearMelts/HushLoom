@@ -1,0 +1,2 @@
+ALTER TABLE "generation_outputs" ADD COLUMN "poster_asset_id" uuid;--> statement-breakpoint
+ALTER TABLE "generation_outputs" ADD CONSTRAINT "generation_outputs_poster_asset_id_media_assets_id_fk" FOREIGN KEY ("poster_asset_id") REFERENCES "public"."media_assets"("id") ON DELETE no action ON UPDATE no action;

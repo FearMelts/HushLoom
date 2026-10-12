@@ -2,7 +2,7 @@ import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/server/db";
 import { characterReferences, generationJobs, generationOutputs, mediaAssets, projectScenes, projects, sceneVersions, type ContinuityGuide } from "@/server/db/schema";
-import { assetUrl } from "@/server/media";
+import { assetUrl, assetUrlById } from "@/server/media";
 import { listCreations, type CreationListItem } from "@/server/generation/views";
 import { HttpError, notFound } from "@/server/http";
 
@@ -84,7 +84,7 @@ export async function listProjects(userId: string) {
   // One cover per project: the newest finished creation in it.
   const covers = rows.length
     ? await db
-        .selectDistinctOn([generationJobs.projectId], { projectId: generationJobs.projectId, asset: mediaAssets })
+        .selectDistinctOn([generationJobs.projectId], { projectId: generationJobs.projectId, asset: mediaAssets, posterAssetId: generationOutputs.posterAssetId })
         .from(generationJobs)
         .innerJoin(generationOutputs, and(eq(generationOutputs.jobId, generationJobs.id), isNull(generationOutputs.deletedAt)))
         .innerJoin(mediaAssets, eq(mediaAssets.id, generationOutputs.assetId))
@@ -101,7 +101,11 @@ export async function listProjects(userId: string) {
   return Promise.all(
     rows.map(async (r) => {
       const c = covers.find((x) => x.projectId === r.id);
-      return { ...r, updatedAt: r.updatedAt.toISOString(), cover: c ? { kind: c.asset.kind, url: await assetUrl(c.asset, userId) } : null };
+      return {
+        ...r,
+        updatedAt: r.updatedAt.toISOString(),
+        cover: c ? { kind: c.asset.kind, url: await assetUrl(c.asset, userId), posterUrl: await assetUrlById(c.posterAssetId, userId) } : null,
+      };
     }),
   );
 }

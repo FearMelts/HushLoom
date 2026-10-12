@@ -419,9 +419,13 @@ export async function deleteJob(user: SessionUser, jobId: string) {
   }
   const now = new Date();
   await getDb().transaction(async (tx) => {
-    const outs = await tx.select({ assetId: generationOutputs.assetId }).from(generationOutputs).where(eq(generationOutputs.jobId, job.id));
+    const outs = await tx
+      .select({ assetId: generationOutputs.assetId, posterAssetId: generationOutputs.posterAssetId })
+      .from(generationOutputs)
+      .where(eq(generationOutputs.jobId, job.id));
     await tx.update(generationOutputs).set({ deletedAt: now }).where(eq(generationOutputs.jobId, job.id));
-    if (outs.length) await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, outs.map((o) => o.assetId)));
+    const ids = outs.flatMap((o) => (o.posterAssetId ? [o.assetId, o.posterAssetId] : [o.assetId]));
+    if (ids.length) await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, ids));
     await tx.update(generationJobs).set({ deletedAt: now, updatedAt: now }).where(eq(generationJobs.id, job.id));
     await audit(user.id, "creation.delete", "generation_job", job.id, {}, tx);
   });

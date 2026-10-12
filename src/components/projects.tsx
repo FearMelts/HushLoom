@@ -22,13 +22,13 @@ type ProjectSummary = {
   updatedAt: string;
   scenes: number;
   clips: number;
-  cover: { kind: "image" | "video"; url: string | null } | null;
+  cover: { kind: "image" | "video"; url: string | null; posterUrl: string | null } | null;
 };
 
-function Media({ output, className }: { output: { kind: "image" | "video"; url: string | null } | null; className?: string }) {
+function Media({ output, className }: { output: { kind: "image" | "video"; url: string | null; posterUrl?: string | null } | null; className?: string }) {
   if (!output?.url) return <div className={cn("grid place-items-center bg-ink-850 text-bone-500", className)}><Clapperboard size={22} aria-hidden /></div>;
   return output.kind === "video" ? (
-    <video src={output.url} muted playsInline preload="metadata" className={cn("object-cover", className)} />
+    <video src={output.url} poster={output.posterUrl ?? undefined} muted playsInline preload={output.posterUrl ? "none" : "metadata"} className={cn("object-cover", className)} />
   ) : (
     // eslint-disable-next-line @next/next/no-img-element -- signed URL
     <img src={output.url} alt="" loading="lazy" className={cn("object-cover", className)} />

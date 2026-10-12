@@ -120,7 +120,7 @@ export function Toggle({ checked, onChange, label, description, disabled }: { ch
         onClick={() => onChange(!checked)}
         className={cn("relative mt-0.5 h-6 w-10 shrink-0 rounded-full transition-colors duration-[var(--duration-base)]", checked ? "bg-ember-500" : "bg-ink-700")}
       >
-        <span className={cn("absolute top-0.5 size-5 rounded-full bg-bone-50 transition-transform duration-[var(--duration-base)] ease-[var(--ease-weave)]", checked ? "translate-x-[18px]" : "translate-x-0.5")} />
+        <span className={cn("absolute left-0 top-0.5 size-5 rounded-full bg-bone-50 transition-transform duration-[var(--duration-base)] ease-[var(--ease-weave)]", checked ? "translate-x-[18px]" : "translate-x-0.5")} />
       </button>
     </label>
   );

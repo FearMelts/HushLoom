@@ -218,6 +218,26 @@ describe("publishing", () => {
   });
 });
 
+describe("video posters", () => {
+  it("stores a poster frame for clips, uses it as the published cover, and deletes it with the creation", async () => {
+    const u = await makeUser({ credits: 50 });
+    const { job } = await makeCreation(u, { mode: "text_to_video", modelKey: "demo-motion", params: { aspectRatio: "9:16", durationS: 3 } });
+    const [out] = await getDb().select().from(generationOutputs).where(eq(generationOutputs.jobId, job.id));
+    expect(out!.posterAssetId).not.toBeNull();
+    const [poster] = await getDb().select().from(mediaAssets).where(eq(mediaAssets.id, out!.posterAssetId!));
+    expect(poster).toMatchObject({ kind: "image", mime: "image/webp", visibility: "private", width: 720, height: 1280 });
+
+    const t = await publishTemplate(u, { jobId: job.id, title: "Clip", description: "", tags: [], isVip: false });
+    expect(t.posterAssetId).not.toBeNull();
+    expect(t.posterAssetId).not.toBe(poster!.id);
+
+    const { deleteJob } = await import("@/server/generation/service");
+    await deleteJob(u, job.id);
+    const [after] = await getDb().select().from(mediaAssets).where(eq(mediaAssets.id, poster!.id));
+    expect(after!.deletedAt).not.toBeNull();
+  });
+});
+
 describe("discovery privacy", () => {
   it("For You falls back to trending when personalization is off", async () => {
     const creator = await makeUser({ credits: 50 });

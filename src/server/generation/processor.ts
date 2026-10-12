@@ -10,6 +10,7 @@ import { env } from "@/server/env";
 import { logger } from "@/server/log";
 import { purgeAssetsNow } from "@/server/media";
 import { newStorageKey, sha256, storage } from "@/server/storage";
+import { videoPoster } from "./poster";
 import { enqueueGeneration } from "./queue";
 
 const EXT: Record<string, string> = { "image/webp": "webp", "image/png": "png", "image/jpeg": "jpg", "video/mp4": "mp4", "video/webm": "webm" };
@@ -143,7 +144,7 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
   clearInterval(cancelWatch);
 
   // Store outputs before touching the job, then commit everything in one transaction.
-  const stored: { assetId: string; report: QualityReport }[] = [];
+  const stored: { assetId: string; posterAssetId: string | null; report: QualityReport }[] = [];
   for (const out of outputs) {
     const report = await qualityCheck(out);
     if (!report.ok) {
@@ -168,10 +169,23 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
         visibility: "private",
       })
       .returning({ id: mediaAssets.id });
-    stored.push({ assetId: asset!.id, report });
+    let posterAssetId: string | null = null;
+    if (kind === "video") {
+      const poster = await videoPoster(out.bytes);
+      if (poster) {
+        const posterKey = newStorageKey("outputs", job.userId, "webp");
+        await storage().put(posterKey, poster.bytes, "image/webp");
+        const [p] = await db
+          .insert(mediaAssets)
+          .values({ ownerId: job.userId, kind: "image", storageKey: posterKey, mime: "image/webp", bytes: poster.bytes.length, width: poster.width, height: poster.height, sha256: sha256(poster.bytes), visibility: "private" })
+          .returning({ id: mediaAssets.id });
+        posterAssetId = p!.id;
+      }
+    }
+    stored.push({ assetId: asset!.id, posterAssetId, report });
   }
 
-  const storedIds = stored.map((s) => s.assetId);
+  const storedIds = stored.flatMap((s) => (s.posterAssetId ? [s.assetId, s.posterAssetId] : [s.assetId]));
   const kept = await db.transaction(async (tx) => {
     const [current] = await tx.select().from(generationJobs).where(eq(generationJobs.id, job.id)).for("update");
     const now = new Date();
@@ -194,6 +208,7 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
         jobId: current.id,
         userId: current.userId,
         assetId: s.assetId,
+        posterAssetId: s.posterAssetId,
         isDemo: current.isDemo,
         qualityReport: s.report.checks,
       });

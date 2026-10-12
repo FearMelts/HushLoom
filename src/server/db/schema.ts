@@ -423,6 +423,8 @@ export const generationOutputs = pgTable(
     jobId: uuid("job_id").notNull().references(() => generationJobs.id, { onDelete: "cascade" }),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     assetId: uuid("asset_id").notNull().references(() => mediaAssets.id),
+    /** A still frame for video outputs, so grids never have to download or decode the clip. */
+    posterAssetId: uuid("poster_asset_id").references(() => mediaAssets.id),
     isDemo: boolean("is_demo").notNull(),
     qualityReport: jsonb("quality_report").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),

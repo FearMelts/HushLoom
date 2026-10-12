@@ -43,7 +43,7 @@ function Media({ item, className }: { item: CreationListItem; className?: string
     );
   }
   return item.output.kind === "video" ? (
-    <video src={item.output.url} controls loop playsInline muted preload="metadata" className={cn("petal w-full bg-ink-850", className)} aria-label="Your video" />
+    <video src={item.output.url} poster={item.output.posterUrl ?? undefined} controls loop playsInline muted preload="metadata" className={cn("petal w-full bg-ink-850", className)} aria-label="Your video" />
   ) : (
     // eslint-disable-next-line @next/next/no-img-element -- signed URL
     <img src={item.output.url} alt="Your creation" className={cn("petal w-full bg-ink-850 object-contain", className)} />
@@ -309,7 +309,7 @@ export function CreationDetail({
                         // eslint-disable-next-line @next/next/no-img-element -- signed URL
                         <img src={v.output.url} alt="" className="size-full object-cover" />
                       ) : v.output?.url ? (
-                        <video src={v.output.url} muted preload="metadata" className="size-full object-cover" />
+                        <video src={v.output.url} poster={v.output.posterUrl ?? undefined} muted preload={v.output.posterUrl ? "none" : "metadata"} className="size-full object-cover" />
                       ) : (
                         <div className="grid size-full place-items-center text-[11px] text-bone-500">{STATUS_LABEL[v.status]}</div>
                       )}

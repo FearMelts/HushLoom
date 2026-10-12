@@ -35,7 +35,7 @@ export async function createPreset(userId: string, input: z.infer<typeof presetS
   if ("fromJobId" in input) {
     const job = await getOwnedJob(userId, input.fromJobId);
     // The seed is what makes a run reproducible, not a style. Presets leave it out.
-    const { seed: _seed, ...params } = job.params;
+    const params = Object.fromEntries(Object.entries(job.params).filter(([k]) => k !== "seed"));
     values = { name: input.name, mode: job.mode, modelKey: job.modelKey, prompt: job.prompt, params };
   } else {
     if (!getModel(input.modelKey)) throw new HttpError(422, "unknown_model", "That model does not exist.");

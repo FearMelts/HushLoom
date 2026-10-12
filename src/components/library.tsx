@@ -53,10 +53,11 @@ export function CreationThumb({ item, selectable, selected, onSelect }: { item: 
           item.output.kind === "video" ? (
             <video
               src={item.output.url}
+              poster={item.output.posterUrl ?? undefined}
               muted
               loop
               playsInline
-              preload="metadata"
+              preload={item.output.posterUrl ? "none" : "metadata"}
               className="absolute inset-0 size-full object-cover"
               onMouseEnter={(e) => void e.currentTarget.play().catch(() => undefined)}
               onMouseLeave={(e) => e.currentTarget.pause()}

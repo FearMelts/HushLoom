@@ -19,7 +19,7 @@ export type CreationListItem = {
   templateTitle: string | null;
   projectId: string | null;
   relation: string | null;
-  output: { assetId: string; kind: "image" | "video"; url: string | null; width: number | null; height: number | null } | null;
+  output: { assetId: string; kind: "image" | "video"; url: string | null; posterUrl: string | null; width: number | null; height: number | null } | null;
   isFavorited: boolean;
 };
 
@@ -61,16 +61,20 @@ export async function listCreations(userId: string, f: CreationFilters): Promise
   return hydrate(userId, jobs);
 }
 
+const posterUrl = async (asset: typeof mediaAssets.$inferSelect | undefined, userId: string) => (asset ? assetUrl(asset, userId) : null);
+
 async function hydrate(userId: string, jobs: { job: typeof generationJobs.$inferSelect; templateTitle: string | null }[]): Promise<CreationListItem[]> {
   const db = getDb();
   const ids = jobs.map((j) => j.job.id);
   const outs = ids.length
     ? await db
-        .select({ jobId: generationOutputs.jobId, asset: mediaAssets })
+        .select({ jobId: generationOutputs.jobId, asset: mediaAssets, posterAssetId: generationOutputs.posterAssetId })
         .from(generationOutputs)
         .innerJoin(mediaAssets, eq(mediaAssets.id, generationOutputs.assetId))
         .where(and(inArray(generationOutputs.jobId, ids), isNull(generationOutputs.deletedAt)))
     : [];
+  const posterIds = outs.map((o) => o.posterAssetId).filter((x): x is string => Boolean(x));
+  const posters = posterIds.length ? await db.select().from(mediaAssets).where(inArray(mediaAssets.id, posterIds)) : [];
   const favs = ids.length
     ? await db
         .select({ id: favorites.targetId })
@@ -97,7 +101,14 @@ async function hydrate(userId: string, jobs: { job: typeof generationJobs.$infer
         projectId: job.projectId,
         relation: job.relation,
         output: out
-          ? { assetId: out.asset.id, kind: out.asset.kind, url: await assetUrl(out.asset, userId), width: out.asset.width, height: out.asset.height }
+          ? {
+              assetId: out.asset.id,
+              kind: out.asset.kind,
+              url: await assetUrl(out.asset, userId),
+              posterUrl: await posterUrl(posters.find((p) => p.id === out.posterAssetId), userId),
+              width: out.asset.width,
+              height: out.asset.height,
+            }
           : null,
         isFavorited: favs.some((f) => f.id === job.id),
       };

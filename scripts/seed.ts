@@ -12,7 +12,9 @@ import sharp from "sharp";
 import { sql } from "drizzle-orm";
 import { applyMovement } from "@/server/credits/ledger";
 import { closeDb, getDb } from "@/server/db";
+import { ADULT_STATEMENT, TERMS_STATEMENT } from "@/server/auth/account";
 import {
+  consentRecords,
   creatorProfiles,
   creditAccounts,
   favorites,
@@ -187,6 +189,11 @@ async function makeUser(email: string, handle: string, displayName: string, role
   await db.insert(userProfiles).values({ userId: u!.id, handle, displayName, bio });
   await db.insert(userPreferences).values({ userId: u!.id });
   await db.insert(creditAccounts).values({ userId: u!.id });
+  // Seeded accounts carry the same consent records a real signup creates.
+  await db.insert(consentRecords).values([
+    { userId: u!.id, kind: "terms", statement: TERMS_STATEMENT },
+    { userId: u!.id, kind: "adult_attestation", statement: ADULT_STATEMENT },
+  ]);
   return u!;
 }
 

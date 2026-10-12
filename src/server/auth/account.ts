@@ -132,9 +132,12 @@ export async function withdrawConsent(userId: string, consentId: string) {
       const jobs = await tx.select({ id: generationJobs.id }).from(generationJobs).where(and(eq(generationJobs.userId, userId), or(...conds)));
       if (jobs.length) {
         const jobIds = jobs.map((j) => j.id);
-        const outs = await tx.select({ assetId: generationOutputs.assetId }).from(generationOutputs).where(inArray(generationOutputs.jobId, jobIds));
+        const outs = await tx
+          .select({ assetId: generationOutputs.assetId, posterAssetId: generationOutputs.posterAssetId })
+          .from(generationOutputs)
+          .where(inArray(generationOutputs.jobId, jobIds));
         await tx.update(generationOutputs).set({ deletedAt: now }).where(inArray(generationOutputs.jobId, jobIds));
-        assetIds.push(...outs.map((o) => o.assetId));
+        assetIds.push(...outs.flatMap((o) => (o.posterAssetId ? [o.assetId, o.posterAssetId] : [o.assetId])));
         await tx.update(generationJobs).set({ deletedAt: now, cancelRequested: true }).where(inArray(generationJobs.id, jobIds));
       }
     }
