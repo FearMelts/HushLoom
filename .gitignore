@@ -10,3 +10,4 @@ test-results/
 coverage/
 .storage-test/
 .storage-e2e/
+dump.rdb
