@@ -55,7 +55,9 @@ class LocalDriver implements StorageDriver {
     await rm(safeLocalPath(this.root, key), { force: true });
   }
   async signedUrl(key: string, ttlSeconds: number, opts?: { download?: string }) {
-    const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+    // Round expiry up to a window boundary so URLs stay stable (and cacheable) within a window.
+    const now = Math.floor(Date.now() / 1000);
+    const exp = Math.ceil((now + ttlSeconds) / ttlSeconds) * ttlSeconds;
     const download = opts?.download ?? "";
     const q = new URLSearchParams({ k: key, e: String(exp), s: signLocal(key, exp, download) });
     if (download) q.set("d", download);
