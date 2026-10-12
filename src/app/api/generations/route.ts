@@ -5,7 +5,7 @@ import { listCreations } from "@/server/generation/views";
 import { parseJson, requireUser, route } from "@/server/http";
 import { rateLimit } from "@/server/redis";
 import { HttpError } from "@/server/http";
-import { requestCountry } from "@/server/request";
+import { requestCountry, requestRegion } from "@/server/request";
 
 const listQuery = z.object({
   active: z.enum(["1"]).optional(),
@@ -31,6 +31,6 @@ export const POST = route(async (req) => {
   const user = await requireUser();
   if (!(await rateLimit(`draft:${user.id}`, 30, 60))) throw new HttpError(429, "rate_limited", "Slow down a little and try again in a minute.");
   const input = await parseJson(req, draftSchema);
-  const job = await createDraft(user, input, { country: requestCountry(req) });
+  const job = await createDraft(user, input, { country: requestCountry(req), region: requestRegion(req) });
   return NextResponse.json({ job }, { status: 201 });
 });

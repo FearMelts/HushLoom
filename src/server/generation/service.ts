@@ -25,6 +25,7 @@ import {
 import { env } from "@/server/env";
 import { HttpError, notFound } from "@/server/http";
 import { ageAssuranceBlocksRegion, checkPrompt } from "@/server/safety/policy";
+import { assertAgeVerified } from "@/server/age/gate";
 import { pricing } from "@/config/pricing";
 import { enqueueGeneration } from "./queue";
 
@@ -74,7 +75,7 @@ export const draftSchema = z.object({
 
 export type DraftInput = z.infer<typeof draftSchema>;
 
-type RequestContext = { country: string | null };
+export type RequestContext = { country: string | null; region?: string | null };
 
 const ACTIVE: Job["status"][] = ["queued", "processing"];
 
@@ -157,6 +158,8 @@ export async function createDraft(user: SessionUser, input: DraftInput, ctx: Req
       "Your region requires verified age assurance before creating. Verification is not available yet in this build.",
     );
   }
+  // Provider-backed verification for jurisdictions that require it (addendum §2).
+  await assertAgeVerified(user, ctx);
 
   const availability = await listModelAvailability();
   const model = availability.find((m) => m.key === input.modelKey);

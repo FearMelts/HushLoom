@@ -15,6 +15,13 @@
       "when": 1791841858687,
       "tag": "0001_output_posters",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791845979082,
+      "tag": "0002_launch_readiness",
+      "breakpoints": true
     }
   ]
 }

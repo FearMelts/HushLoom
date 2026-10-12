@@ -10,6 +10,8 @@ import { env } from "@/server/env";
 import { logger } from "@/server/log";
 import { purgeAssetsNow } from "@/server/media";
 import { newStorageKey, sha256, storage } from "@/server/storage";
+import { scanAsset } from "@/server/safety/scan";
+import { notifyJobFinished } from "@/server/push/notify";
 import { videoPoster } from "./poster";
 import { enqueueGeneration } from "./queue";
 
@@ -55,6 +57,7 @@ async function finishFailed(jobId: string, err: ProviderError) {
         updatedAt: new Date(),
       })
       .where(eq(generationJobs.id, job.id));
+    void notifyJobFinished({ userId: job.userId, jobId: job.id, outcome: cancelled ? "cancelled" : "failed" });
   });
 }
 
@@ -169,6 +172,8 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
         visibility: "private",
       })
       .returning({ id: mediaAssets.id });
+    // Abuse scan of every output before it can be shown (addendum §3); the scanning track owns the verdict handling.
+    await scanAsset({ assetId: asset!.id, bytes: out.bytes, mime: out.mime, kind, sha256: sha256(out.bytes), ownerId: job.userId, origin: "output" });
     let posterAssetId: string | null = null;
     if (kind === "video") {
       const poster = await videoPoster(out.bytes);
@@ -232,6 +237,7 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
     return;
   }
   logger.info("generation.done", log);
+  void notifyJobFinished({ userId: job.userId, jobId: job.id, outcome: "completed" });
 }
 
 /**

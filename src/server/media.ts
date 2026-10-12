@@ -6,6 +6,7 @@ import { env } from "@/server/env";
 import { HttpError } from "@/server/http";
 import { logger } from "@/server/log";
 import { newStorageKey, sha256, storage } from "@/server/storage";
+import { scanAsset } from "@/server/safety/scan";
 
 export type Asset = typeof mediaAssets.$inferSelect;
 
@@ -86,6 +87,11 @@ export async function acceptUpload(
     await tx.insert(uploads).values({ userId, assetId: asset!.id, purpose, consentRecordId: record!.id });
     return asset!.id;
   });
+  // Abuse scan before the asset can be used anywhere (addendum §3). The scanning track decides what
+  // a "matched" or "unavailable" verdict does; nothing is served until the asset is "clean".
+  const digest = sha256(body);
+  const verdict = await scanAsset({ assetId, bytes: body, mime, kind, sha256: digest, ownerId: userId, origin: "upload" });
+  if (verdict !== "clean") warnings.push(`scan_${verdict}`);
   return { assetId, kind, width, height, warnings };
 }
 

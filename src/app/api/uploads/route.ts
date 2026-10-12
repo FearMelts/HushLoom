@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import { HttpError, requireUser, route } from "@/server/http";
 import { acceptUpload } from "@/server/media";
 import { rateLimit } from "@/server/redis";
+import { assertAgeVerified } from "@/server/age/gate";
+import { requestCountry, requestRegion } from "@/server/request";
 
 const CONSENT_STATEMENT =
   "Everyone in this upload is an adult (18+), and it is me or they agreed to me using their image here, including for sexual content.";
 
 export const POST = route(async (req) => {
   const user = await requireUser();
+  await assertAgeVerified(user, { country: requestCountry(req), region: requestRegion(req) });
   if (!(await rateLimit(`upload:${user.id}`, 40, 3600))) throw new HttpError(429, "rate_limited", "Upload limit reached for this hour.");
   const form = await req.formData();
   const file = form.get("file");

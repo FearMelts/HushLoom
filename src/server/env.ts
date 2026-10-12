@@ -28,6 +28,48 @@ const schema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   AGE_ASSURANCE_STRICT_REGIONS: z.string().default(""),
   GEO_COUNTRY_HEADER: z.string().default("x-country-code"),
+  /** US state / region code header from the edge (e.g. "TX"); combined with the country as "US-TX". */
+  GEO_REGION_HEADER: z.string().default("x-region-code"),
+
+  // ── Payments (addendum §1). Stripe stays an adapter but is off unless chosen explicitly:
+  // its restricted-businesses policy bans adult content, AI-generated included
+  // (https://stripe.com/legal/restricted-businesses). "sandbox" never charges anyone.
+  PAYMENT_PROVIDER: z.enum(["sandbox", "ccbill", "segpay", "stripe"]).default("sandbox"),
+  CCBILL_ACCOUNT: z.string().optional(),
+  CCBILL_SUBACCOUNT: z.string().optional(),
+  CCBILL_FLEXFORM_ID: z.string().optional(),
+  CCBILL_SALT: z.string().optional(),
+  CCBILL_DATALINK_USER: z.string().optional(),
+  CCBILL_DATALINK_PASSWORD: z.string().optional(),
+  SEGPAY_PACKAGE_ID: z.string().optional(),
+  SEGPAY_PRICE_POINT_ID: z.string().optional(),
+  SEGPAY_USER_ACCESS_KEY: z.string().optional(),
+  SEGPAY_POSTBACK_SECRET: z.string().optional(),
+
+  // ── Age verification (addendum §2). "sandbox" is a labeled development provider.
+  AGE_VERIFICATION_PROVIDER: z.enum(["sandbox", "yoti", "veriff"]).default("sandbox"),
+  AGE_VERIFICATION_ENFORCE: z.enum(["true", "false"]).default("true"),
+  /** Comma-separated override of the jurisdictions that require verification (defaults in src/config/jurisdictions.ts). */
+  AGE_VERIFICATION_REGIONS: z.string().optional(),
+  /** When no geo header is present and regions are configured, block creation (true) or allow (false). */
+  AGE_VERIFICATION_FAIL_CLOSED: z.enum(["true", "false"]).default("false"),
+  AGE_VERIFICATION_API_KEY: z.string().optional(),
+  AGE_VERIFICATION_WEBHOOK_SECRET: z.string().optional(),
+  AGE_VERIFICATION_VALID_DAYS: z.coerce.number().int().positive().default(365),
+
+  // ── Abuse scanning (addendum §3). "dev" is a labeled development scanner; production needs PhotoDNA or Cloudflare.
+  SCAN_PROVIDER: z.enum(["dev", "photodna", "cloudflare"]).default("dev"),
+  SCAN_FAIL_CLOSED: z.enum(["true", "false"]).default("true"),
+  PHOTODNA_API_KEY: z.string().optional(),
+  PHOTODNA_ENDPOINT: z.string().url().optional(),
+  CLOUDFLARE_SCAN_WEBHOOK_SECRET: z.string().optional(),
+  /** Dev scanner only: comma-separated sha256 hashes that count as a match, for tests and drills. */
+  SCAN_DEV_MATCH_HASHES: z.string().default(""),
+
+  // ── Installable web app and push (addendum §4). Without VAPID keys push is disabled and says so.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -47,6 +89,10 @@ export function env(): Env {
   }
   if (parsed.STORAGE_DRIVER === "s3" && !parsed.S3_BUCKET) {
     throw new Error("S3_BUCKET must be set when STORAGE_DRIVER=s3");
+  }
+  if (parsed.NODE_ENV === "production" && parsed.SCAN_PROVIDER === "dev" && parsed.SCAN_FAIL_CLOSED === "true") {
+    // The dev scanner matches nothing real. Production must name a real scanner or explicitly opt out of fail-closed.
+    throw new Error("SCAN_PROVIDER=dev cannot run in production; configure photodna or cloudflare");
   }
   cached = parsed;
   return parsed;
