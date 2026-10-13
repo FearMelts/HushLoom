@@ -24,6 +24,7 @@ Hard rules:
 - Before you finish: "npm run typecheck" clean, "npm run lint" clean (0 warnings), your vitest run green (all files, including the pre-existing 79 tests), then "git add" your files and "git commit" on your worktree branch (one or a few commits, descriptive messages). End every commit message with these two lines exactly:
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01BSE2farBCYZaqmEuz9DVcb
+- Commit early and often: make a commit on your track branch after each coherent step (for example after the provider adapters, after the routes, after the UI, after the tests), even before everything is green, with "WIP:" in the subject when tests do not pass yet. Sessions here get interrupted without warning, and only committed work survives. Your final commits must leave everything green.
 - Leave no uncommitted changes. Delete your symlinked node_modules? No: leave it, it is ignored by git.
 - Return the structured report. Be exact about what you verified by running it versus what you only wrote.`
 
