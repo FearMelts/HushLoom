@@ -31,6 +31,7 @@ import {
   users,
 } from "@/server/db/schema";
 import { hashPassword } from "@/server/auth/session";
+import { scanAsset } from "@/server/safety/scan";
 import { newStorageKey, sha256, storage } from "@/server/storage";
 
 const db = getDb();
@@ -160,6 +161,9 @@ async function storeAsset(ownerId: string, kind: "image" | "video", mime: string
     .insert(mediaAssets)
     .values({ ownerId, kind, storageKey: key, mime, bytes: bytes.length, width: w, height: h, durationMs, sha256: sha256(bytes), visibility: "public" })
     .returning({ id: mediaAssets.id });
+  // Seed media goes through the same abuse scan as everything else, so a fresh seed is fully cleared.
+  const verdict = await scanAsset({ assetId: a!.id, bytes, mime, kind, sha256: sha256(bytes), ownerId, origin: "seed" });
+  if (verdict !== "clean") throw new Error(`seed asset ${a!.id} was not cleared by the scanner (${verdict}); check SCAN_PROVIDER`);
   return a!.id;
 }
 

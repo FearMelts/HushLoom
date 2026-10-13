@@ -28,3 +28,5 @@ if (process.env.STORAGE_LOCAL_DIR) rmSync(process.env.STORAGE_LOCAL_DIR, { recur
 
 execSync("npx tsx scripts/migrate.ts", { stdio: "inherit", env: process.env });
 execSync("npx tsx scripts/seed.ts", { stdio: "inherit", env: process.env });
+// The seed scans its own media; the backfill proves nothing is left without a verdict (it exits 1 if anything is).
+execSync("npx tsx scripts/scan-backfill.ts", { stdio: "inherit", env: process.env });
