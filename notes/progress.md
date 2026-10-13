@@ -23,6 +23,7 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 4 Visual review | not done | |
 | 5 Deliverables: vision, information architecture | implemented but not verified | drafts in the session scratchpad; critiques returned "revise"; finishing in phase 5 against the merged build |
 | 5 Deliverables: design system, engineering, deployment, verification | not done | |
+| 6 Copilot evidence: read and run main (d2d6cad) | verified | notes/analysis/copilot/ (read.md, run.json, probe scripts); its tests 5/5; server probed with curl; 27 screenshots in /mnt/project-files/playbox-2/evidence/copilot-main/ |
 | 6 Copilot comparison and final report | not done | |
 
 ## Track definitions
@@ -102,6 +103,10 @@ vitest suite before merging.
   track's brief already covers that dependency change, so discarding the edit loses no decision.
 - 2026-10-13 23:45 Stage script now tells every track to commit after each coherent step ("WIP:" while
   red), because container restarts have twice killed tracks with uncommitted work.
+- 2026-10-13 23:5x Copilot evidence run finished (workflow resumed from its read step): main is a
+  front-end-only mock (8 hard-coded templates, localStorage, a 4-file static server); 5/5 tests pass;
+  confirmed defects: a closed dialog stays on screen and blocks clicks, search unreachable at phone
+  width, recently viewed in catalog order and unreachable on mobile, malformed storage renders 0 cards.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
