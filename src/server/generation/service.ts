@@ -108,7 +108,8 @@ async function validateInputs(userId: string, mode: GenerationMode, assetIds: st
     ? await getDb()
         .select()
         .from(mediaAssets)
-        .where(and(inArray(mediaAssets.id, assetIds), eq(mediaAssets.ownerId, userId), isNull(mediaAssets.deletedAt)))
+        // Inputs the abuse scanner has not cleared look missing, like deleted ones (addendum §3).
+        .where(and(inArray(mediaAssets.id, assetIds), eq(mediaAssets.ownerId, userId), isNull(mediaAssets.deletedAt), eq(mediaAssets.scanStatus, "clean")))
     : [];
   if (assets.length !== assetIds.length) throw notFound();
 

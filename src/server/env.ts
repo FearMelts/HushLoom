@@ -70,14 +70,22 @@ const schema = z.object({
   AGE_VERIFICATION_WEBHOOK_SECRET: z.string().optional(),
   AGE_VERIFICATION_VALID_DAYS: z.coerce.number().int().positive().default(365),
 
-  // ── Abuse scanning (addendum §3). "dev" is a labeled development scanner; production needs PhotoDNA or Cloudflare.
+  // ── Abuse scanning (addendum §3). "dev" is a labeled development scanner; production needs PhotoDNA
+  // (pre-storage), optionally with Cloudflare's edge tool as a second layer. See docs/abuse-response.md.
   SCAN_PROVIDER: z.enum(["dev", "photodna", "cloudflare"]).default("dev"),
+  /** true: content the scanner could not check is never kept (uploads 503, outputs retried). */
   SCAN_FAIL_CLOSED: z.enum(["true", "false"]).default("true"),
   PHOTODNA_API_KEY: z.string().optional(),
+  /** The PhotoDNA Match URL exactly as Microsoft issues it to an approved account. */
   PHOTODNA_ENDPOINT: z.string().url().optional(),
+  /** Unused: Cloudflare's CSAM Scanning Tool notifies by email only and offers no webhook to verify. */
   CLOUDFLARE_SCAN_WEBHOOK_SECRET: z.string().optional(),
+  /** Seconds before one scanner call counts as unavailable. */
+  SCAN_TIMEOUT_S: z.coerce.number().int().positive().default(30),
   /** Dev scanner only: comma-separated sha256 hashes that count as a match, for tests and drills. */
   SCAN_DEV_MATCH_HASHES: z.string().default(""),
+  /** Dev scanner only: "true" makes every scan unavailable, to rehearse an outage. */
+  SCAN_DEV_SIMULATE_OUTAGE: z.enum(["true", "false"]).default("false"),
 
   // ── Installable web app and push (addendum §4). Without VAPID keys push is disabled and says so.
   VAPID_PUBLIC_KEY: z.string().optional(),

@@ -6,13 +6,21 @@ import { env } from "@/server/env";
 import { HttpError } from "@/server/http";
 import { logger } from "@/server/log";
 import { newStorageKey, sha256, storage } from "@/server/storage";
-import { scanAsset } from "@/server/safety/scan";
+import { scanAsset, scanFailClosed } from "@/server/safety/scan";
 
 export type Asset = typeof mediaAssets.$inferSelect;
 
-/** Signed URL for an asset the viewer may see: public assets, or the viewer's own. */
-export async function assetUrl(asset: Pick<Asset, "storageKey" | "visibility" | "ownerId" | "deletedAt">, viewerId: string | null, opts?: { download?: string }): Promise<string | null> {
-  if (asset.deletedAt) return null;
+/**
+ * Signed URL for an asset the viewer may see: public assets, or the viewer's own. Only assets the
+ * abuse scanner cleared are ever signed (addendum §3); pending, unavailable and matched assets get
+ * null, exactly like a deleted one, so nothing about them is confirmed.
+ */
+export async function assetUrl(
+  asset: Pick<Asset, "storageKey" | "visibility" | "ownerId" | "deletedAt" | "scanStatus">,
+  viewerId: string | null,
+  opts?: { download?: string },
+): Promise<string | null> {
+  if (asset.deletedAt || asset.scanStatus !== "clean") return null;
   if (asset.visibility !== "public" && asset.ownerId !== viewerId) return null;
   const ttl = asset.visibility === "public" ? 3600 : env().MEDIA_URL_TTL_S;
   return storage().signedUrl(asset.storageKey, ttl, opts);
@@ -87,32 +95,53 @@ export async function acceptUpload(
     await tx.insert(uploads).values({ userId, assetId: asset!.id, purpose, consentRecordId: record!.id });
     return asset!.id;
   });
-  // Abuse scan before the asset can be used anywhere (addendum §3). The scanning track decides what
-  // a "matched" or "unavailable" verdict does; nothing is served until the asset is "clean".
-  const digest = sha256(body);
-  const verdict = await scanAsset({ assetId, bytes: body, mime, kind, sha256: digest, ownerId: userId, origin: "upload" });
-  if (verdict !== "clean") warnings.push(`scan_${verdict}`);
+  // Abuse scan before the asset can be used or shown anywhere (addendum §3).
+  const verdict = await scanAsset({ assetId, bytes: body, mime, kind, sha256: sha256(body), sourceSha256: sha256(file.bytes), ownerId: userId, origin: "upload" });
+  // A match is held as evidence and the account is suspended; the reply says nothing about why.
+  if (verdict === "matched") throw new HttpError(403, "upload_rejected", "This upload was rejected.");
+  if (verdict === "unavailable") {
+    if (scanFailClosed()) {
+      // Fail closed: nothing unscanned is kept. The upload never happened as far as the library knows.
+      await discardUnscannedUpload(assetId);
+      throw new HttpError(503, "scan_unavailable", "We couldn't check this file right now. Try again in a few minutes.");
+    }
+    // Fail-open (operator's choice): kept as "unavailable", never served or usable until a rescan clears it.
+    warnings.push("scan_pending");
+  }
   return { assetId, kind, width, height, warnings };
 }
 
-/** Removes stored bytes for assets soft-deleted longer ago than the retention window. */
+/** Removes an upload the scanner could not check: its rows go, and its bytes are deleted now. */
+async function discardUnscannedUpload(assetId: string) {
+  await getDb().transaction(async (tx) => {
+    const [row] = await tx.delete(uploads).where(eq(uploads.assetId, assetId)).returning({ consentRecordId: uploads.consentRecordId });
+    if (row?.consentRecordId) await tx.delete(consentRecords).where(eq(consentRecords.id, row.consentRecordId));
+    await tx.update(mediaAssets).set({ deletedAt: new Date() }).where(and(eq(mediaAssets.id, assetId), eq(mediaAssets.legalHold, false)));
+  });
+  await purgeAssetsNow([assetId]);
+}
+
+/**
+ * Removes stored bytes for assets soft-deleted longer ago than the retention window.
+ * Assets under legal hold (abuse-scan evidence) are never purged.
+ */
 export async function purgeDeletedMedia(retentionDays: number): Promise<number> {
   const cutoff = new Date(Date.now() - retentionDays * 86_400_000);
   const rows = await getDb()
     .select({ id: mediaAssets.id, key: mediaAssets.storageKey })
     .from(mediaAssets)
-    .where(and(isNotNull(mediaAssets.deletedAt), lt(mediaAssets.deletedAt, cutoff), notLike(mediaAssets.storageKey, "purged/%")))
+    .where(and(isNotNull(mediaAssets.deletedAt), lt(mediaAssets.deletedAt, cutoff), notLike(mediaAssets.storageKey, "purged/%"), eq(mediaAssets.legalHold, false)))
     .limit(500);
   return purgeRows(rows);
 }
 
-/** Removes the files of already soft-deleted assets right away, without waiting for the retention window. */
+/** Removes the files of already soft-deleted assets right away, without waiting for the retention window. Held assets are skipped. */
 export async function purgeAssetsNow(assetIds: string[]): Promise<number> {
   if (!assetIds.length) return 0;
   const rows = await getDb()
     .select({ id: mediaAssets.id, key: mediaAssets.storageKey })
     .from(mediaAssets)
-    .where(and(inArray(mediaAssets.id, assetIds), isNotNull(mediaAssets.deletedAt), notLike(mediaAssets.storageKey, "purged/%")));
+    .where(and(inArray(mediaAssets.id, assetIds), isNotNull(mediaAssets.deletedAt), notLike(mediaAssets.storageKey, "purged/%"), eq(mediaAssets.legalHold, false)));
   return purgeRows(rows);
 }
 

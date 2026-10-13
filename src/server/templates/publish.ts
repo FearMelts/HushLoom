@@ -65,13 +65,17 @@ export async function publishTemplate(user: SessionUser, input: z.infer<typeof p
     .where(and(eq(generationOutputs.jobId, job.id), isNull(generationOutputs.deletedAt)))
     .limit(1);
   if (!out) throw new HttpError(409, "no_output", "This creation has no output to publish.");
+  // Nothing the abuse scanner has not cleared is ever made public (addendum §3).
+  const [poster] = out.posterAssetId ? await db.select().from(mediaAssets).where(eq(mediaAssets.id, out.posterAssetId)) : [];
+  if (out.asset.scanStatus !== "clean" || out.asset.legalHold || (poster && (poster.scanStatus !== "clean" || poster.legalHold))) {
+    throw new HttpError(409, "not_cleared", "This creation hasn't cleared our safety checks, so it can't be published.");
+  }
 
   const bytes = await storage().get(out.asset.storageKey);
   const ext = out.asset.mime === "video/mp4" ? "mp4" : "webp";
   const key = newStorageKey("templates", user.id, ext);
   await storage().put(key, bytes, out.asset.mime);
   // A clip's poster frame becomes the template's cover, also as a separate public copy.
-  const [poster] = out.posterAssetId ? await db.select().from(mediaAssets).where(eq(mediaAssets.id, out.posterAssetId)) : [];
   const posterKey = poster ? newStorageKey("templates", user.id, "webp") : null;
   if (poster && posterKey) await storage().put(posterKey, await storage().get(poster.storageKey), poster.mime);
 
@@ -81,16 +85,17 @@ export async function publishTemplate(user: SessionUser, input: z.infer<typeof p
   const model = getModel(job.modelKey);
 
   return db.transaction(async (tx) => {
+    // The public copies are the same bytes, so they carry the source's recorded clean verdict.
     const [publicAsset] = await tx
       .insert(mediaAssets)
-      .values({ ...out.asset, id: undefined, storageKey: key, visibility: "public", createdAt: new Date(), deletedAt: null })
+      .values({ ...out.asset, id: undefined, storageKey: key, visibility: "public", scanStatus: "clean", legalHold: false, createdAt: new Date(), deletedAt: null })
       .returning();
     const isVideo = out.asset.kind === "video";
     const [publicPoster] =
       poster && posterKey
         ? await tx
             .insert(mediaAssets)
-            .values({ ...poster, id: undefined, storageKey: posterKey, visibility: "public", createdAt: new Date(), deletedAt: null })
+            .values({ ...poster, id: undefined, storageKey: posterKey, visibility: "public", scanStatus: "clean", legalHold: false, createdAt: new Date(), deletedAt: null })
             .returning()
         : [];
     const [t] = await tx

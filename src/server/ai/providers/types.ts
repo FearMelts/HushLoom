@@ -23,7 +23,11 @@ export type ProviderErrorCode =
   | "content_rejected"
   | "unsupported"
   | "cancelled"
-  | "internal";
+  | "internal"
+  /** Our own abuse scanner blocked the output (addendum §3); nothing was kept for display. */
+  | "content_blocked"
+  /** Our abuse scanner could not check the output, so it was not kept (fail closed). */
+  | "scan_unavailable";
 
 /** Every provider failure is normalized to this shape before it reaches the job record. */
 export class ProviderError extends Error {
@@ -59,4 +63,6 @@ export const USER_FACING_ERRORS: Record<ProviderErrorCode, string> = {
   unsupported: "This model does not support that operation. Your credits were returned.",
   cancelled: "Cancelled. Your credits were returned.",
   internal: "Something failed on our side. Your credits were returned.",
+  content_blocked: "This creation was blocked by our safety checks. Your credits were returned.",
+  scan_unavailable: "Our safety check couldn't run, so nothing was saved. Try again in a few minutes; your credits were returned.",
 };
