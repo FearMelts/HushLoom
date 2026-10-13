@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Hushloom</title>
+  <!--
+    Hushloom mark: three warp threads on an ink petal tile, crossed by an ember weft and a brass weft
+    in a plain weave (each weft passes over one warp and under the next). Colors are the design tokens
+    in src/app/globals.css: ink-950 #0f0a0d, ink-900 #160f13, ember-500 #ff6a4d, ember-700 #b83a29,
+    brass-400 #e2b46d, bone-50 #f7efe7. scripts/make-icons.ts renders the PNG icons from this file.
+  -->
+  <defs>
+    <linearGradient id="hl-ink" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#160f13" />
+      <stop offset="1" stop-color="#0f0a0d" />
+    </linearGradient>
+    <radialGradient id="hl-glow" cx="0.82" cy="0.1" r="0.85">
+      <stop offset="0" stop-color="#b83a29" stop-opacity="0.42" />
+      <stop offset="0.7" stop-color="#b83a29" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+  <!-- tile:start -->
+  <path d="M116 0H482A30 30 0 0 1 512 30V396A116 116 0 0 1 396 512H30A30 30 0 0 1 0 482V116A116 116 0 0 1 116 0Z" fill="url(#hl-ink)" />
+  <path d="M116 0H482A30 30 0 0 1 512 30V396A116 116 0 0 1 396 512H30A30 30 0 0 1 0 482V116A116 116 0 0 1 116 0Z" fill="url(#hl-glow)" />
+  <path d="M116 0H482A30 30 0 0 1 512 30V396A116 116 0 0 1 396 512H30A30 30 0 0 1 0 482V116A116 116 0 0 1 116 0Z" fill="none" stroke="#f7efe7" stroke-opacity="0.1" stroke-width="6" />
+  <!-- tile:end -->
+  <!-- glyph:start -->
+  <g fill="none" stroke-linecap="round">
+    <defs>
+      <!-- Where a warp passes over a weft, the weft is cut away around it so the warp shows through. -->
+      <mask id="hl-ember-under" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+        <rect width="512" height="512" fill="#fff" />
+        <rect x="238" y="166" width="36" height="100" fill="#000" />
+      </mask>
+      <mask id="hl-brass-under" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+        <rect width="512" height="512" fill="#fff" />
+        <rect x="158" y="236" width="36" height="64" fill="#000" />
+        <rect x="318" y="324" width="36" height="64" fill="#000" />
+      </mask>
+    </defs>
+    <g stroke="#f7efe7" stroke-opacity="0.6" stroke-width="14">
+      <path d="M176 120V404" />
+      <path d="M256 120V404" />
+      <path d="M336 120V404" />
+    </g>
+    <path
+      d="M96 216C122.7 193 149.3 172 176 172C202.7 172 229.3 193 256 216C282.7 239 309.3 260 336 260C362.7 260 389.3 239 416 216"
+      stroke="#ff6a4d"
+      stroke-width="30"
+      mask="url(#hl-ember-under)"
+    />
+    <path
+      d="M96 312C122.7 289 149.3 268 176 268C202.7 268 229.3 289 256 312C282.7 335 309.3 356 336 356C362.7 356 389.3 335 416 312"
+      stroke="#e2b46d"
+      stroke-width="22"
+      mask="url(#hl-brass-under)"
+    />
+  </g>
+  <!-- glyph:end -->
+</svg>
