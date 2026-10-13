@@ -1,20 +1,21 @@
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { getDb } from "@/server/db";
 import { creatorProfiles, discoveryEvents, follows, mediaAssets, templateCollectionItems, templateCollections, templates } from "@/server/db/schema";
-import { browseTemplates, cardsByIds } from "@/server/discovery/templates";
+import { browseTemplates, cardsByIds, type Viewer } from "@/server/discovery/templates";
 import { assetUrl } from "@/server/media";
 import { profileByHandle } from "@/server/social";
 
-export async function creatorPage(handle: string, viewerId: string | null) {
+export async function creatorPage(handle: string, viewer: Viewer) {
   const profile = await profileByHandle(handle);
   if (!profile) return null;
+  const viewerId = viewer.id;
   const db = getDb();
   const [[creator], [followers], [following], viewerFollows, published, collections] = await Promise.all([
     db.select().from(creatorProfiles).where(eq(creatorProfiles.userId, profile.userId)),
     db.select({ n: sql<number>`count(*)::int` }).from(follows).where(eq(follows.creatorId, profile.userId)),
     db.select({ n: sql<number>`count(*)::int` }).from(follows).where(eq(follows.followerId, profile.userId)),
     viewerId ? db.select().from(follows).where(and(eq(follows.followerId, viewerId), eq(follows.creatorId, profile.userId))) : Promise.resolve([]),
-    browseTemplates({ creatorId: profile.userId, sort: "new", limit: 60 }, viewerId),
+    browseTemplates({ creatorId: profile.userId, sort: "new", limit: 60 }, viewer),
     db
       .select()
       .from(templateCollections)
@@ -33,7 +34,7 @@ export async function creatorPage(handle: string, viewerId: string | null) {
       id: c.id,
       title: c.title,
       isPublic: c.isPublic,
-      cards: await cardsByIds(items.filter((i) => i.collectionId === c.id).map((i) => i.templateId), viewerId),
+      cards: await cardsByIds(items.filter((i) => i.collectionId === c.id).map((i) => i.templateId), viewer),
     })),
   );
   const totals = published.items.reduce((acc, t) => ({ generations: acc.generations + t.generationCount, favorites: acc.favorites + t.favoriteCount }), { generations: 0, favorites: 0 });
@@ -49,8 +50,8 @@ export async function creatorPage(handle: string, viewerId: string | null) {
   };
 }
 
-/** Owner-only view of every template the creator has, with 30-day activity counted from real events. */
-export async function creatorAnalytics(creatorId: string) {
+/** Owner-only view of every template the creator has, with 30-day activity counted from real events. Thumbnails follow the same age rule as everywhere else. */
+export async function creatorAnalytics(creatorId: string, explicitAllowed: boolean) {
   const db = getDb();
   const rows = await db
     .select({
@@ -73,7 +74,7 @@ export async function creatorAnalytics(creatorId: string) {
       isVip: r.t.isVip,
       mediaType: r.t.mediaType,
       version: r.t.currentVersion,
-      posterUrl: r.poster ? await assetUrl(r.poster, creatorId) : null,
+      posterUrl: explicitAllowed && r.poster ? await assetUrl(r.poster, creatorId) : null,
       favorites: r.t.favoriteCount,
       generations: r.t.generationCount,
       rating: r.t.ratingCount ? Math.round((r.t.ratingSum / r.t.ratingCount) * 10) / 10 : null,

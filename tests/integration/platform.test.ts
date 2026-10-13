@@ -245,9 +245,9 @@ describe("discovery privacy", () => {
     const { job } = await makeCreation(creator);
     const t = await publishTemplate(creator, { jobId: job.id, title: "Signal", description: "", tags: ["warm"], isVip: false });
     await getDb().insert(favorites).values({ userId: viewer.id, targetType: "template", targetId: t.id });
-    expect((await forYou(viewer.id)).personalized).toBe(true);
+    expect((await forYou({ id: viewer.id, explicitAllowed: true })).personalized).toBe(true);
     await getDb().insert(userPreferences).values({ userId: viewer.id, personalizationEnabled: false }).onConflictDoUpdate({ target: userPreferences.userId, set: { personalizationEnabled: false } });
-    expect((await forYou(viewer.id)).personalized).toBe(false);
+    expect((await forYou({ id: viewer.id, explicitAllowed: true })).personalized).toBe(false);
   });
 });
 

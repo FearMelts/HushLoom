@@ -5,7 +5,7 @@ import { CreationThumb } from "@/components/library";
 import { TemplateGrid } from "@/components/template-card";
 import { ButtonLink, EmptyState } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { getCurrentUser } from "@/server/auth/session";
+import { viewerAccess } from "@/server/age/access";
 import { getDb } from "@/server/db";
 import { favorites } from "@/server/db/schema";
 import { cardsByIds } from "@/server/discovery/templates";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Favorites" };
 
 export default async function FavoritesPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  const user = await getCurrentUser();
+  const { user, viewer } = await viewerAccess();
   if (!user) redirect("/auth?next=/favorites");
   const tab = (await searchParams).tab === "creations" ? "creations" : "templates";
   const tabs = [
@@ -30,7 +30,7 @@ export default async function FavoritesPage({ searchParams }: { searchParams: Pr
       .where(and(eq(favorites.userId, user.id), eq(favorites.targetType, "template")))
       .orderBy(desc(favorites.createdAt))
       .limit(120);
-    const cards = await cardsByIds(ids.map((r) => r.id), user.id);
+    const cards = await cardsByIds(ids.map((r) => r.id), viewer);
     body = cards.length ? (
       <TemplateGrid cards={cards} signedIn />
     ) : (

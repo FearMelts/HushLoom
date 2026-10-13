@@ -1,6 +1,6 @@
 "use client";
 
-import { Heart, Play, Wand2 } from "lucide-react";
+import { Heart, Play, ShieldCheck, Wand2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
@@ -9,6 +9,28 @@ import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { compact } from "@/lib/format";
 import { Badge, useToast } from "./ui";
+
+/**
+ * Shown in place of a template's media when the viewer still needs an age check (addendum §2).
+ * The server issued no media URL, so there is nothing here to unblur; the title and creator stay.
+ */
+export const verifyHref = (signedIn: boolean) => (signedIn ? "/settings#age-verification" : "/auth?next=/settings%23age-verification");
+
+export function WithheldMedia({ signedIn, compact, link = true }: { signedIn: boolean; compact?: boolean; link?: boolean }) {
+  return (
+    <div className="absolute inset-0 grid place-items-center bg-[radial-gradient(circle_at_30%_20%,color-mix(in_oklab,var(--color-ember-700)_28%,transparent),transparent_60%),linear-gradient(160deg,var(--color-ink-800),var(--color-ink-950))] p-3 text-center">
+      <div>
+        <ShieldCheck size={compact ? 20 : 28} className="mx-auto text-ember-300" aria-hidden />
+        <p className={cn("mt-2 font-display leading-snug text-bone-100", compact ? "text-[13px]" : "text-base")}>{signedIn ? "Verify your age to see previews" : "Sign in and verify to see previews"}</p>
+        {link ? (
+          <Link href={verifyHref(signedIn)} className="mt-2 inline-block font-mono text-[11px] uppercase tracking-[0.08em] text-ember-400 underline-offset-2 hover:underline">
+            {signedIn ? "Verify now" : "Sign in"}
+          </Link>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 /**
  * The petal card: media first, a quiet caption underneath. Hover or focus plays
@@ -63,7 +85,10 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
       <div className="petal relative overflow-hidden bg-ink-850 hairline transition-transform duration-[var(--duration-base)] ease-[var(--ease-weave)] group-hover:-translate-y-1">
         <Link href={`/templates/${card.slug}`} className="block" aria-label={`${card.title} by ${card.creator.displayName}`}>
           <div className={cn("relative", feature ? "aspect-[4/5] sm:aspect-[4/5]" : "aspect-[4/5]")}>
-            {card.posterUrl ? (
+            {card.mediaWithheld ? (
+              // The card itself is a link, so the call to action lives in the bottom bar instead of nesting here.
+              <WithheldMedia signedIn={signedIn} compact={!feature} link={false} />
+            ) : card.posterUrl ? (
               // eslint-disable-next-line @next/next/no-img-element -- signed, short-lived URLs bypass the image optimizer on purpose
               <img src={card.posterUrl} alt="" loading="lazy" decoding="async" className="absolute inset-0 size-full object-cover" />
             ) : (
@@ -107,7 +132,11 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
         </button>
 
         <div className="absolute inset-x-2.5 bottom-2.5 flex items-center justify-between gap-2">
-          {card.mediaType === "video" ? (
+          {card.mediaWithheld ? (
+            <Link href={verifyHref(signedIn)} className="pointer-events-auto inline-flex h-7 items-center gap-1 rounded-full bg-ink-950/60 px-2.5 text-[12px] text-ember-300 backdrop-blur hover:text-ember-200">
+              <ShieldCheck size={12} aria-hidden /> {signedIn ? "Verify now" : "Sign in"}
+            </Link>
+          ) : card.mediaType === "video" ? (
             <button
               type="button"
               onClick={() => (previewing ? stop() : play())}

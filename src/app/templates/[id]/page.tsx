@@ -7,7 +7,7 @@ import { Avatar } from "@/components/shell";
 import { FollowButton, RateStars, ReportButton, TemplateMedia } from "@/components/template-detail";
 import { TemplateRail } from "@/components/template-card";
 import { Badge, SectionHeading } from "@/components/ui";
-import { getCurrentUser } from "@/server/auth/session";
+import { viewerAccess } from "@/server/age/access";
 import { createContext } from "@/server/create-context";
 import { getDb } from "@/server/db";
 import { discoveryEvents, userPreferences } from "@/server/db/schema";
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 }
 
 export default async function TemplatePage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
+  const { user, viewer } = await viewerAccess();
   const data = await templateForViewer((await params).id, user?.id ?? null);
   if (!data) notFound();
   const { t } = data;
@@ -34,7 +34,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
     const [prefs] = await getDb().select().from(userPreferences).where(eq(userPreferences.userId, user.id));
     if (prefs?.historyEnabled !== false) await getDb().insert(discoveryEvents).values({ userId: user.id, templateId: t.id, event: "view" });
   }
-  const [ctx, related, [card]] = await Promise.all([createContext(user), similarTemplates(t.id, user?.id ?? null, 10), cardsByIds([t.id], user?.id ?? null)]);
+  const [ctx, related, [card]] = await Promise.all([createContext(user), similarTemplates(t.id, viewer, 10), cardsByIds([t.id], viewer)]);
   const locked = t.isVip && !ctx.vip && !data.own;
   const rating = t.ratingCount ? (t.ratingSum / t.ratingCount).toFixed(1) : null;
 
@@ -42,7 +42,14 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
     <div className="space-y-12">
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:gap-10">
         <div className="lg:sticky lg:top-20 lg:self-start">
-          <TemplateMedia posterUrl={card?.posterUrl ?? null} previewUrl={card?.previewUrl ?? null} title={t.title} isVideo={t.mediaType === "video"} />
+          <TemplateMedia
+            posterUrl={card?.posterUrl ?? null}
+            previewUrl={card?.previewUrl ?? null}
+            title={t.title}
+            isVideo={t.mediaType === "video"}
+            withheld={!viewer.explicitAllowed}
+            signedIn={Boolean(user)}
+          />
         </div>
 
         <div className="min-w-0">

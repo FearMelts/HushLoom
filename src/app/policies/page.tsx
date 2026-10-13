@@ -10,8 +10,8 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
       <>
         <p>Hushloom is for people who are 18 or older and of legal age where they live. Signing up asks for a date of birth and a confirmation, and both are recorded.</p>
         <p>
-          Some regions require stronger age assurance than a self-declaration. Where the operator lists a region as strict, creating is blocked for self-declared accounts until a verification provider is
-          connected. This build does not include one.
+          Some regions require stronger age assurance than a self-declaration: the UK and a number of US states. If you are in one of them, creating, uploading and previews wait until you pass an age
+          check with our verification provider, from Settings. We keep only the outcome, the provider&apos;s reference and the dates, never your ID images or biometrics, and a check lasts a year by default before it must be redone.
         </p>
       </>
     ),
