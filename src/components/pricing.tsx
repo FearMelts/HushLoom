@@ -7,17 +7,35 @@ import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { Button, useToast } from "./ui";
 
-export function BuyButton({ itemKey, signedIn, configured, label, featured }: { itemKey: string; signedIn: boolean; configured: boolean; label: string; featured?: boolean }) {
+export function BuyButton({
+  itemKey,
+  signedIn,
+  configured,
+  blocked,
+  sandbox,
+  label,
+  featured,
+}: {
+  itemKey: string;
+  signedIn: boolean;
+  configured: boolean;
+  /** Server-side reason buying is paused for this account (a chargeback flag), if any. */
+  blocked?: string | null;
+  sandbox?: boolean;
+  label: string;
+  featured?: boolean;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const off = signedIn && (!configured || Boolean(blocked));
   return (
     <Button
       variant={featured ? "ember" : "ghost"}
       className="w-full"
       busy={busy}
-      disabled={signedIn && !configured}
-      title={signedIn && !configured ? "Payments are not configured on this server yet." : undefined}
+      disabled={off}
+      title={signedIn && blocked ? blocked : signedIn && !configured ? "Payments are not configured on this server yet." : sandbox ? "Sandbox: no money moves." : undefined}
       onClick={async () => {
         if (!signedIn) return router.push("/auth?next=/pricing");
         setBusy(true);
@@ -31,6 +49,7 @@ export function BuyButton({ itemKey, signedIn, configured, label, featured }: { 
       }}
     >
       {label}
+      {sandbox ? <span className="tag opacity-70">· sandbox</span> : null}
     </Button>
   );
 }

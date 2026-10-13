@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { CreditAdjust, ModelTable, ReportQueue } from "@/components/admin";
+import { AccountFlags, CreditAdjust, ModelTable, ReportQueue } from "@/components/admin";
 import { relativeTime } from "@/lib/format";
 import { adminStats, moderationQueue, modelsForAdmin, recentAudit } from "@/server/admin";
 import { getCurrentUser } from "@/server/auth/session";
@@ -58,6 +58,9 @@ export default async function AdminPage() {
           </Panel>
           <Panel title="Adjust credits">
             <CreditAdjust />
+          </Panel>
+          <Panel title="Account flags">
+            <AccountFlags />
           </Panel>
         </div>
       </div>
