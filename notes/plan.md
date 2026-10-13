@@ -1,7 +1,7 @@
 # Hushloom build plan
 
-Resume file for any session continuing this build. Pair it with `notes/progress.md` (what happened,
-newest last), `notes/state.json` (countable state) and `git log`.
+Resume file for any session continuing this build. Start with `notes/handoff.md`, then `notes/progress.md`
+(the tracker), `notes/state.json` (countable state) and `git log`.
 
 ## Task
 

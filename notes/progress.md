@@ -12,8 +12,8 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 0 Shared scaffold for the four additions | verified | commit 9e1db60 (migration 0002, env, adapter interfaces, hook points); vitest 79/79 |
 | 1.1 Payments track | verified | branch worktree-wf_1b2f5203-519-1, commits 5dce1dc 5497de0 2cc0d60; re-run 2026-10-13 02:03: typecheck 0, lint 0, vitest 100/100 |
 | 1.2 Age verification track | verified | branch worktree-wf_1b2f5203-519-2, commits b1fe1e4 2fb7c18; agent run: typecheck 0, lint 0, vitest 100/100 |
-| 1.3 Scanning track | not done | first attempt interrupted at 01:49 with no commits; restarting |
-| 1.4 Web app track | not done | |
+| 1.3 Scanning track | not done | restarted 02:07 on base 99782bb; no changes yet at the 02:15 hand-off |
+| 1.4 Web app track | not done | started 02:07 on base 99782bb; no changes yet at the 02:15 hand-off |
 | 1.5 Fix track A (fixes-core) | not done | |
 | 1.6 Fix track B (fixes-ui) | not done | |
 | 1.7 Infra track | not done | |
@@ -83,6 +83,10 @@ vitest suite before merging.
   against the real services (no accounts or credentials exist).
 
 ## Log (newest last)
+
+- 2026-10-13 02:15 Hand-off requested by Jayvo before the session limit. Wrote `notes/handoff.md`;
+  copied maps, audits, track reports, doc drafts and the stage script to
+  `/mnt/project-files/playbox-2/working/`. Scanning and web app tracks running, nothing committed yet.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
