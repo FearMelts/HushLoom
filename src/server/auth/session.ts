@@ -16,6 +16,11 @@ export type SessionUser = {
   handle: string;
   displayName: string;
   ageAssuranceMethod: string;
+  /** Age-verification columns (addendum §2), carried by the session loader so the gate needs no extra query. Optional for callers that build a user by hand. */
+  jurisdiction?: string | null;
+  ageVerificationStatus?: (typeof users.$inferSelect)["ageVerificationStatus"];
+  ageVerifiedAt?: Date | null;
+  ageVerificationProvider?: string | null;
 };
 
 export function hashPassword(password: string) {
@@ -56,6 +61,10 @@ export async function userForToken(token: string): Promise<SessionUser | null> {
       handle: userProfiles.handle,
       displayName: userProfiles.displayName,
       ageAssuranceMethod: users.ageAssuranceMethod,
+      jurisdiction: users.jurisdiction,
+      ageVerificationStatus: users.ageVerificationStatus,
+      ageVerifiedAt: users.ageVerifiedAt,
+      ageVerificationProvider: users.ageVerificationProvider,
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))

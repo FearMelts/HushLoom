@@ -1,5 +1,8 @@
 import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { ageVerificationStatus } from "@/server/age";
+import { requirementFor, verificationHistory, VERIFY_PATH } from "@/server/age/service";
+import type { AgeContext } from "@/server/age/rules";
 import { audit } from "@/server/audit";
 import { getDb } from "@/server/db";
 import { consentRecords, discoveryEvents, sessions, templates, userPreferences, userProfiles } from "@/server/db/schema";
@@ -26,9 +29,37 @@ export const preferencesSchema = z
   })
   .partial();
 
-export async function settingsFor(userId: string) {
+/** The age-verification block of Settings: status, the jurisdiction in play, what is required, and the provider (with its sandbox label). */
+export async function ageVerificationFor(userId: string, ctx: AgeContext) {
+  const [req, history] = await Promise.all([requirementFor({ id: userId }, ctx), verificationHistory(userId)]);
+  const provider = ageVerificationStatus();
+  return {
+    status: req.status,
+    jurisdiction: req.jurisdiction,
+    required: req.required,
+    verifiedAt: req.verifiedAt?.toISOString() ?? null,
+    expiresAt: req.expiresAt?.toISOString() ?? null,
+    verifyPath: VERIFY_PATH,
+    provider: { key: provider.provider, label: provider.label, sandbox: provider.sandbox, configured: provider.configured, methods: provider.methods, validDays: provider.validDays, enforce: provider.enforce },
+    history: history.map((h) => ({
+      id: h.id,
+      provider: h.provider,
+      status: h.status,
+      method: h.method,
+      jurisdiction: h.jurisdiction,
+      failureReason: h.failureReason,
+      startedAt: h.startedAt.toISOString(),
+      completedAt: h.completedAt?.toISOString() ?? null,
+      expiresAt: h.expiresAt?.toISOString() ?? null,
+    })),
+  };
+}
+
+export type AgeVerificationSettings = Awaited<ReturnType<typeof ageVerificationFor>>;
+
+export async function settingsFor(userId: string, ctx: AgeContext = { country: null }) {
   const db = getDb();
-  const [[profile], [prefs], consents, [sessionCount], tags] = await Promise.all([
+  const [[profile], [prefs], consents, [sessionCount], tags, ageVerification] = await Promise.all([
     db.select().from(userProfiles).where(eq(userProfiles.userId, userId)),
     db.select().from(userPreferences).where(eq(userPreferences.userId, userId)),
     db.select().from(consentRecords).where(eq(consentRecords.userId, userId)).orderBy(desc(consentRecords.grantedAt)).limit(100),
@@ -36,8 +67,10 @@ export async function settingsFor(userId: string) {
     db.execute<{ tag: string }>(
       sql`select tag from ${templates}, unnest(${templates.tags}) tag where ${templates.status} = 'published' and ${templates.deletedAt} is null group by tag order by count(*) desc, tag limit 30`,
     ),
+    ageVerificationFor(userId, ctx),
   ]);
   return {
+    ageVerification,
     profile: { displayName: profile?.displayName ?? "", handle: profile?.handle ?? "", bio: profile?.bio ?? "" },
     preferences: {
       personalizationEnabled: prefs?.personalizationEnabled ?? true,

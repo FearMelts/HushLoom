@@ -1,5 +1,5 @@
 import { ExploreFeed } from "@/components/explore-feed";
-import { getCurrentUser } from "@/server/auth/session";
+import { viewerAccess } from "@/server/age/access";
 import { browseTemplates, listCategories, type SortKey } from "@/server/discovery/templates";
 
 export const dynamic = "force-dynamic";
@@ -11,11 +11,8 @@ export default async function ExplorePage({ searchParams }: { searchParams: Prom
   const sp = await searchParams;
   const sort = SORTS.includes(sp.sort as SortKey) ? (sp.sort as SortKey) : "trending";
   const media = sp.media === "image" || sp.media === "video" ? sp.media : undefined;
-  const user = await getCurrentUser();
-  const [categories, first] = await Promise.all([
-    listCategories(),
-    browseTemplates({ q: sp.q, category: sp.category, media, sort, limit: 24 }, user?.id ?? null),
-  ]);
+  const { user, viewer } = await viewerAccess();
+  const [categories, first] = await Promise.all([listCategories(), browseTemplates({ q: sp.q, category: sp.category, media, sort, limit: 24 }, viewer)]);
   return (
     <ExploreFeed
       key={JSON.stringify([sp.q, sp.category, media, sort])}

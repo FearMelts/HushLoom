@@ -48,14 +48,25 @@ const schema = z.object({
   SEGPAY_USER_ACCESS_KEY: z.string().optional(),
   SEGPAY_POSTBACK_SECRET: z.string().optional(),
 
-  // ── Age verification (addendum §2). "sandbox" is a labeled development provider.
-  AGE_VERIFICATION_PROVIDER: z.enum(["sandbox", "yoti", "veriff"]).default("sandbox"),
+  // ── Age verification (addendum §2). "sandbox" is a labeled development provider that proves
+  // nothing and refuses to run in production; "yoti" is Yoti's Age Verification Service
+  // (https://developers.yoti.com/age-verification), written against the public docs and
+  // unexercised without an account.
+  AGE_VERIFICATION_PROVIDER: z.enum(["sandbox", "yoti"]).default("sandbox"),
   AGE_VERIFICATION_ENFORCE: z.enum(["true", "false"]).default("true"),
   /** Comma-separated override of the jurisdictions that require verification (defaults in src/config/jurisdictions.ts). */
   AGE_VERIFICATION_REGIONS: z.string().optional(),
   /** When no geo header is present and regions are configured, block creation (true) or allow (false). */
   AGE_VERIFICATION_FAIL_CLOSED: z.enum(["true", "false"]).default("false"),
+  /** Yoti: the Age Verification API key (sent as "Authorization: Bearer"). */
   AGE_VERIFICATION_API_KEY: z.string().optional(),
+  /** Yoti: the SDK ID from the Yoti Hub (sent as the "Yoti-SDK-Id" header and in the hosted URL). */
+  AGE_VERIFICATION_SDK_ID: z.string().optional(),
+  /** Yoti: base URL of the Age Verification API; the public docs name https://age.yoti.com. */
+  AGE_VERIFICATION_API_URL: z.string().url().default("https://age.yoti.com"),
+  /** Yoti: the Age Verification notifications public key (PEM, copied from the notifications page of the docs); every notification's RSA-PSS signature is checked against it. */
+  AGE_VERIFICATION_NOTIFICATION_PUBLIC_KEY: z.string().optional(),
+  /** Sandbox: HMAC secret for the sandbox callback; a dev-only fallback is used when unset. */
   AGE_VERIFICATION_WEBHOOK_SECRET: z.string().optional(),
   AGE_VERIFICATION_VALID_DAYS: z.coerce.number().int().positive().default(365),
 
@@ -95,6 +106,10 @@ export function env(): Env {
   if (parsed.NODE_ENV === "production" && parsed.SCAN_PROVIDER === "dev" && parsed.SCAN_FAIL_CLOSED === "true") {
     // The dev scanner matches nothing real. Production must name a real scanner or explicitly opt out of fail-closed.
     throw new Error("SCAN_PROVIDER=dev cannot run in production; configure photodna or cloudflare");
+  }
+  if (parsed.NODE_ENV === "production" && parsed.AGE_VERIFICATION_PROVIDER === "sandbox" && parsed.AGE_VERIFICATION_ENFORCE === "true") {
+    // The sandbox check proves nothing about anyone's age. Production must name a real provider or explicitly turn enforcement off.
+    throw new Error("AGE_VERIFICATION_PROVIDER=sandbox cannot run in production when AGE_VERIFICATION_ENFORCE=true; configure yoti");
   }
   cached = parsed;
   return parsed;

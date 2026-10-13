@@ -43,7 +43,8 @@ export const signupSchema = z.object({
   confirmAdult: z.literal(true, { errorMap: () => ({ message: "You must confirm you are an adult." }) }),
 });
 
-export async function registerUser(input: z.infer<typeof signupSchema>) {
+/** `jurisdiction` is the "GB" / "US-TX" code from the edge headers at signup, if any; the age-verification rules read it later. */
+export async function registerUser(input: z.infer<typeof signupSchema>, opts: { jurisdiction?: string | null } = {}) {
   const age = ageOn(input.dateOfBirth);
   if (!Number.isFinite(age) || age > 120) throw new HttpError(422, "invalid_input", "Enter a real date of birth.", { fieldErrors: { dateOfBirth: ["Enter a real date of birth."] } });
   if (age < ADULT_AGE) {
@@ -62,6 +63,7 @@ export async function registerUser(input: z.infer<typeof signupSchema>) {
           dateOfBirth: input.dateOfBirth,
           ageAssuranceMethod: "self_declaration",
           ageAssuredAt: new Date(),
+          jurisdiction: opts.jurisdiction ?? null,
         })
         .returning();
       await tx.insert(userProfiles).values({ userId: user!.id, handle: input.handle, displayName: input.displayName });

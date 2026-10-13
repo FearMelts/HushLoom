@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getCurrentUser } from "@/server/auth/session";
+import { viewerAccess } from "@/server/age/access";
 import { browseTemplates } from "@/server/discovery/templates";
 import { route } from "@/server/http";
 import { publishTemplate, publishSchema } from "@/server/templates/publish";
@@ -18,8 +18,9 @@ const query = z.object({
 
 export const GET = route(async (req) => {
   const params = query.parse(Object.fromEntries(req.nextUrl.searchParams));
-  const user = await getCurrentUser();
-  return NextResponse.json(await browseTemplates(params, user?.id ?? null));
+  // One age-rule decision per request; media URLs are withheld server-side for viewers who still need a check.
+  const access = await viewerAccess();
+  return NextResponse.json(await browseTemplates(params, access.viewer));
 });
 
 export const POST = route(async (req) => {

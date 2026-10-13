@@ -11,6 +11,9 @@ import {
   userProfiles,
 } from "@/server/db/schema";
 import { assetUrl } from "@/server/media";
+import type { Viewer } from "@/server/age/service";
+
+export type { Viewer };
 
 export type SortKey = "trending" | "new" | "top_rated" | "most_favorited";
 
@@ -28,6 +31,8 @@ export type TemplateCard = {
   isNew: boolean;
   posterUrl: string | null;
   previewUrl: string | null;
+  /** True when the viewer must verify their age (or sign in and verify) before media is issued; titles and metadata still show. */
+  mediaWithheld: boolean;
   posterWidth: number | null;
   posterHeight: number | null;
   favoriteCount: number;
@@ -75,7 +80,13 @@ type Row = {
   poster: typeof mediaAssets.$inferSelect | null;
 };
 
-async function toCards(rows: Row[], viewerId: string | null): Promise<TemplateCard[]> {
+/**
+ * Every public template is explicit on an adults-only site, so a viewer who still needs an age
+ * check (addendum §2) gets the card without media: no signed URL is issued at all, rather than a
+ * blurred image the client could unblur.
+ */
+async function toCards(rows: Row[], viewer: Viewer): Promise<TemplateCard[]> {
+  const viewerId = viewer.id;
   const ids = rows.map((r) => r.t.id);
   const favs =
     viewerId && ids.length
@@ -85,7 +96,7 @@ async function toCards(rows: Row[], viewerId: string | null): Promise<TemplateCa
           .where(and(eq(favorites.userId, viewerId), eq(favorites.targetType, "template"), inArray(favorites.targetId, ids)))
       : [];
   const favSet = new Set(favs.map((f) => f.id));
-  const previewIds = rows.map((r) => r.t.previewAssetId).filter((x): x is string => Boolean(x));
+  const previewIds = viewer.explicitAllowed ? rows.map((r) => r.t.previewAssetId).filter((x): x is string => Boolean(x)) : [];
   const previews = previewIds.length ? await getDb().select().from(mediaAssets).where(inArray(mediaAssets.id, previewIds)) : [];
   return Promise.all(
     rows.map(async (r) => {
@@ -102,8 +113,9 @@ async function toCards(rows: Row[], viewerId: string | null): Promise<TemplateCa
         isVip: r.t.isVip,
         quality: r.t.quality,
         isNew: Boolean(r.t.publishedAt && Date.now() - r.t.publishedAt.getTime() < NEW_DAYS * 86_400_000),
-        posterUrl: r.poster ? await assetUrl(r.poster, viewerId) : null,
-        previewUrl: preview ? await assetUrl(preview, viewerId) : null,
+        posterUrl: viewer.explicitAllowed && r.poster ? await assetUrl(r.poster, viewerId) : null,
+        previewUrl: viewer.explicitAllowed && preview ? await assetUrl(preview, viewerId) : null,
+        mediaWithheld: !viewer.explicitAllowed,
         posterWidth: r.poster?.width ?? null,
         posterHeight: r.poster?.height ?? null,
         favoriteCount: r.t.favoriteCount,
@@ -138,7 +150,7 @@ export type BrowseQuery = {
   offset?: number;
 };
 
-export async function browseTemplates(query: BrowseQuery, viewerId: string | null) {
+export async function browseTemplates(query: BrowseQuery, viewer: Viewer) {
   const conds: (SQL | undefined)[] = [published];
   if (query.q?.trim()) {
     const like = `%${query.q.trim().replace(/[%_]/g, "\\$&")}%`;
@@ -161,17 +173,17 @@ export async function browseTemplates(query: BrowseQuery, viewerId: string | nul
     .orderBy(...sortExpr(query.sort ?? "trending"), desc(templates.id))
     .limit(limit + 1)
     .offset(query.offset ?? 0);
-  return { items: await toCards(rows.slice(0, limit), viewerId), hasMore: rows.length > limit };
+  return { items: await toCards(rows.slice(0, limit), viewer), hasMore: rows.length > limit };
 }
 
-export async function cardsByIds(ids: string[], viewerId: string | null): Promise<TemplateCard[]> {
+export async function cardsByIds(ids: string[], viewer: Viewer): Promise<TemplateCard[]> {
   if (!ids.length) return [];
   const rows = await selectCards().where(and(published, inArray(templates.id, ids)));
-  const cards = await toCards(rows, viewerId);
+  const cards = await toCards(rows, viewer);
   return ids.map((id) => cards.find((c) => c.id === id)).filter((c): c is TemplateCard => Boolean(c));
 }
 
-export async function similarTemplates(templateId: string, viewerId: string | null, limit = 8) {
+export async function similarTemplates(templateId: string, viewer: Viewer, limit = 8) {
   const [t] = await getDb().select().from(templates).where(eq(templates.id, templateId));
   if (!t) return [];
   const overlap = sql<number>`(
@@ -182,26 +194,29 @@ export async function similarTemplates(templateId: string, viewerId: string | nu
     .where(and(published, ne(templates.id, templateId), sql`${overlap} > 0`))
     .orderBy(desc(overlap), desc(templates.favoriteCount))
     .limit(limit);
-  return toCards(rows, viewerId);
+  return toCards(rows, viewer);
 }
 
-export async function recentlyViewed(viewerId: string, limit = 12) {
+/** A signed-in viewer: the personalized rails need an account. */
+export type SignedInViewer = Viewer & { id: string };
+
+export async function recentlyViewed(viewer: SignedInViewer, limit = 12) {
   const recent = await getDb()
     .select({ id: discoveryEvents.templateId, last: sql<Date>`max(${discoveryEvents.createdAt})` })
     .from(discoveryEvents)
-    .where(and(eq(discoveryEvents.userId, viewerId), eq(discoveryEvents.event, "view")))
+    .where(and(eq(discoveryEvents.userId, viewer.id), eq(discoveryEvents.event, "view")))
     .groupBy(discoveryEvents.templateId)
     .orderBy(desc(sql`max(${discoveryEvents.createdAt})`))
     .limit(limit);
-  return cardsByIds(recent.map((r) => r.id), viewerId);
+  return cardsByIds(recent.map((r) => r.id), viewer);
 }
 
-export async function followingFeed(viewerId: string, limit = 12) {
+export async function followingFeed(viewer: SignedInViewer, limit = 12) {
   const rows = await selectCards()
-    .where(and(published, inArray(templates.creatorId, getDb().select({ id: follows.creatorId }).from(follows).where(eq(follows.followerId, viewerId)))))
+    .where(and(published, inArray(templates.creatorId, getDb().select({ id: follows.creatorId }).from(follows).where(eq(follows.followerId, viewer.id)))))
     .orderBy(desc(templates.publishedAt))
     .limit(limit);
-  return toCards(rows, viewerId);
+  return toCards(rows, viewer);
 }
 
 /**
@@ -209,9 +224,10 @@ export async function followingFeed(viewerId: string, limit = 12) {
  * stated interests and (if they allow it) views. Only template categories and tags
  * are used; nothing about the person is inferred.
  */
-export async function forYou(viewerId: string, limit = 12): Promise<{ items: TemplateCard[]; personalized: boolean }> {
+export async function forYou(viewer: SignedInViewer, limit = 12): Promise<{ items: TemplateCard[]; personalized: boolean }> {
+  const viewerId = viewer.id;
   const [prefs] = await getDb().select().from(userPreferences).where(eq(userPreferences.userId, viewerId));
-  if (prefs && !prefs.personalizationEnabled) return { items: (await browseTemplates({ sort: "trending", limit }, viewerId)).items, personalized: false };
+  if (prefs && !prefs.personalizationEnabled) return { items: (await browseTemplates({ sort: "trending", limit }, viewer)).items, personalized: false };
 
   const historyEvents = prefs?.historyEnabled === false ? sql`'generate'` : sql`'generate', 'view'`;
   const affinity = await getDb().execute<{ category_id: string | null; tag: string | null; w: number }>(sql`
@@ -229,7 +245,7 @@ export async function forYou(viewerId: string, limit = 12): Promise<{ items: Tem
   `);
   const interests = prefs?.interests ?? [];
   if (affinity.length === 0 && interests.length === 0) {
-    return { items: (await browseTemplates({ sort: "trending", limit }, viewerId)).items, personalized: false };
+    return { items: (await browseTemplates({ sort: "trending", limit }, viewer)).items, personalized: false };
   }
   const catWeights = affinity.filter((a) => a.category_id).map((a) => sql`when ${templates.categoryId} = ${a.category_id} then ${a.w}`);
   const tagWeights = [
@@ -248,7 +264,7 @@ export async function forYou(viewerId: string, limit = 12): Promise<{ items: Tem
     .where(and(published, ne(templates.creatorId, viewerId)))
     .orderBy(desc(score), desc(templates.publishedAt))
     .limit(limit);
-  return { items: await toCards(rows, viewerId), personalized: true };
+  return { items: await toCards(rows, viewer), personalized: true };
 }
 
 export async function listCategories() {

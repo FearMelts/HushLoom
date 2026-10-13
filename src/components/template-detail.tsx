@@ -5,14 +5,34 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { WithheldMedia } from "./template-card";
 import { Button, Field, Sheet, inputClass, useToast } from "./ui";
 
-export function TemplateMedia({ posterUrl, previewUrl, title, isVideo }: { posterUrl: string | null; previewUrl: string | null; title: string; isVideo: boolean }) {
+export function TemplateMedia({
+  posterUrl,
+  previewUrl,
+  title,
+  isVideo,
+  withheld,
+  signedIn,
+}: {
+  posterUrl: string | null;
+  previewUrl: string | null;
+  title: string;
+  isVideo: boolean;
+  /** The server issued no media because the viewer still needs an age check. */
+  withheld?: boolean;
+  signedIn?: boolean;
+}) {
   const ref = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   return (
     <div className="petal relative overflow-hidden bg-ink-850 hairline">
-      {isVideo && previewUrl ? (
+      {withheld ? (
+        <div className="relative aspect-[4/5] w-full" aria-label={`${title} preview withheld until age verification`}>
+          <WithheldMedia signedIn={Boolean(signedIn)} />
+        </div>
+      ) : isVideo && previewUrl ? (
         <video
           ref={ref}
           src={previewUrl}
@@ -32,7 +52,7 @@ export function TemplateMedia({ posterUrl, previewUrl, title, isVideo }: { poste
       ) : (
         <div className="skeleton aspect-[4/5]" />
       )}
-      {isVideo && previewUrl ? (
+      {isVideo && previewUrl && !withheld ? (
         <button
           type="button"
           onClick={() => (playing ? ref.current?.pause() : void ref.current?.play())}

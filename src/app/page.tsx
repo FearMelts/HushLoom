@@ -2,7 +2,7 @@ import { ArrowRight, Film, ImageIcon } from "lucide-react";
 import Link from "next/link";
 import { TemplateGrid, TemplateRail } from "@/components/template-card";
 import { ButtonLink, SectionHeading } from "@/components/ui";
-import { getCurrentUser } from "@/server/auth/session";
+import { viewerAccess } from "@/server/age/access";
 import { getDb } from "@/server/db";
 import { userPreferences } from "@/server/db/schema";
 import { browseTemplates, followingFeed, forYou, listCategories, recentlyViewed } from "@/server/discovery/templates";
@@ -11,15 +11,16 @@ import { eq } from "drizzle-orm";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const user = await getCurrentUser();
-  const viewerId = user?.id ?? null;
-  const [categories, trending, fresh, mine, recent, following, prefs] = await Promise.all([
+  // One age-rule decision for the whole page; cards for a viewer who still needs a check carry no media URLs.
+  const { user, viewer } = await viewerAccess();
+  const mine = user ? { ...viewer, id: user.id } : null;
+  const [categories, trending, fresh, forMe, recent, following, prefs] = await Promise.all([
     listCategories(),
-    browseTemplates({ sort: "trending", limit: 15 }, viewerId),
-    browseTemplates({ sort: "new", limit: 12 }, viewerId),
-    user ? forYou(user.id, 12) : null,
-    user ? recentlyViewed(user.id, 12) : [],
-    user ? followingFeed(user.id, 12) : [],
+    browseTemplates({ sort: "trending", limit: 15 }, viewer),
+    browseTemplates({ sort: "new", limit: 12 }, viewer),
+    mine ? forYou(mine, 12) : null,
+    mine ? recentlyViewed(mine, 12) : [],
+    mine ? followingFeed(mine, 12) : [],
     user ? getDb().select().from(userPreferences).where(eq(userPreferences.userId, user.id)) : [],
   ]);
   const autoplay = prefs[0]?.autoplayPreviews ?? false;
@@ -54,10 +55,10 @@ export default async function HomePage() {
         </nav>
       </section>
 
-      {mine && mine.items.length ? (
+      {forMe && forMe.items.length ? (
         <section>
           <SectionHeading
-            kicker={mine.personalized ? "From what you love" : "Popular to start"}
+            kicker={forMe.personalized ? "From what you love" : "Popular to start"}
             title="For you"
             action={
               <Link href="/settings#discovery" className="text-[13px] text-bone-400 hover:text-bone-50">
@@ -65,7 +66,7 @@ export default async function HomePage() {
               </Link>
             }
           />
-          <TemplateRail cards={mine.items} signedIn={signedIn} />
+          <TemplateRail cards={forMe.items} signedIn={signedIn} />
         </section>
       ) : null}
 

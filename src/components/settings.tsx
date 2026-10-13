@@ -1,5 +1,6 @@
 "use client";
 
+import { AgeVerificationCard } from "./age-verification-card";
 import { LogOut, ShieldCheck, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -196,6 +197,8 @@ export function SettingsView({ data, email }: { data: Settings; email: string })
           </details>
         ) : null}
       </Section>
+
+      <AgeVerificationCard data={data} />
 
       <Section title="Account">
         <div className="flex flex-wrap items-center justify-between gap-3">

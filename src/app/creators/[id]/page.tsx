@@ -5,7 +5,7 @@ import { TemplateGrid, TemplateRail } from "@/components/template-card";
 import { FollowButton } from "@/components/template-detail";
 import { EmptyState, SectionHeading } from "@/components/ui";
 import { compact } from "@/lib/format";
-import { getCurrentUser } from "@/server/auth/session";
+import { viewerAccess } from "@/server/age/access";
 import { creatorAnalytics, creatorPage } from "@/server/creators";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +16,10 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function CreatorPage({ params }: { params: Promise<{ id: string }> }) {
   const handle = decodeURIComponent((await params).id);
-  const user = await getCurrentUser();
-  const data = await creatorPage(handle, user?.id ?? null);
+  const { user, viewer } = await viewerAccess();
+  const data = await creatorPage(handle, viewer);
   if (!data) notFound();
-  const analytics = data.isOwner ? await creatorAnalytics(data.profile.userId) : null;
+  const analytics = data.isOwner ? await creatorAnalytics(data.profile.userId, viewer.explicitAllowed) : null;
   const p = data.profile;
   return (
     <div>

@@ -24,7 +24,7 @@ import {
 } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { HttpError, notFound } from "@/server/http";
-import { ageAssuranceBlocksRegion, checkPrompt } from "@/server/safety/policy";
+import { checkPrompt } from "@/server/safety/policy";
 import { assertAgeVerified } from "@/server/age/gate";
 import { pricing } from "@/config/pricing";
 import { enqueueGeneration } from "./queue";
@@ -151,14 +151,8 @@ export async function createDraft(user: SessionUser, input: DraftInput, ctx: Req
     .where(and(eq(generationJobs.userId, user.id), eq(generationJobs.idempotencyKey, input.idempotencyKey)));
   if (existing) return existing;
 
-  if (ageAssuranceBlocksRegion(user.ageAssuranceMethod, ctx.country, env().AGE_ASSURANCE_STRICT_REGIONS)) {
-    throw new HttpError(
-      451,
-      "age_assurance_required",
-      "Your region requires verified age assurance before creating. Verification is not available yet in this build.",
-    );
-  }
-  // Provider-backed verification for jurisdictions that require it (addendum §2).
+  // Provider-backed verification for jurisdictions that require it (addendum §2). The older
+  // AGE_ASSURANCE_STRICT_REGIONS list is folded into the same rule set (src/server/age/rules.ts).
   await assertAgeVerified(user, ctx);
 
   const availability = await listModelAvailability();
