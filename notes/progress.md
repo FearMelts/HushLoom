@@ -1,4 +1,88 @@
-# Progress (newest last)
+# Tracker (newest log entries last)
+
+This is the single tracker for the Hushloom build (Jayvo's run plan of 2026-10-13 02:01 UTC,
+ground rule 2). `notes/plan.md` holds decisions and environment; `notes/state.json` holds counts.
+Statuses use exactly: verified, implemented but not verified, blocked, not done.
+
+## Phase status
+
+| Phase / step | Status | Evidence |
+| --- | --- | --- |
+| 0 Baseline re-verified on a fresh container | verified | typecheck 0, lint 0 warnings, vitest 79/79, Playwright 8/8 on the production build (2026-10-12 22:06-22:26) |
+| 0 Shared scaffold for the four additions | verified | commit 9e1db60 (migration 0002, env, adapter interfaces, hook points); vitest 79/79 |
+| 1.1 Payments track | verified | branch worktree-wf_1b2f5203-519-1, commits 5dce1dc 5497de0 2cc0d60; re-run 2026-10-13 02:03: typecheck 0, lint 0, vitest 100/100 |
+| 1.2 Age verification track | verified | branch worktree-wf_1b2f5203-519-2, commits b1fe1e4 2fb7c18; agent run: typecheck 0, lint 0, vitest 100/100 |
+| 1.3 Scanning track | not done | first attempt interrupted at 01:49 with no commits; restarting |
+| 1.4 Web app track | not done | |
+| 1.5 Fix track A (fixes-core) | not done | |
+| 1.6 Fix track B (fixes-ui) | not done | |
+| 1.7 Infra track | not done | |
+| 2 Merge payments, then age, into the integration branch | verified | merges c1ef260, bcf9113; after each: typecheck 0, lint 0; after both: vitest 121/121 (9 files) |
+| 2 Merge remaining tracks, full verification, browser journey | not done | |
+| 3 Adversarial review | not done | |
+| 4 Visual review | not done | |
+| 5 Deliverables: vision, information architecture | implemented but not verified | drafts in the session scratchpad; critiques returned "revise"; finishing in phase 5 against the merged build |
+| 5 Deliverables: design system, engineering, deployment, verification | not done | |
+| 6 Copilot comparison and final report | not done | |
+
+## Track definitions
+
+Defined on 2026-10-12 from the approved launch-readiness addendum (Jayvo, 22:30) and the four spec
+audits; each runs on its own branch in its own worktree and must pass typecheck, lint and the full
+vitest suite before merging.
+
+1. **Payments.** Payments behind an adapter: labeled sandbox, CCBill, Segpay, Stripe off by default
+   (Stripe bans adult content). Exactly-once webhooks, refunds claw back credits, chargebacks flag the
+   account. Tests: duplicate webhook grants once; refund claws back; chargeback flags.
+2. **Age verification.** Provider adapter (sandbox, Yoti) on top of the age gate; jurisdiction rules
+   (GB plus US states with laws) as configuration; status per user; no ID images stored; unverified
+   users in covered places cannot generate, upload or see explicit media. Tests: blocked until verified,
+   signed callbacks, audit on every change.
+3. **Scanning.** Every upload and output scanned before storage or display (dev scanner, PhotoDNA,
+   Cloudflare); a match blocks, holds evidence, suspends, escalates to a human review queue; fail closed;
+   takedown request flow; abuse-response document. Tests: matched content never reaches anyone; outage
+   holds content; every block audited.
+4. **Web app.** Manifest, icons, app-shell-only service worker, offline state, opt-in push with no
+   private content, install offer in settings only. Tests: installability fields, cache rules, push
+   subscriptions per device removed at logout, payload privacy.
+5. **Fix track A (fixes-core).** Verified defects in the create flow, pipeline and seed: stale draft
+   after undo/model switch, retry without cost confirmation, remix lineage, character reference never
+   reaching the provider, post-execute failure handling, enum params and policy checks, fabricated seed
+   counts, creator suspension, policies copy, missing foreign keys (migration 0003), date of birth kept
+   after deletion, video metadata, presets while composing.
+6. **Fix track B (fixes-ui).** UX gaps: loading and error pages, mobile "You" sheet and sticky make
+   bar, contrast and touch targets, toast overlap, sheet animation, ARIA, polling, project scene
+   context, demo badge and VIP filter, discovery rails, creator versioning UI, library filters, admin
+   table at narrow widths.
+7. **Infra.** Dockerfiles for web and worker, compose with Postgres, Redis and MinIO, .env.example,
+   README, CI workflow that never runs on main, an error-webhook hook.
+
+## Decisions log
+
+- 2026-10-13 02:05 This file is the tracker (ground rule 2: the existing file is used, no TRACKER.md).
+- 2026-10-13 02:05 Both workflows were interrupted at 01:49 by the session restart. Payments had
+  committed all three of its commits with a clean tree; it was re-verified by hand rather than rebuilt
+  (ground rule 1: never redo finished work). Scanning had no commits and restarts from scratch.
+- 2026-10-13 02:05 Tracks run two at a time in stages (3+4, then 5+6, then 7), and each stage's tracks
+  merge into the integration branch in slot order before the next stage starts. Later tracks then
+  build on the merged code (payments and age changed shared signatures), which lowers conflict risk.
+  The cost is an idle slot while the slower track of a stage finishes.
+- 2026-10-13 02:05 The integration branch is `claude/playbox-2-foundation-q7fpbs`, the branch this
+  session is assigned to push to. It continues `claude/playbox-2-foundation`'s history.
+- 2026-10-13 02:05 Vision and information-architecture drafts wait for phase 5 so their critique runs
+  against the merged build, as the run plan asks.
+
+## Open issues
+
+- Age: the US state list is compiled from the Free Speech Coalition tracker as read on 2026-10-12; it is
+  configuration, not legal advice, and must be re-checked before launch.
+- Age: geo headers are trusted as sent unless the edge strips client copies; deployment must ensure it.
+- Age: every public template is treated as explicit (no per-template flag), so unverified viewers in
+  covered places see no previews at all.
+- Payments: CCBill, Segpay and Yoti adapters are written from public documentation and have never run
+  against the real services (no accounts or credentials exist).
+
+## Log (newest last)
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
