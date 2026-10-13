@@ -81,6 +81,14 @@ vitest suite before merging.
   covered places see no previews at all.
 - Payments: CCBill, Segpay and Yoti adapters are written from public documentation and have never run
   against the real services (no accounts or credentials exist).
+- E2E: the Playwright stack runs the production build (NODE_ENV=production), and env() now refuses to
+  boot production with the defaults (SCAN_PROVIDER=dev with SCAN_FAIL_CLOSED=true; the age sandbox
+  with AGE_VERIFICATION_ENFORCE=true); the payment sandbox also refuses production. So `npm run
+  test:e2e` cannot pass at the integration head, and the browser journey cannot exercise the
+  sandboxes. Found by reading src/server/env.ts:106-112 and the providers; not yet run. Plan: after
+  the scan and web app merge, separate "real deployment" from NODE_ENV with an APP_ENV variable
+  (defaults to NODE_ENV; the e2e stack sets APP_ENV=test) so sandboxes stay refused on a real
+  production deployment, before the infra track writes CI and the env template.
 
 ## Log (newest last)
 
