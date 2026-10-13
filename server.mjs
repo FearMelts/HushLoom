@@ -12,7 +12,7 @@ const mimeTypes = {
   ".mjs": "text/javascript; charset=utf-8",
 };
 
-const server = createServer(async (request, response) => {
+export const server = createServer(async (request, response) => {
   if (request.method !== "GET" && request.method !== "HEAD") {
     response.writeHead(405, { Allow: "GET, HEAD" }).end();
     return;
