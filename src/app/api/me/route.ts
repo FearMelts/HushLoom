@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { contextFromHeaders } from "@/server/age/rules";
 import { deleteAccount } from "@/server/auth/account";
 import { SESSION_COOKIE } from "@/server/auth/session";
 import { parseJson, requireUser, route } from "@/server/http";
 import { profileSchema, settingsFor, updateProfile } from "@/server/me";
 
-export const GET = route(async () => {
+/** Settings data, including the age-verification status for this request's jurisdiction. */
+export const GET = route(async (req) => {
   const user = await requireUser();
-  return NextResponse.json(await settingsFor(user.id));
+  return NextResponse.json(await settingsFor(user.id, contextFromHeaders(req.headers)));
 });
 
 export const PATCH = route(async (req) => {

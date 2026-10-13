@@ -84,8 +84,9 @@ export function ageOn(dateOfBirth: string, today = new Date()): number {
 
 /**
  * Regions whose law requires verified age assurance (not self-declaration) are
- * configured in AGE_ASSURANCE_STRICT_REGIONS. Until a verification provider is
- * integrated, accounts assured only by self-declaration cannot generate there.
+ * configured in AGE_ASSURANCE_STRICT_REGIONS. The provider-backed gate in
+ * src/server/age folds that list into its own rules, so this helper is kept
+ * only as a pure predicate for tooling and tests.
  */
 export function ageAssuranceBlocksRegion(method: string, country: string | null, strictRegions: string): boolean {
   if (!country) return false;
