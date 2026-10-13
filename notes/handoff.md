@@ -15,7 +15,7 @@ Read this first, then `notes/progress.md` (the tracker) and `notes/plan.md` (dec
 
 ## How to resume
 
-1. Restart services after any container restart: `sh /mnt/project-files/playbox-2/working/start-services.sh`
+1. Restart services after any container restart: `sh notes/workflow/start-services.sh`
    (Postgres 16 runs as the `postgres` user from `/home/claude/.pgdata`; Redis keeps its dump in
    `/home/claude/.redis-data`, never in the repo). If `.pgdata` is gone, follow "Environment" in
    `notes/plan.md` (initdb must run as `postgres`, not root), then `npm run db:migrate` and
@@ -27,15 +27,16 @@ Read this first, then `notes/progress.md` (the tracker) and `notes/plan.md` (dec
    as was done for payments; a track with no commits restarts from scratch.
 3. Build the remaining tracks two at a time, in slot order, each from the current integration head:
    scanning + web app, then fix track A + fix track B, then infra. The full briefs for every track are in
-   `/mnt/project-files/playbox-2/working/workflow-scripts/hushloom-build-stage.js` (the `TRACKS` array);
+   `notes/workflow/hushloom-build-stage.js` (the `TRACKS` array);
    run it with the Workflow tool and `args: { tracks: [...], base: "<integration head sha>" }`.
 4. Merge each stage's tracks in slot order with `git merge --no-ff`, re-running typecheck, lint and vitest
    after every merge. Record each result in the tracker.
 5. Then phases 2 to 6 of the run plan (tracker, "Phase status").
 
-## Working material in the shared folder
+## Working material
 
-`/mnt/project-files/playbox-2/working/` (outlives this session):
+In the repo under `notes/analysis/`, `notes/workflow/` and `docs/drafts/`, and also in
+`/mnt/project-files/playbox-2/working/` (the shared project folder):
 
 | Path | What it is |
 | --- | --- |
