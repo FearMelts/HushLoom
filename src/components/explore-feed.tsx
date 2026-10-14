@@ -74,7 +74,7 @@ export function ExploreFeed({
         <div
           role="radiogroup"
           aria-label="Sort"
-          className="flex gap-5 border-b border-[var(--line)]"
+          className="flex gap-3 border-b border-[var(--line)]"
           onKeyDown={radioGroupKeys(SORT_KEYS, query.sort, (sort) => go({ sort }))}
         >
           {SORT_LABELS.map(([key, label]) => {
@@ -88,7 +88,8 @@ export function ExploreFeed({
                 tabIndex={checked ? 0 : -1}
                 onClick={() => go({ sort: key })}
                 className={cn(
-                  "-mb-px border-b-2 pb-2.5 pt-1 text-[14.5px]",
+                  // At least 40x40: px-1 widens short labels ("New"), and the gap is narrowed to match.
+                  "-mb-px inline-flex min-h-10 min-w-10 items-center justify-center border-b-2 px-1 pb-2.5 pt-1.5 text-[14.5px]",
                   checked ? "border-ember-500 font-semibold text-bone-50" : "border-transparent text-bone-400 hover:text-bone-50",
                 )}
               >
