@@ -24,7 +24,7 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 2 Merge fix track A, then fix track B | verified | merges 0d06957 (typecheck 0, lint 0, vitest 232/232) and b28583c (typecheck 0, lint 0, vitest 241/241); the two tracks changed no file in common |
 | 2 Merge infra | verified | merge a432052: typecheck 0, lint 0, vitest 258/258 (23 files) |
 | 2 Clean install and full verification | verified | fresh worktree at a432052 (notes/evidence/clean-verify-a432052.log): npm ci (462 packages), typecheck 0, lint 0, vitest 258/258 in 23 files, next build exit 0 |
-| 2 Launch browser journey (age verification, payments, scanning, web app, core flows) | implemented but not verified | first pass: 28 passed, 1 fixme (not-found pages answer 200) in 3.3 min at b670f7f; a critic listed 13 gaps (notes/analysis/journey/); gap closing interrupted by the session limit and resumed 04:50 |
+| 2 Launch browser journey (age verification, payments, scanning, web app, core flows) | verified | merged f80a555; on the integration head fe21509 `npm run test:e2e`: 36 passed (5.9 min), exit 0 (notes/evidence/e2e-fe21509.log); typecheck 0, lint 0, vitest 258/258; screenshots and per-test console/network evidence JSON in /mnt/project-files/playbox-2/evidence/journey/ (109 files) |
 | 3.1 Adversarial review: find | verified | seven finders on a frozen snapshot of f8d5ef3 returned 62 raw findings (notes/analysis/review/raw-findings.json) and a checked-and-fine list per area |
 | 3.2 Triage | verified | the triage agent's output was withheld by the platform, so the main session triaged by hand: 49 findings after merging duplicates: 1 critical, 12 high, 22 medium, 14 low (notes/analysis/review/triage.json) |
 | 3.3 Reproduce and fix | not done | interrupted by the session limit at about 02:40; payments (R01 R02 R10 R18) and age (R03 R04 R14 R16) had fix commits with failing-then-passing tests; resumed 04:50 |
@@ -170,6 +170,15 @@ vitest suite before merging.
 - 2026-10-14 04:50 Journey first pass found two app defects: clock and locale text broke hydration
   (fixed, 11ad512) and not-found pages answer HTTP 200 because loading.tsx on dynamic routes streams
   first (being fixed in the gap-closing pass).
+- 2026-10-14 05:15 The container restarted again (about 05:10). Payments and age fix agents had
+  finished (their results are in the workflow journal); scan and auth were mid-way and their edits
+  were committed as "WIP:"; the journey's gap closing had committed everything (39d35ea) but its
+  report was lost. Resumed the fix workflow from its journal (payments and age replay from cache,
+  scan and auth continue in their worktrees). The journey was verified by hand instead of rerunning
+  its agent: merged (f80a555), the env template gained the two e2e variables it reads, and the full
+  suite passed 36/36. App fixes the journey made: hydration with clock text, 404 for missing and
+  private pages (route groups keep list-page skeletons), the balance pill after a sandbox purchase,
+  and a sandbox checkout link that settles once.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
