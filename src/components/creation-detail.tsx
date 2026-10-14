@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Bookmark, Columns2, Copy, Download, FastForward, FolderPlus, Heart, Repeat, Send, Shuffle, Trash2, Wand2, X } from "lucide-react";
+import { Bookmark, Columns2, Copy, Download, FastForward, FolderPlus, Heart, Repeat, Send, Shuffle, Trash2, Wand2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -13,7 +13,7 @@ import { useOnline } from "@/lib/use-online";
 import { JOB_STARTED_EVENT } from "./job-tray";
 import { OFFLINE_MESSAGE, OfflineGuard } from "./offline";
 import { WithheldMedia } from "./template-card";
-import { Badge, Button, ButtonLink, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
+import { BackLink, Badge, Button, ButtonLink, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
 
 type Details = {
   prompt: string;
@@ -176,9 +176,9 @@ export function CreationDetail({
 
   return (
     <div>
-      <Link href="/collection" className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-bone-400 hover:text-bone-50">
-        <ArrowLeft size={15} aria-hidden /> Library
-      </Link>
+      <div className="mb-4">
+        <BackLink href="/collection">Library</BackLink>
+      </div>
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div className="space-y-3">
           {compareWith ? (

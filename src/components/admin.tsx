@@ -57,7 +57,7 @@ export function ReportQueue({ reports }: { reports: Report[] }) {
             )}
             <span className="text-sm text-bone-100">
               {r.template ? (
-                <Link href={`/templates/${r.template.slug}`} className="inline-flex items-center gap-1 hover:text-ember-400" target="_blank">
+                <Link href={`/templates/${r.template.slug}`} className="-my-2.5 inline-flex min-h-10 items-center gap-1 hover:text-ember-400" target="_blank">
                   {r.template.title} <ExternalLink size={12} aria-hidden />
                 </Link>
               ) : (

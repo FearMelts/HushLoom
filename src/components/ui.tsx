@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import Link from "next/link";
 import {
   createContext,
@@ -280,6 +280,15 @@ export function EmptyState({ title, body, action }: { title: string; body: strin
       <p className="mt-2 text-sm text-bone-400">{body}</p>
       {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
     </div>
+  );
+}
+
+/** A page's back link ("← Library"): 13 px text on a 40 px tap target; the negative margins keep its line height. */
+export function BackLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link href={href} className="-my-2.5 inline-flex min-h-10 items-center gap-1.5 text-[13px] text-bone-400 hover:text-bone-50">
+      <ArrowLeft size={14} aria-hidden /> {children}
+    </Link>
   );
 }
 

@@ -14,7 +14,7 @@ import { STATUS_LABEL, relativeTime } from "@/lib/format";
 import { JOB_STARTED_EVENT, useJobEvents } from "./job-tray";
 import { CreationThumb } from "./library";
 import { OfflineGuard } from "./offline";
-import { Badge, Button, ButtonLink, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
+import { BackLink, Badge, Button, ButtonLink, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
 
 type ProjectSummary = {
   id: string;
@@ -223,9 +223,9 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
 
   return (
     <div>
-      <Link href="/projects" className="mb-3 inline-flex items-center gap-1.5 text-[13px] text-bone-400 hover:text-bone-50">
-        <ArrowLeft size={14} aria-hidden /> Projects
-      </Link>
+      <div className="mb-3">
+        <BackLink href="/projects">Projects</BackLink>
+      </div>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-display text-4xl">{data.project.title}</h1>
