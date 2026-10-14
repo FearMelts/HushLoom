@@ -82,3 +82,32 @@ describe("video scan coverage (R06)", () => {
     expect(await getDb().select().from(mediaAssets).where(eq(mediaAssets.ownerId, u.id))).toHaveLength(0);
   });
 });
+
+describe("video decoding for the scan is bounded (R25)", () => {
+  it("refuses an upload larger than 4096 px on a side before storing anything", async () => {
+    const u = await makeUser();
+    const wide = await clip([solid("blue", 1, "4160x32")]);
+    await expect(acceptUpload(u.id, { bytes: wide, declaredMime: "video/mp4" }, { statement: "x", subjectLabel: null }, "source")).rejects.toMatchObject({ status: 413, code: "too_large" });
+    expect(await getDb().select().from(mediaAssets).where(eq(mediaAssets.ownerId, u.id))).toHaveLength(0);
+  });
+
+  it("never clears a clip larger than the scan reads", async () => {
+    expect(await scanClip(await clip([solid("blue", 1, "4160x32")]))).toMatchObject({ status: "unavailable" });
+  });
+
+  it("scans frames downscaled to fit 1024 px, and still sees what is in them", async () => {
+    const sizes: number[] = [];
+    const sizing: ScanProvider = {
+      ...redMatcher,
+      async scan(input) {
+        const { width, height } = await sharp(input.bytes).metadata();
+        sizes.push(Math.max(width!, height!));
+        return redMatcher.scan(input);
+      },
+    };
+    const bytes = await clip([solid("blue", 2, "2048x1152"), solid("red", 1, "2048x1152")]);
+    expect(await runScan({ bytes, mime: "video/mp4", kind: "video", sha256: sha256(bytes) }, sizing)).toMatchObject({ status: "matched" });
+    expect(sizes.length).toBeGreaterThan(0);
+    expect(Math.max(...sizes)).toBeLessThanOrEqual(1024);
+  });
+});

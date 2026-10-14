@@ -66,6 +66,10 @@ export function scanSettings() {
 
 /** The longest clip the scan covers end to end. Longer clips are refused at upload and never cleared. */
 export const MAX_SCANNED_VIDEO_S = 60;
+/** The largest frame side the scan decodes. Larger clips are refused at upload and never cleared. */
+export const MAX_VIDEO_SIDE = 4096;
+/** Frames are scanned downscaled to fit this side (PhotoDNA hashes a much smaller grid), so each one stays a few MB. */
+const FRAME_SIDE = 1024;
 /** One frame for every second of the clip, plus every frame that differs sharply from the one before, up to these counts. */
 const PERIODIC_MAX = MAX_SCANNED_VIDEO_S + 1;
 const CHANGES_MAX = 60;
@@ -120,21 +124,25 @@ function ffmpeg(args: string[]): Promise<void> {
 /**
  * Pulls frames as PNG across the whole clip: the frame on screen at every second (fps=1), plus every
  * frame that differs sharply from the frame before it (a cut, a flash, an inserted frame), so a shot
- * shorter than a second between two samples is still seen. Throws, so the verdict is "unavailable"
- * and never clean, when ffmpeg is missing, the clip cannot be read, it runs longer than
- * MAX_SCANNED_VIDEO_S, or it holds more frames than the caps allow (frames past its stated duration,
- * or more sharp changes than are sampled, such as a strobe).
+ * shorter than a second between two samples is still seen. Frames are downscaled to fit FRAME_SIDE
+ * and read from disk one at a time as the caller asks for them. Throws, so the verdict is
+ * "unavailable" and never clean, when ffmpeg is missing, the clip cannot be read, it runs longer
+ * than MAX_SCANNED_VIDEO_S or is larger than MAX_VIDEO_SIDE, or it holds more frames than the caps
+ * allow (frames past its stated duration, or more sharp changes than are sampled, such as a strobe).
  */
-export async function extractKeyframes(clip: Buffer): Promise<Buffer[]> {
+export async function* extractKeyframes(clip: Buffer): AsyncGenerator<{ frame: Buffer; index: number; total: number }> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "hl-scan-"));
   try {
     const input = path.join(dir, "in.mp4");
     await writeFile(input, clip);
     const info = await probeVideo(input);
     if (info.durationS > MAX_SCANNED_VIDEO_S) throw new Error(`the clip runs ${Math.ceil(info.durationS)} s, longer than the ${MAX_SCANNED_VIDEO_S} s the scan covers`);
+    if (Math.max(info.width, info.height) > MAX_VIDEO_SIDE) throw new Error(`the clip is ${info.width}x${info.height}, larger than the ${MAX_VIDEO_SIDE} px the scan reads`);
+    const fit = `scale=w='min(${FRAME_SIDE},iw)':h='min(${FRAME_SIDE},ih)':force_original_aspect_ratio=decrease`;
     await ffmpeg([
-      "-v", "error", "-y", "-i", input,
-      "-filter_complex", `[0:v]split=2[p][c];[p]fps=1[po];[c]scdet=threshold=100,metadata=mode=select:key=lavfi.scd.mafd:value=${CHANGE_MAFD}:function=greater[co]`,
+      // Two decoder threads at most, so one upload cannot take every core while it is scanned.
+      "-v", "error", "-y", "-threads", "2", "-i", input, "-filter_complex_threads", "1",
+      "-filter_complex", `[0:v]${fit},split=2[p][c];[p]fps=1[po];[c]scdet=threshold=100,metadata=mode=select:key=lavfi.scd.mafd:value=${CHANGE_MAFD}:function=greater[co]`,
       "-map", "[po]", "-fps_mode", "passthrough", "-frames:v", String(PERIODIC_MAX + 1), path.join(dir, "p-%04d.png"),
       "-map", "[co]", "-fps_mode", "passthrough", "-frames:v", String(CHANGES_MAX + 1), path.join(dir, "c-%04d.png"),
     ]);
@@ -143,7 +151,8 @@ export async function extractKeyframes(clip: Buffer): Promise<Buffer[]> {
     const changes = names.filter((n) => n.startsWith("c-")).sort();
     if (periodic.length > PERIODIC_MAX) throw new Error(`the clip has frames past the ${MAX_SCANNED_VIDEO_S} s the scan covers`);
     if (changes.length > CHANGES_MAX) throw new Error(`the clip changes sharply more than the ${CHANGES_MAX} times the scan samples`);
-    return Promise.all([...periodic, ...changes].map((n) => readFile(path.join(dir, n))));
+    const all = [...periodic, ...changes];
+    for (const [index, n] of all.entries()) yield { frame: await readFile(path.join(dir, n)), index, total: all.length };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -168,23 +177,33 @@ async function scanVideo(input: ScanInput, provider: ScanProvider): Promise<Scan
     const whole = await withTimeout(provider.scan(input), provider.key);
     if (whole.status !== "clean") return whole;
   }
-  let frames: Buffer[];
-  try {
-    frames = await extractKeyframes(input.bytes);
-  } catch (err) {
-    return unavailable(provider.key, `could not read keyframes: ${(err as Error).message.slice(0, 160)}`);
-  }
-  if (!frames.length) return unavailable(provider.key, "the video has no readable frames");
+  const frames = extractKeyframes(input.bytes);
+  let scanned = 0;
   let firstRef: string | undefined;
   let recordedProvider = provider.key as string;
-  for (const [i, frame] of frames.entries()) {
-    const v = await withTimeout(provider.scan({ bytes: frame, mime: "image/png", kind: "image", sha256: sha256(frame) }), provider.key);
-    if (v.status === "matched") return { ...v, detail: `keyframe ${i + 1} of ${frames.length}${v.detail ? `: ${v.detail}` : ""}` };
-    if (v.status === "unavailable") return v;
-    firstRef ??= v.ref;
-    recordedProvider = v.provider;
+  try {
+    for (;;) {
+      let next: IteratorResult<{ frame: Buffer; index: number; total: number }>;
+      try {
+        next = await frames.next();
+      } catch (err) {
+        return unavailable(provider.key, `could not read keyframes: ${(err as Error).message.slice(0, 160)}`);
+      }
+      if (next.done) break;
+      const { frame, index, total } = next.value;
+      const v = await withTimeout(provider.scan({ bytes: frame, mime: "image/png", kind: "image", sha256: sha256(frame) }), provider.key);
+      if (v.status === "matched") return { ...v, detail: `keyframe ${index + 1} of ${total}${v.detail ? `: ${v.detail}` : ""}` };
+      if (v.status === "unavailable") return v;
+      scanned++;
+      firstRef ??= v.ref;
+      recordedProvider = v.provider;
+    }
+  } finally {
+    // Closes the generator when the scan stops early, which removes the frames from disk.
+    await frames.return(undefined);
   }
-  return { status: "clean", provider: recordedProvider, ref: `keyframes:${frames.length}${firstRef ? `;${firstRef}` : ""}`.slice(0, 200) };
+  if (!scanned) return unavailable(provider.key, "the video has no readable frames");
+  return { status: "clean", provider: recordedProvider, ref: `keyframes:${scanned}${firstRef ? `;${firstRef}` : ""}`.slice(0, 200) };
 }
 
 /** Runs the scanner on bytes. Never throws: any failure is an "unavailable" verdict. */

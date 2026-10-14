@@ -11,7 +11,7 @@ import { HttpError } from "@/server/http";
 import { isPixelLimitError, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE, untrustedImage } from "@/server/images";
 import { logger } from "@/server/log";
 import { newStorageKey, sha256, storage } from "@/server/storage";
-import { MAX_SCANNED_VIDEO_S, probeVideo, scanAsset, scanFailClosed, type VideoInfo } from "@/server/safety/scan";
+import { MAX_SCANNED_VIDEO_S, MAX_VIDEO_SIDE, probeVideo, scanAsset, scanFailClosed, type VideoInfo } from "@/server/safety/scan";
 
 export type Asset = typeof mediaAssets.$inferSelect;
 
@@ -138,8 +138,9 @@ export async function acceptUpload(
  * Rewrites an MP4 without its container metadata: `ffmpeg -map_metadata -1 -c copy`, so no frame is
  * re-encoded. Global and per-stream tags (location, device, creation time, titles) and chapters go;
  * only the default video and audio streams are kept, which also drops timed-metadata tracks. A file
- * ffmpeg cannot read is refused rather than stored with its metadata, and so is a clip longer than
- * the abuse scan covers (MAX_SCANNED_VIDEO_S), since no part of a stored clip may go unscanned.
+ * ffmpeg cannot read is refused rather than stored with its metadata, and so is a clip longer or
+ * larger than the abuse scan covers (MAX_SCANNED_VIDEO_S, MAX_VIDEO_SIDE), since no part of a stored
+ * clip may go unscanned.
  */
 async function stripVideoMetadata(clip: Buffer): Promise<Buffer> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "hl-upload-"));
@@ -167,6 +168,7 @@ async function stripVideoMetadata(clip: Buffer): Promise<Buffer> {
       throw (err as { code?: string }).code === "tool_unavailable" ? processingUnavailable("ffprobe") : unreadable();
     }
     if (info.durationS > MAX_SCANNED_VIDEO_S) throw new HttpError(422, "too_long", `Videos can be up to ${MAX_SCANNED_VIDEO_S} seconds.`);
+    if (Math.max(info.width, info.height) > MAX_VIDEO_SIDE) throw new HttpError(413, "too_large", `Videos can be up to ${MAX_VIDEO_SIDE} pixels on a side.`);
     return await readFile(output);
   } finally {
     await rm(dir, { recursive: true, force: true });

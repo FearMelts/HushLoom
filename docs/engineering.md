@@ -864,7 +864,7 @@ URLs (both drivers) are `/api/media?k=<key>&e=<expiry>&s=<sig>[&d=<name>]`, wher
 | Type | Limits | Processing |
 |---|---|---|
 | Image | 20 MB and 40 megapixels (413 `too_large`, read from the header before anything is decoded); JPEG, PNG or WebP; only the first frame of an animated or multi-page file | Re-encoded to WebP quality 92 with EXIF rotation applied, which strips EXIF and GPS, flattened onto black, and downscaled to fit 4096 px. A short side under 512 px adds the warning `low_resolution`. Every decode of outside bytes (uploads, the PhotoDNA copy, provider outputs, poster frames) uses the same limits (`src/server/images.ts`). |
-| Video | 100 MB; must contain an `ftyp` box (else 415) | Metadata and chapters stripped with `ffmpeg -map_metadata -1 -map_chapters -1 -c copy`. Unreadable files get 415; a missing ffmpeg gets 503 `video_processing_unavailable`. |
+| Video | 100 MB; must contain an `ftyp` box (else 415); at most 60 s (422 `too_long`) and 4096 px on a side (413 `too_large`), the most the abuse scan covers | Metadata and chapters stripped with `ffmpeg -map_metadata -1 -map_chapters -1 -c copy`. Unreadable files get 415; a missing ffmpeg gets 503 `video_processing_unavailable`. |
 
 Stored under `uploads/<userId>/<uuid>.(webp|mp4)` with a consent record (`upload_subject`, or `likeness` for a character reference).
 
