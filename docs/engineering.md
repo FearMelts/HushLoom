@@ -1,6 +1,6 @@
 # Hushloom Engineering Documentation
 
-This document describes the code at commit `342afb4` on branch `docs-final`. Every build track, the phase 2 launch journey and every phase 3 fix are merged in that commit. Every behavior described here exists in that snapshot, unless it is labeled **planned** or **not built**. File and route references are relative to the repository root. Hushloom is an adults-only web app for creating images and short videos. Playbox informed its structure and interaction patterns only. Nothing here describes Playbox's visuals.
+This document describes the code at commit `09a436e` (2026-10-14). Every build track, the phase 2 launch journey, every phase 3 review fix and the phase 4 visual review fixes are merged in that commit. Later commits change only documents and notes. Every behavior described here exists in that snapshot, unless it is labeled **planned** or **not built**. File and route references are relative to the repository root. Hushloom is an adults-only web app for creating images and short videos. Playbox informed its structure and interaction patterns only. Nothing here describes Playbox's visuals.
 
 ## Status labels used in this document
 
@@ -13,7 +13,7 @@ This document describes the code at commit `342afb4` on branch `docs-final`. Eve
 | Unverified | Written from the provider's public documentation and tested only against local fakes. Never run against the real service. |
 | Planned / not built | Not in the code. |
 
-Unverified at `342afb4`: Replicate, CCBill, Segpay, Stripe, Yoti, PhotoDNA, the Cloudflare CSAM tool, the S3 storage driver, both Docker images, the compose stack and the CI workflow (it has never run on GitHub).
+Unverified at `09a436e`: Replicate, CCBill, Segpay, Stripe, Yoti, PhotoDNA, the Cloudflare CSAM tool and the S3 storage driver. Both Docker images and the compose stack have never been built or run (no Docker daemon was available). The CI workflow has run on GitHub Actions (Deployment files, below).
 
 ## 1. System architecture
 
@@ -101,11 +101,23 @@ Outside production, `mediaSigningSecret()` falls back to a fixed development sec
 
 | File | What it defines | Run status |
 |---|---|---|
-| `Dockerfile` | Web image: node 22 bookworm slim, standalone output, ffmpeg, non-root user, `/data/storage`, port 3000, `HEALTHCHECK` on `/api/health`. | Never built. |
-| `Dockerfile.worker` | Worker image: ffmpeg, full `npm ci`, `node --import tsx src/worker/index.ts`, health on port 3901. | Never built. |
-| `docker-compose.yml` | `postgres:16`, `redis:7` (append-only, `noeviction`), `migrate`, `web`, `worker`; `seed` under the `seed` profile; MinIO and a bucket-init job under the `s3` profile. Web is published on `${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}`, so only this machine reaches it unless `WEB_BIND` says otherwise. MinIO ports bind to 127.0.0.1. | Never run. |
-| `.github/workflows/ci.yml` | A checks job and an end-to-end job on branches other than `main`. Both check out with `persist-credentials: false`. | Never run on GitHub. |
-| `.gitignore`, `.dockerignore` | Git ignores every `.env*` file except `.env.example`. The Docker build context excludes `**/.env` and `**/.env.*` at any depth. | Checked by `tests/unit/deploy-config.test.ts`. |
+| `Dockerfile` | Web image: node 22 bookworm slim, standalone output, ffmpeg, non-root user, `/data/storage`, port 3000, `HEALTHCHECK` on `/api/health`. | implemented but not verified: never built. |
+| `Dockerfile.worker` | Worker image: ffmpeg, full `npm ci`, `node --import tsx src/worker/index.ts`, health on port 3901. | implemented but not verified: never built. |
+| `docker-compose.yml` | `postgres:16`, `redis:7` (append-only, `noeviction`), `migrate`, `web`, `worker`; `seed` under the `seed` profile; MinIO and a bucket-init job under the `s3` profile. Web is published on `${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}`, so only this machine reaches it unless `WEB_BIND` says otherwise. MinIO ports bind to 127.0.0.1. | implemented but not verified: `docker compose config` is valid; the stack never ran. |
+| `.github/workflows/ci.yml` | A checks job (typecheck, lint, vitest, production build) and a Playwright job on the production build. It runs on pushes to any branch but `main` and on pull requests into any branch but `main`. A newer push cancels a run in progress on the same ref. Both check out with `persist-credentials: false`. | verified: run 16 at `574ccaf` (code as at `09a436e`) passed both jobs. One failure in 22 runs: run 9 at `ce84bff`, a `socket hang up` on an API request in `journey.spec.ts:90`, not reproduced on the same code (run 11) or later (`notes/evidence/github-ci.md`). |
+| `.gitignore`, `.dockerignore` | Git ignores every `.env*` file except `.env.example`. The Docker build context excludes `**/.env` and `**/.env.*` at any depth. | verified by `tests/unit/deploy-config.test.ts`. |
+
+### Web client
+
+Every page except `/offline` renders inside one shell (`src/components/shell.tsx`, from `src/app/layout.tsx`): a top bar, a side rail from 1024 px up, a tab bar below that, the job tray for signed-in users, and toasts. Shared controls live in `src/components/ui.tsx`. The phase 4 visual review set these rules (section 16):
+
+| Rule | How it is built |
+|---|---|
+| 40 px tap targets on phones | `Button` size `sm` is 32 px tall on wider screens and at least 40 x 40 below 640 px (`max-sm:h-10 max-sm:min-w-10`), so small icon-only buttons qualify too. The `Sheet` close button is `size-10`. `BackLink` (a page's "← Library" link) and `SectionLink` (a section heading's "See all") keep 13 px text on a 40 px target, with negative margins so the line does not grow. The toast action is a 40 px target the same way. |
+| Room at the page bottom | `main` pads its bottom by 7rem, the safe-area inset, `--tray-h` and `--dock-h` (3rem plus `--tray-h` from 1024 px up). The job tray (`src/components/job-tray.tsx`) and the template page's docked Make bar (`src/components/template-detail.tsx`) publish their heights on `:root` with a `ResizeObserver`, so the last controls on a page can scroll clear of them. Toasts stack above both the same way. |
+| Horizontal scrollers | `.edge-fade` (`src/app/globals.css`) fades the right edge of a scroller while more content waits past it. It is a scroll-driven animation (`animation-timeline: scroll(self inline)`): the fade goes at the end of the scroll and never shows on a row that fits. Browsers without scroll-driven animations show no fade. It is on the Library filter row, the scene timeline, the admin audit log, the payments and credit history tables, and the creator's template table. |
+| Grids that shrink | The Studio and project workspace grids use `minmax(0, 1fr)` tracks, so a long unbroken prompt truncates instead of widening the page. |
+| Hydration | The shell hands the page to React through `PageSlot`, a passthrough component that works around a React 19.2 hydration bug (section 14). |
 
 ## 2. Database schema
 
@@ -318,12 +330,14 @@ Auth column values below: **Public** (no session needed), **User** (401 when sig
 | POST | `/api/folders/[id]/items` | User | `{jobIds}` (1 to 100 UUIDs) | `{added}` | 404 |
 | POST / DELETE | `/api/favorites` | User | `{targetType, targetId}` | `{ok}` | 404 |
 | POST / DELETE | `/api/follows` | User | `{creatorId}` | `{ok}` | 422 `self_follow` |
-| GET / POST | `/api/projects` | User | POST `{title (1 to 80), description (max 500)}` | `{projects}` (cover URLs withheld while an age check is required) / 201 `{project}` | |
+| GET / POST | `/api/projects` | User | POST `{title (1 to 80), description (max 500)}` | `{projects}`, each with `scenes`, `clips` (finished takes) and `cover` (the newest finished creation, with `isDemo`; URLs withheld while an age check is required, `isDemo` still sent) / 201 `{project}` | |
 | GET / PATCH / DELETE | `/api/projects/[id]` | User | PATCH: title, description | Detail (media withheld the same way) / `{project}` / `{ok}` | 404 |
 | POST | `/api/projects/[id]/scenes` | User | `{title, continuity}`; continuity is strict: lighting (40), framing (40), palette (80), characterReferenceId, notes (400) | 201 `{scene}` | 422 `limit_reached` (50 scenes) |
 | PUT | `/api/projects/[id]/scenes` | User | `{order}` (every scene id exactly once, max 50) | `{ok}` | 422 `invalid_order` |
 | PATCH / DELETE | `/api/scenes/[id]` | User | PATCH: title, continuity | `{scene}` / `{ok}` | 404 |
 | POST | `/api/scenes/[id]/select` | User | `{versionId}` | `{ok}` | 409 `not_ready` unless the take completed |
+
+`listProjects` (`src/server/projects.ts`) counts each project's scenes, and its completed, undeleted jobs as `clips`, with correlated subqueries. Inside a select field Drizzle renders `${projects.id}` as a bare `"id"`, which Postgres resolves to the subquery's own table, so both counts were always 0 until the visual review (V-B-1). The outer column is now written qualified (`${projects}."id"`), and `tests/integration/composing.test.ts` checks the counts on two projects.
 
 ### Templates
 
@@ -494,7 +508,7 @@ Inputs carry a `role` of `source` or `reference`. Failures are `ProviderError(co
 
 ### Demo provider (Demo)
 
-On when `ENABLE_DEMO_PROVIDER=true` (the default). It makes no AI call. It renders a seeded SVG card carrying the caption of the prompt and the watermark "DEMO OUTPUT · NOT AI-GENERATED". Images are WebP with a long side of 1280 px (2048 for 4k). Videos are rendered by ffmpeg as a 24 fps H.264 zoom-and-pan that follows the chosen camera movement. A source image or character reference is composited under the overlay. That is not a likeness match. Demo outputs are stored with `is_demo = true` and labeled in the interface, in download file names (`-demo`) and in templates.
+On when `ENABLE_DEMO_PROVIDER=true` (the default). It makes no AI call. It renders a seeded SVG card carrying the prompt as a caption and the watermark "DEMO OUTPUT · NOT AI-GENERATED" (`demoSvg`). The caption wraps at spaces into at most two lines sized to the frame's width, ends with an ellipsis when the prompt is longer (`captionLines`), and starts below the top 16% of the frame, where the app draws its Demo badge and favorite heart. The watermark's type is sized to fit 90% of the width, so it stays inside a 9:16 frame. Images are WebP with a long side of 1280 px (2048 for 4k). Videos are rendered by ffmpeg as a 24 fps H.264 zoom-and-pan that follows the chosen camera movement. A source image or character reference is composited under the overlay. That is not a likeness match. Demo outputs are stored with `is_demo = true` and labeled in the interface (including project covers, scene tiles and compared takes), in download file names (`-demo`) and in templates.
 
 ### Replicate adapter (Unverified)
 
@@ -700,6 +714,8 @@ A `verified` status from the sandbox reads as `unverified` on a live site, so a 
 
 `assertAgeVerified` answers 451 `age_verification_required` with `details: {verifyPath: "/settings#age-verification", status, jurisdiction}`. Every call passes the request's country and region.
 
+In the browser, `api()` (`src/lib/api.ts`) turns a 451 into an `ApiError` whose `verifyPath` points at the check. The create panel shows the server's message with a "Verify your age" button. The error toasts for derive and confirm on a creation's page and for Library retry carry a "Verify your age" action (`apiErrorAction`). Every other caller shows the message alone, which `api()` ends with "Open Settings › Age verification to do it."
+
 | Surface | Gate |
 |---|---|
 | POST `/api/generations` and POST `/api/generations/[id]/derive` | `assertAgeVerified` in `createDraft`. |
@@ -773,7 +789,7 @@ A match is never overwritten. A later non-match verdict for the same asset updat
 4. A moderation event `escalate` (open) with reason `csam_match` (or `abuse_match` for an abuse category), and details: asset id, sha256, source sha256, provider, ref, category, origin, owner id, job id, storage key.
 5. Audit `scan.block`.
 6. Account flag `csam_match` (or `manual_review` for the abuse category, which no current scanner returns).
-7. For CSAM: `suspendForAbuse` (section 10). It suspends the account if active, unpublishes all its published templates, and deletes its push subscriptions and sessions.
+7. For CSAM: `suspendForAbuse` (section 10). It suspends the account if it is active and unpublishes all its published templates. Only when this call is the one that suspends the account does it audit `user.suspend` and delete the account's push subscriptions and sessions (`src/server/safety/suspend.ts:41-44`). An account that is already suspended or deleted had them removed by the step that changed its status, and a session of an account that is not active signs no one in (section 10).
 
 ### Match recording retries
 
@@ -876,7 +892,7 @@ The browser's own install prompt is suppressed (`beforeinstallprompt` is prevent
 
 ### Offline guard
 
-`OfflineGuard` wraps actions that need the network in a disabled `fieldset` while offline: Make and Confirm on the create panel, the creation detail actions, Library retry, Branch and Continue on projects, and Buy on pricing. The job tray pauses polling while offline. Background sync is **not built**.
+`OfflineGuard` (`src/components/offline.tsx`) wraps actions that need the network in a `fieldset` that is disabled while offline: Make and the cost sheet's Confirm on the create panel, Retry and its Confirm in the Library, Branch, Continue and the cost sheet's Confirm on a project, and Buy on pricing. On a creation's page it covers only the Confirm in the cost sheet. Retry, Variation, Continue and Extend there use `disabled={!online}` instead, and the other buttons (Save, Folder, Preset, Publish, Delete, and Cancel while running) stay enabled offline (`src/components/creation-detail.tsx`). The job tray pauses polling while offline. Background sync is **not built**.
 
 ### Push (Needs keys)
 
@@ -902,7 +918,7 @@ The other bodies are "A creation didn't finish" and "A creation was cancelled". 
 | Unsubscribe | `DELETE /api/push/subscriptions` removes only your own endpoint. Audit `push.unsubscribe`. |
 | Logout | That session's subscriptions are removed. |
 | Sign out everywhere, account deletion, admin suspension | All of the user's subscriptions are removed (`destroyAllSessions`). |
-| Automatic suspension | `suspendForAbuse` deletes the user's push subscriptions and sessions itself. |
+| Automatic suspension | `suspendForAbuse` deletes the user's push subscriptions and sessions itself, only when it is the call that suspends the account (`suspend.ts:41-44`). |
 | Session row deleted | Cascades to its subscriptions. |
 | Browser rotates the subscription | `pushsubscriptionchange` re-subscribes; the client also re-binds once per tab session. |
 
@@ -1010,7 +1026,7 @@ The seed script also grants demo credits with keys `seed:<memberId>`.
 
 Settle and release share one key, so a reservation can close exactly once: whichever runs first wins, and the other is a no-op. Retries keep the reservation in place; credits move only when a job reaches a terminal state.
 
-### Collecting held debt (`ledger.ts:98-160`)
+### Collecting held debt (`ledger.ts:98-170`)
 
 When a refund or chargeback finds the credits it should take back held by creations in progress, the `credit_debt` flag records them (section 6). `releaseJob` then collects:
 
@@ -1167,6 +1183,14 @@ The error webhook (section 14) never sends request bodies. Each event carries on
 | Rate limits | Fail closed with 503 `unavailable` while Redis cannot answer; logged at error level, so the error webhook fires. |
 | Notifications | Never throw; failures are logged and swallowed. |
 | Pages | App Router `error.tsx`, `global-error.tsx` and `not-found.tsx` at the root. `loading.tsx` exists only on list pages: `(home)`, `collection/(list)`, `projects/(list)`, `explore` and `favorites`. Item pages have none, so a missing or private item page answers a real 404. |
+
+### Hydration (`src/components/shell.tsx`)
+
+Next.js 15.5.27 bundles a React 19.2 canary with a hydration replay bug. On a cold load, the page's part of the RSC payload can still be resolving when React hydrates the shell, so the element that holds it suspends. React 19.2 replays a suspended host element without rewinding its hydration cursor. It then finds the element's own first child where the element should be and throws error #418 (a hydration mismatch). React throws away the server HTML and renders the whole document again on the client.
+
+The workaround: the shell passes the page through `PageSlot`, a component that only returns its children. The element that suspends is then a component, and replaying a component leaves the cursor alone. The markup does not change. In the visual review (V-B-23 in `notes/analysis/visual/visual-review.json`), 1 in 130 cold loads threw with the browser cache off. Under Playwright request interception, which turns the cache off, 7 in 100 loads of ten main routes threw before the workaround and 0 in 100 after. React 19.3 fixes the replay itself. Upgrading Next.js to a release that bundles React 19.3 or later would remove the cause; that is a separate dependency decision, open in `notes/progress.md`.
+
+A separate cause was fixed earlier, in the launch journey (`11ad512`): clock and locale text that differed between server and browser broke hydration. An end-to-end test now checks that pages with relative times and dates hydrate with the device clock 10 minutes ahead (section 16).
 
 ### Logging (`src/server/log.ts`)
 
@@ -1382,11 +1406,13 @@ Other open items: geo headers are trusted as sent; every public template is trea
 
 | Path | Kind | Runner |
 |---|---|---|
-| `tests/unit/*.test.ts` (17 files) | Pure logic, no database | vitest |
+| `tests/unit/*.test.ts` (18 files) | Pure logic, no database | vitest |
 | `tests/integration/*.test.ts` (27 files) | Real Postgres (`playbox_test`, migrated by `tests/global-setup.ts`) and Redis db 1 | vitest |
 | `tests/e2e/journey.spec.ts` | Core journey against a production build (serial) | Playwright |
 | `tests/e2e/launch.spec.ts` | Launch journey: age, payments, scanning, installable app | Playwright |
-| `tests/e2e/evidence.ts` | Fixture that writes screenshots and a JSON log per test to `E2E_SHOTS_DIR` | |
+| `tests/e2e/layout.spec.ts` | Layout guard, always on: the main routes fit 390 and 820 px, with 40 px primary targets at 390 | Playwright |
+| `tests/e2e/visual.spec.ts` | Visual review capture: every page and state at 390, 820 and 1440 px with automated checks. Skipped unless `VISUAL_REVIEW=1` | Playwright |
+| `tests/e2e/evidence.ts` | Fixture that writes screenshots and a JSON log per test to `E2E_SHOTS_DIR` (default `test-results/journey`). A test fails on any console error, page error or 5xx response it did not declare. | |
 | `tests/helpers.ts` | `resetDb` (truncates), `makeUser`, `key()` | |
 | `tests/fixtures/scan-drill-match.png` | The dev scanner's drill image | |
 
@@ -1397,24 +1423,31 @@ vitest runs with `NODE_ENV=test`, database `playbox_test`, Redis db 1, fake CCBi
 | Command | What it does |
 |---|---|
 | `npm test` | vitest unit and integration suites (needs Postgres and Redis) |
-| `npm run test:e2e` | Playwright |
+| `npm run test:e2e` | Playwright: the journeys and the layout guard; the visual capture is skipped |
+| `VISUAL_REVIEW=1 VISUAL_SHOTS_DIR=<dir> npx playwright test tests/e2e/visual.spec.ts` | The visual capture: one PNG per page and state plus `manifest.json` in `<dir>` (default `test-results/visual`) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | `next lint --max-warnings 0` |
 | `npm run verify` | typecheck, lint, test, build, e2e |
 
 Playwright (`playwright.config.ts`) uses port 3100 with `NODE_ENV=production` and `APP_ENV=test`, database `playbox_e2e`, Redis db 2, one worker, and a random `MEDIA_SIGNING_SECRET` per run. It sets `PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS` so tests can see service-worker traffic. Its first web server step runs `scripts/e2e-prepare.ts` (drops and recreates the schema, migrates, seeds, runs the scan backfill), then `next build`, then `scripts/e2e-serve.mjs`, which copies static and public files and starts the standalone server. A second step waits for `/api/health` and starts the worker (health on 3901).
 
-### Results at `342afb4`
+### Results at `09a436e`
 
-| Check | Result |
-|---|---|
-| Typecheck | Clean |
-| Lint | Clean, 0 warnings |
-| vitest | 503 tests in 44 files, all passing |
-| Playwright | 36 tests (9 in `journey.spec.ts`, 27 in `launch.spec.ts`), all passing on a fresh production build at `ce84bff` (`notes/evidence/e2e-ce84bff.log`) |
-| Journey evidence | `/mnt/project-files/playbox-2/evidence/journey/`: 109 files, 73 PNG screenshots and 36 JSON logs, one per test |
+The code was checked on 2026-10-14 in a fresh worktree (`notes/evidence/clean-verify-09a436e.log`), then end to end (`notes/evidence/e2e-09a436e.log`).
 
-### Unit tests (17 files, 141 tests)
+| Check | Status | Result |
+|---|---|---|
+| Clean install | verified | `npm ci`: 462 packages, exit 0 |
+| Typecheck | verified | Clean |
+| Lint | verified | Clean, 0 warnings |
+| vitest | verified | 507 tests in 45 files, all passing (302 s) |
+| Production build | verified | `next build` exit 0 |
+| Playwright | verified | 72 tests: 40 passed, 32 skipped, 0 failed (5.6 min), on a fresh production build. The 40 are `journey.spec.ts` (9), `launch.spec.ts` (27) and `layout.spec.ts` (4). The 32 skipped are `visual.spec.ts`, which runs only with `VISUAL_REVIEW=1`. |
+| CI on GitHub Actions | verified | Run 16 at `574ccaf` (code as at `09a436e`): both jobs passed (`notes/evidence/github-ci.md`) |
+| Visual review | verified | 223 screenshots at 390, 820 and 1440 px, 43 defects found and fixed, confirmed by a second full capture (below) |
+| Journey evidence | verified | `/mnt/project-files/playbox-2/evidence/journey/`: 109 files, 73 PNG screenshots and 36 JSON logs, one per test, from the launch journey's run at `fe21509` (36 passed, `notes/evidence/e2e-fe21509.log`) |
+
+### Unit tests (18 files, 144 tests)
 
 | File | Tests | Covers |
 |---|---|---|
@@ -1422,6 +1455,7 @@ Playwright (`playwright.config.ts`) uses port 3100 with `NODE_ENV=production` an
 | `client-ip` | 6 | `clientIp` and `addressKey`: hops, ports, IPv4-mapped, IPv6 /64 (R05) |
 | `contrast` | 5 | Design token contrast at WCAG AA |
 | `copilot` | 12 | Copilot rules: policy blocks, contradictions, nearest aspect ratio, low-resolution input |
+| `demo-caption` | 3 | The demo placeholder's caption wraps into two lines and starts below the top 16%; the watermark fits a 9:16 frame (V-B-18) |
 | `deploy-config` | 7 | Compose bind, `.gitignore`, CI credentials, `.dockerignore` (I03, I06, I07, I08) |
 | `draft-key` | 5 | Client idempotency key reuse and renewal |
 | `env-template` | 5 | `.env.example` lists every variable, sets nothing, holds no secrets |
@@ -1436,7 +1470,7 @@ Playwright (`playwright.config.ts`) uses port 3100 with `NODE_ENV=production` an
 | `signatures` | 4 | Local media signatures and link life (R37), Replicate webhook signatures |
 | `sw-rules` | 20 | Service worker routing and storage rules |
 
-### Integration tests (27 files, 362 tests)
+### Integration tests (27 files, 363 tests)
 
 | File | Tests | Covers |
 |---|---|---|
@@ -1449,7 +1483,7 @@ Playwright (`playwright.config.ts`) uses port 3100 with `NODE_ENV=production` an
 | `attack-payments` | 22 | Attack round on R01, R02 and R10 |
 | `attack-scan` | 22 | Attack round on R06, R09, R13, R25, R29, R34, R42 |
 | `auth` | 11 | R05, R22, R23, R28, R41, R43 |
-| `composing` | 8 | Remix and reuse, presets, publish policy, video metadata stripping |
+| `composing` | 9 | Remix and reuse, presets, publish policy, video metadata stripping, project list counts and demo covers (V-B-1, V-B-2) |
 | `enqueue-failure` | 1 | Confirm succeeds and holds credits when the enqueue fails |
 | `generation-hardening` | 10 | R12, R31, R46, R47 |
 | `generation` | 28 | Full lifecycle, charge once, idempotency, cancel, retries, timeouts, dead worker, policy, capabilities, concurrency cap, cross-user isolation, demo video through ffmpeg, character references, storage faults, draft expiry |
@@ -1491,5 +1525,36 @@ Playwright (`playwright.config.ts`) uses port 3100 with `NODE_ENV=production` an
 | Installable web app | 6 | The manifest is installable. `sw.js` is served fresh with the whole-origin scope. Manifest link and iOS icon are present; Chrome's installability check reports no errors. Offline: the offline page shows; private pages and the API are never cached. Settings shows the install card and push as "not configured". At 390 x 844 offline, the banner shows and Make is disabled. |
 | Core flows at 390 x 844 | 1 | The main flows work at phone width. |
 | Clock skew | 1 | With the device clock 10 minutes ahead, pages with relative times hydrate without errors. |
+
+### End-to-end: `tests/e2e/layout.spec.ts` (4 tests, always on)
+
+One test per width and role: 390 x 844 (mobile, touch) and 820 x 1180, each as a visitor who passed the age gate and as the seeded member. Each test opens `/`, `/explore`, `/templates/velvet-hour`, `/collection`, `/projects`, `/pricing`, `/settings` and `/auth`, waits until the page stops moving, and checks:
+
+- **No sideways scroll.** `document.documentElement.scrollWidth` is at most the configured width. The configured width is used, not `innerWidth`, because a mobile Chromium widens its layout viewport to fit overflowing content. A failure names up to five offending elements.
+- **40 px primary targets at 390 px.** Every visible header and tab-bar control, and every filled (ember or bone) button and link, is at least 40 x 40. Switches, whose whole row is the target, and screen-reader-only elements are skipped.
+
+### Visual capture: `tests/e2e/visual.spec.ts` (32 tests, skipped by default)
+
+One setup test (accounts, a creation, a project, a takedown, a report and a scanner escalation), ten groups at each of three viewports (390 x 844 mobile, 820 x 1180, 1440 x 900), and one test that records the states it cannot reach. The groups are admin, creator, member, fresh member (empty states), anonymous in GB, GB member not age verified, anonymous, the create flow (create panel, cost sheet, job tray, upload consent, sandbox checkout), loading skeletons and offline. Each capture is a PNG plus an entry in `manifest.json` with these automated checks:
+
+| Check | Rule |
+|---|---|
+| Overflow | `scrollWidth` above the configured width, with up to five offending elements |
+| Small targets | Visible interactive elements under 40 x 40 at 390 px, or under 24 x 24 at any width. Elements that fail by design (an inline text link, a checkbox whose label is the target) are listed with the reason. |
+| Clipped text | An element with overflow hidden or clip whose text is wider than its box and has no ellipsis |
+| Contrast | axe-core's `color-contrast` rule |
+
+With a sheet open, the target, clipped-text and contrast checks look inside the open dialog only. The spec turns animations off, so the scroll-driven `.edge-fade` shows no fade in any capture.
+
+**Phase 4 visual review** (`notes/analysis/visual/visual-review.json`, which records each defect's what, fix and before and after). The first capture took 223 screenshots. Two reviewers found 43 defects: 3 high, 27 medium, 13 low. All 43 were fixed on branch `visual-review` (commits `7149139..a802cc4`, merged at `91d270c`) and confirmed by a second full capture, which found no new defect.
+
+| Measure | Before | After |
+|---|---|---|
+| Sideways overflow | Studio for a member at 390 px laid out 583 px wide. A reviewer found it; the check then compared against `innerWidth` and missed it. | None: every capture's `scrollWidth` equals its configured width |
+| axe contrast violations | 9: the "· sandbox" tag on the ember Buy button (4.32:1), for three accounts at each width | 0 |
+| Flagged small targets at 390 px | 1916 | 369 |
+| Clipped text | 0 | 0 |
+
+The 369 that remain were all flagged before, with equal or higher counts, and none was among the 43 defects. They are 351 card title links (about 21 px tall) that repeat the card's media link and are out of the tab order, and 18 switches (40 x 24) inside full-row labels. Inline links in sentences and native checkboxes inside labels are recorded as by design (30 at 390 px), so they are not part of the 369. Screenshots and manifests: `/mnt/project-files/playbox-2/evidence/visual/before/` and `after/`. Not captured: the route error boundary, because no page throws on demand in a production build. Open (low): the brief "Weaving a demo placeholder" toast covers Make it on phones while it shows.
 
 Integrations marked Unverified in this document are tested only against locally built requests and responses. None of these tests proves behavior against the real provider.
