@@ -522,6 +522,39 @@ describe("segpay provider (postbacks built from the documented parameters; never
     expect(await events("segpay")).toHaveLength(2);
   });
 
+  it("R02: grants nothing unless the price point charged maps to exactly the item claimed", async () => {
+    const u = await makeUser();
+    // An edited x-eticketid with a price point the map does not know, on a postback that carries no price.
+    const unmapped = await sale(u.id, "pack_large", "T50", "P50", { eticketid: "100001:99999", price: "" });
+    expect(unmapped.status).toBe(200);
+    expect(unmapped.headers.get("x-payment-outcome")).toBe("ignored");
+    // A postback template without <eticketid>.
+    const noTicket = await sale(u.id, "pack_large", "T51", "P51", { eticketid: "", price: "89.99" });
+    expect(noTicket.headers.get("x-payment-outcome")).toBe("ignored");
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect((await flagsOf(u.id)).map((f) => f.kind)).toEqual(["manual_review", "manual_review"]);
+    // Control: Blaze's own price point and price.
+    const ok = await sale(u.id, "pack_large", "T52", "P52", { price: "89.99" });
+    expect(ok.headers.get("x-payment-outcome")).toBe("processed");
+    expect((await getBalance(u.id)).available).toBe(1200);
+  });
+
+  it("R02: refuses checkout for an item without its own price point (no shared fallback)", async () => {
+    vi.stubEnv("SEGPAY_PRICE_POINT_ID", "pack_small=20001,12345");
+    vi.resetModules();
+    try {
+      const { segpayProvider: fresh } = await import("@/server/payments/providers/segpay");
+      const user = { id: "33333333-3333-4333-8333-333333333333", email: "z@example.test" };
+      const item = (key: string, priceCents: number) => ({ key, kind: "pack" as const, label: key, priceCents, currency: "usd", credits: 1 });
+      await expect(fresh.createCheckout({ user, item: item("pack_large", 8999), successUrl: "http://s", cancelUrl: "http://c" })).rejects.toThrow(/price point/);
+      const small = new URL((await fresh.createCheckout({ user, item: item("pack_small", 999), successUrl: "http://s", cancelUrl: "http://c" })).url);
+      expect(small.searchParams.get("x-eticketid")).toBe("100001:20001");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   it("a Credit reverses the related sale, a Charge flags the account, a rebill grants per period", async () => {
     const u = await makeUser();
     await sale(u.id, "pack_small", "T20", "P20");
