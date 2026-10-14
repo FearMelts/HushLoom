@@ -13,6 +13,7 @@ import { accountFlags, auditLogs, creditAccounts, paymentEvents, subscriptions }
 import { paymentsStatus, providerByKey, startCheckout } from "@/server/payments";
 import { compactUserId } from "@/server/payments/providers/segpay";
 import { readSandboxToken, SANDBOX_SIGNATURE_HEADER, signSandboxBody, type SandboxBody } from "@/server/payments/providers/sandbox";
+import { cancelJob, confirmJob, createDraft } from "@/server/generation/service";
 import { clearFlag, listFlags, openFlags } from "@/server/payments/service";
 import { closeRedis } from "@/server/redis";
 import { key, makeUser, resetDb } from "../helpers";
@@ -224,6 +225,42 @@ describe("sandbox provider", () => {
     expect(flags[0]!.details).toMatchObject({ shortfall: 60, reversed: 40 });
     // A debt is for an operator to look at; it does not stop the person buying again.
     expect((await startCheckout(u, "pack_small")).url).toContain("/pricing/sandbox");
+  });
+
+  it("R17: credits a reversal could not take because jobs held them are taken back when those jobs are released, once", async () => {
+    const u = await makeUser();
+    await sale(u.id);
+    const confirmed = async () => {
+      const draft = await createDraft(u, { idempotencyKey: key(), mode: "text_to_image", modelKey: "demo-still", prompt: "two adults sharing a candlelit toast", negativePrompt: "", params: { aspectRatio: "4:5" }, inputAssetIds: [] }, { country: null });
+      await confirmJob(u, draft.id, draft.costCredits);
+      return draft;
+    };
+    const [a, b] = [await confirmed(), await confirmed()];
+    expect(await getBalance(u.id)).toEqual({ available: 92, reserved: 8 });
+
+    await send({ kind: "refund", eventId: "sbx_refund_held" });
+    expect(await getBalance(u.id)).toEqual({ available: 0, reserved: 8 });
+    const [debt] = await flagsOf(u.id);
+    expect(debt).toMatchObject({ kind: "credit_debt" });
+    expect(debt!.details).toMatchObject({ shortfall: 8, reversed: 92 });
+
+    // The refunded credits the jobs held do not come back to the person when the jobs are cancelled.
+    await cancelJob(u, a.id);
+    await cancelJob(u, a.id);
+    await cancelJob(u, b.id);
+    expect(await getBalance(u.id)).toEqual({ available: 0, reserved: 0 });
+    const reversals = (await listLedger(u.id)).filter((l) => l.kind === "refund");
+    expect(reversals.reduce((sum, l) => sum + l.availableDelta, 0)).toBe(-100);
+    const [after] = await flagsOf(u.id);
+    expect(after!.details).toMatchObject({ outstanding: 0, collected: 8 });
+    // The refund's row counts all it took back, so a later chargeback on the same payment owes nothing more.
+    expect((await events("sandbox")).find((e) => e.providerEventId === "sbx_refund_held")).toMatchObject({ credits: -100 });
+
+    // A job confirmed after the refund, with credits bought after it, is the person's own: released in full.
+    await sale(u.id, "sbx_sale_after", "pack_small", { transactionRef: "sbx_txn_after" });
+    const c = await confirmed();
+    await cancelJob(u, c.id);
+    expect(await getBalance(u.id)).toEqual({ available: 100, reserved: 0 });
   });
 
   it("R01: a payment short of the price or in another currency grants nothing, whatever the processor, and goes to manual review", async () => {

@@ -3,7 +3,7 @@ import { pricing } from "@/config/pricing";
 import { audit } from "@/server/audit";
 import { applyMovement } from "@/server/credits/ledger";
 import { getDb, type Tx } from "@/server/db";
-import { accountFlags, creditAccounts, paymentEvents, subscriptions, userProfiles, users } from "@/server/db/schema";
+import { accountFlags, creditAccounts, generationJobs, paymentEvents, subscriptions, userProfiles, users } from "@/server/db/schema";
 import { HttpError } from "@/server/http";
 import { logger } from "@/server/log";
 import type { PaymentEvent, PaymentProvider } from "./types";
@@ -17,7 +17,9 @@ type EventRow = typeof paymentEvents.$inferSelect;
  * Clawback policy (addendum §1): a refund or chargeback reverses the credits the payment
  * granted, pro rata for partial amounts, through a negative ledger movement. If the account
  * has already spent them, the shortfall is recorded on the event and as a credit_debt flag
- * for an admin. A chargeback additionally flags the account, which blocks new checkouts
+ * for an admin. Credits that creations in progress hold at that moment are recorded on the
+ * flag and taken back when those creations are released (releaseJob), not returned to the
+ * person. A chargeback additionally flags the account, which blocks new checkouts
  * (403 account_flagged) until an admin clears the flag; browsing and creating still work.
  */
 export async function processPaymentEvent(provider: ProviderKey, event: PaymentEvent): Promise<Outcome> {
@@ -256,11 +258,17 @@ async function clawback(tx: Tx, provider: ProviderKey, event: Extract<PaymentEve
     });
   }
   if (shortfall > 0) {
+    // Credits held by creations in progress are not spent yet: they are taken back if those creations are released.
+    const held = Math.min(shortfall, account?.reserved ?? 0);
+    const heldJobIds = held > 0 ? (await tx.select({ id: generationJobs.id }).from(generationJobs).where(and(eq(generationJobs.userId, userId), inArray(generationJobs.status, ["queued", "processing"])))).map((j) => j.id) : [];
+    const what = event.type === "refund" ? "Refund" : "Chargeback";
     await tx.insert(accountFlags).values({
       userId,
       kind: "credit_debt",
-      reason: `${event.type === "refund" ? "Refund" : "Chargeback"} of ${label}: ${shortfall} credits were already spent.`,
-      details: { paymentEventId: row.id, originalEventId: original.id, transactionRef: event.transactionRef, shortfall, reversed },
+      reason: held > 0
+        ? `${what} of ${label}: ${shortfall} credits were already spent or held by creations in progress; the ${held} held are taken back if those creations are cancelled or fail.`
+        : `${what} of ${label}: ${shortfall} credits were already spent.`,
+      details: { paymentEventId: row.id, originalEventId: original.id, transactionRef: event.transactionRef, shortfall, reversed, reversal: event.type, held, heldJobIds, outstanding: held, collected: 0 },
     });
   }
   if (event.type === "chargeback") {
