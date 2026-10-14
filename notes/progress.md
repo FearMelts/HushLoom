@@ -12,12 +12,14 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 0 Shared scaffold for the four additions | verified | commit 9e1db60 (migration 0002, env, adapter interfaces, hook points); vitest 79/79 |
 | 1.1 Payments track | verified | branch worktree-wf_1b2f5203-519-1, commits 5dce1dc 5497de0 2cc0d60; re-run 2026-10-13 02:03: typecheck 0, lint 0, vitest 100/100 |
 | 1.2 Age verification track | verified | branch worktree-wf_1b2f5203-519-2, commits b1fe1e4 2fb7c18; agent run: typecheck 0, lint 0, vitest 100/100 |
-| 1.3 Scanning track | not done | 02:07 attempt ended with the session at the daily limit, no commits; restarting 2026-10-13 23:4x from the integration head |
-| 1.4 Web app track | not done | 02:07 attempt ended with the session at the daily limit, no commits (only an uncommitted dependency edit, discarded); restarting 2026-10-13 23:4x from the integration head |
+| 1.3 Scanning track | verified | branch worktree-wf_a044751c-de7-1 (c63e72a 1821c5a fe8e6bc ca1309e 0fd6820) on base e0ae32c; agent run: typecheck 0, lint 0, vitest 140/140, mutation check, dev-server and 390/1440 px checks; report notes/analysis/track-reports/scan.json |
+| 1.4 Web app track | verified | branch worktree-wf_a044751c-de7-2 (8 commits f31e530..e29a196) on base e0ae32c; agent run: typecheck 0, lint 0, vitest 169/169, real-Chromium service worker and offline checks; report notes/analysis/track-reports/pwa.json |
 | 1.5 Fix track A (fixes-core) | not done | |
 | 1.6 Fix track B (fixes-ui) | not done | |
 | 1.7 Infra track | not done | |
 | 2 Merge payments, then age, into the integration branch | verified | merges c1ef260, bcf9113; after each: typecheck 0, lint 0; after both: vitest 121/121 (9 files) |
+| 2 Merge scanning, then web app | verified | merges feafeb4 (then typecheck 0, lint 0, vitest 140/140) and 96923a7 (npm install, then typecheck 0, lint 0, vitest 188/188) |
+| 2 APP_ENV: sandboxes allowed on a production build only when it is not a live site | verified | 0686f87; tests/unit/env.test.ts 5/5; full suite 193/193 |
 | 2 Merge remaining tracks, full verification, browser journey | not done | |
 | 3 Adversarial review | not done | |
 | 4 Visual review | not done | |
@@ -82,7 +84,7 @@ vitest suite before merging.
   covered places see no previews at all.
 - Payments: CCBill, Segpay and Yoti adapters are written from public documentation and have never run
   against the real services (no accounts or credentials exist).
-- E2E: the Playwright stack runs the production build (NODE_ENV=production), and env() now refuses to
+- (Resolved 0686f87: APP_ENV; e2e sets APP_ENV=test.) E2E: the Playwright stack runs the production build (NODE_ENV=production), and env() now refuses to
   boot production with the defaults (SCAN_PROVIDER=dev with SCAN_FAIL_CLOSED=true; the age sandbox
   with AGE_VERIFICATION_ENFORCE=true); the payment sandbox also refuses production. So `npm run
   test:e2e` cannot pass at the integration head, and the browser journey cannot exercise the
@@ -90,6 +92,14 @@ vitest suite before merging.
   the scan and web app merge, separate "real deployment" from NODE_ENV with an APP_ENV variable
   (defaults to NODE_ENV; the e2e stack sets APP_ENV=test) so sandboxes stay refused on a real
   production deployment, before the infra track writes CI and the env template.
+- Scanning (for Jayvo and counsel, from the track report): keep the original upload bytes as evidence
+  on a match (today only the re-encoded file and the sha256)? File through NCMEC's CyberTipline API
+  or by hand? Add a classifier slot? Restore templates after a cleared false positive? PhotoDNA's
+  success code (3000) is from memory. Cloudflare's tool scans only edge-cached images, and app media is
+  private, so as shipped it would see nothing. Legal statements in docs/abuse-response.md are marked
+  "for legal review".
+- Web app: a user-initiated cancel also sends a push ("A creation was cancelled"); demo outputs get the
+  same "Your creation is ready" line. Left as briefed; noted for review.
 
 ## Log (newest last)
 
@@ -107,6 +117,12 @@ vitest suite before merging.
   front-end-only mock (8 hard-coded templates, localStorage, a 4-file static server); 5/5 tests pass;
   confirmed defects: a closed dialog stays on screen and blocks clicks, search unreachable at phone
   width, recently viewed in catalog order and unreachable on mobile, malformed storage renders 0 cards.
+- 2026-10-14 00:22 Scanning and web app tracks finished green. Merged in slot order and verified after
+  each merge (140/140, then 188/188). Added APP_ENV/isLiveDeployment (see open issue on e2e boot) and
+  tests; 193/193. Stage briefs updated with the tracks' hand-over notes: fix track A wraps the create
+  panel, creation detail and Library retry in OfflineGuard; fix track B offsets toasts for the iPhone
+  safe area, guards projects and the buy button, and adds a single-device sign-out; infra copies
+  public/ into the image and documents APP_ENV.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
