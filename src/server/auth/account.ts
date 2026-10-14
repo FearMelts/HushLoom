@@ -38,7 +38,14 @@ export const signupSchema = z.object({
     .max(24, "Handles are 3 to 24 characters.")
     .regex(/^[a-zA-Z0-9_]+$/, "Letters, numbers and underscores only."),
   displayName: z.string().trim().min(1).max(40),
-  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter your date of birth."),
+  dateOfBirth: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter your date of birth.")
+    // A day the calendar has (no 31 April or 13th month), which Postgres would otherwise reject on insert.
+    .refine((s) => {
+      const day = new Date(`${s}T00:00:00Z`);
+      return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === s;
+    }, "Enter a real date of birth."),
   acceptTerms: z.literal(true, { errorMap: () => ({ message: "Accept the terms to continue." }) }),
   confirmAdult: z.literal(true, { errorMap: () => ({ message: "You must confirm you are an adult." }) }),
 });

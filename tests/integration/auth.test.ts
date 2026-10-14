@@ -210,3 +210,30 @@ describe("R28 unhandled-error logs", () => {
     expect(logged).toContain("date/time field value out of range");
   });
 });
+
+describe("R41 impossible dates of birth", () => {
+  it("are a field error at sign-up, not a server error", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    for (const dateOfBirth of ["2000-02-30", "1990-02-31", "1990-13-01", "1990-00-10", "1990-04-31"]) {
+      const res = await call(signupRoute, "POST", "/api/auth/signup", {
+        email: "new.person@example.test",
+        password: PASSWORD,
+        handle: "new_person",
+        displayName: "New",
+        dateOfBirth,
+        acceptTerms: true,
+        confirmAdult: true,
+      });
+      const body = (await res.json()) as { error: { code: string; details?: { fieldErrors?: Record<string, string[]> } } };
+      expect({ dateOfBirth, status: res.status, code: body.error.code, field: Boolean(body.error.details?.fieldErrors?.dateOfBirth) }).toEqual({
+        dateOfBirth,
+        status: 422,
+        code: "invalid_input",
+        field: true,
+      });
+    }
+    // A real leap day still signs up.
+    expect((await call(signupRoute, "POST", "/api/auth/signup", { email: "leap@example.test", password: PASSWORD, handle: "leap_day", displayName: "Leap", dateOfBirth: "2000-02-29", acceptTerms: true, confirmAdult: true })).status).toBe(201);
+    vi.restoreAllMocks();
+  });
+});
