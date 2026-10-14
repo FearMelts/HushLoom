@@ -128,7 +128,9 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
 
   const ref = transactionId ?? subscriptionId;
   if (!ref) throw new WebhookRejected("malformed", "Missing transactionId and subscriptionId.");
-  const providerEventId = `${eventType}:${ref}:${timestamp}`;
+  // A sale is keyed on the one field its digest signs: one subscription is one sale, so a signed sale
+  // re-posted with another timestamp or transactionId is a duplicate, not a second grant.
+  const providerEventId = isSale ? `${eventType}:${subscriptionId}` : `${eventType}:${ref}:${timestamp}`;
   const meta = { eventType, subscriptionId, transactionId, timestamp, clientSubacc: field(p, "clientSubacc") };
   const currency = (field(p, "billedCurrency", "currency") ?? currencyFromNumeric(field(p, "billedCurrencyCode", "currencyCode"), "usd")).toLowerCase();
 

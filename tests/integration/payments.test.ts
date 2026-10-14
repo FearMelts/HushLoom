@@ -425,7 +425,7 @@ describe("ccbill provider (digests computed locally from the documented formulas
     expect(await (await newSale(u.id, "pack_small", "1000000001", "0912191101000000159")).json()).toMatchObject({ outcome: "duplicate" });
     expect((await getBalance(u.id)).available).toBe(100);
     const [row] = await events("ccbill");
-    expect(row).toMatchObject({ providerEventId: "NewSaleSuccess:0912191101000000159:2026-10-12 20:15:00", transactionRef: "0912191101000000159", amountCents: 999, currency: "usd", credits: 100 });
+    expect(row).toMatchObject({ providerEventId: "NewSaleSuccess:1000000001", transactionRef: "0912191101000000159", amountCents: 999, currency: "usd", credits: 100 });
     expect(row!.metadata).toMatchObject({ subscriptionRef: "1000000001" });
   });
 
@@ -521,6 +521,20 @@ describe("ccbill provider (digests computed locally from the documented formulas
       vi.unstubAllEnvs();
       vi.resetModules();
     }
+  });
+
+  it("R19: a signed sale re-posted with another timestamp or transaction id is the same sale, granted once", async () => {
+    const u = await makeUser();
+    expect(await (await newSale(u.id, "pack_small", "1000000019", "txn_r19_a")).json()).toMatchObject({ outcome: "processed" });
+    // Only subscriptionId is covered by the digest; timestamp and transactionId are not.
+    expect(await (await newSale(u.id, "pack_small", "1000000019", "txn_r19_a", { timestamp: "2026-10-13 09:00:00" })).json()).toMatchObject({ outcome: "duplicate" });
+    expect(await (await newSale(u.id, "pack_small", "1000000019", "txn_r19_b")).json()).toMatchObject({ outcome: "duplicate" });
+    expect((await getBalance(u.id)).available).toBe(100);
+    expect(await events("ccbill")).toHaveLength(1);
+    // The sale's digest on a lifecycle event does not stand in for the token.
+    const renewal = await post("RenewalSuccess", { subscriptionId: "1000000019", transactionId: "txn_r19_r", billedAmount: "9.99", billedCurrencyCode: "840", dynamicPricingValidationDigest: md5(`10000000191${CCBILL_SALT}`) }, {});
+    expect(renewal.status).toBe(400);
+    expect(await renewal.json()).toMatchObject({ error: { code: "unsigned" } });
   });
 
   it("Refund claws back by transaction id, Chargeback finds the sale by subscription id and flags", async () => {
