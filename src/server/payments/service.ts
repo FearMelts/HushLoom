@@ -73,7 +73,7 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
       const plan = pricing.plans.find((p) => p.key === event.itemKey);
       if (!plan) return { outcome: "ignored", patch: { metadata: { reason: "unknown_plan", itemKey: event.itemKey } } };
       const problem = event.review ?? notPaidInFull(event, { label: plan.label, priceCents: plan.priceCents, currency: pricing.currency }) ?? (await cannotBuy(tx, event.userId));
-      if (problem) return holdForReview(tx, provider, event.userId, row, event, plan.key, problem);
+      if (problem) return holdForReview(tx, provider, event.userId, row, event, plan.key, problem, { subscriptionRef: event.providerSubscriptionId });
       await tx
         .insert(subscriptions)
         .values({
@@ -107,8 +107,14 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
     case "subscription_renewed": {
       const [sub] = await tx.select().from(subscriptions).where(eq(subscriptions.providerSubscriptionId, event.providerSubscriptionId));
       const plan = sub && pricing.plans.find((p) => p.key === sub.planKey);
-      // The start event may still be on its way; fail so the processor retries later.
-      if (!sub || !plan) throw new Error(`subscription ${event.providerSubscriptionId} not known yet`);
+      if (!sub || !plan) {
+        // A pass whose start was held for review has no subscriptions row; the processor still bills it. Each renewal is
+        // recorded and held too, in front of the same operator, never granted.
+        const held = await heldPassStart(tx, provider, event.providerSubscriptionId);
+        if (held) return holdForReview(tx, provider, held.userId, row, event, held.itemKey, "the start of this pass was held for review, so its renewals are held too", { subscriptionRef: event.providerSubscriptionId });
+        // The start event may still be on its way; fail so the processor retries later.
+        throw new Error(`subscription ${event.providerSubscriptionId} not known yet`);
+      }
       // A pass the processor rebills after its account was deleted grants nothing: an operator cancels and refunds it.
       const [owner] = await tx.select({ status: users.status, deletedAt: users.deletedAt }).from(users).where(eq(users.id, sub.userId));
       if (!owner || owner.status === "deleted" || owner.deletedAt) {
@@ -185,19 +191,46 @@ async function cannotBuy(tx: Tx, userId: string): Promise<string | null> {
 }
 
 /** Records a confirmed payment that must not be granted automatically and puts it in front of an operator. Nothing is granted. */
-async function holdForReview(tx: Tx, provider: ProviderKey, userId: string, row: EventRow, paid: { amountCents: number; currency: string }, itemKey: string, problem: string): Promise<Applied> {
+async function holdForReview(
+  tx: Tx,
+  provider: ProviderKey,
+  userId: string,
+  row: EventRow,
+  paid: { amountCents: number; currency: string },
+  itemKey: string,
+  problem: string,
+  extra: { subscriptionRef?: string } = {},
+): Promise<Applied> {
   logger.warn("payment held for review", { provider, id: row.providerEventId, itemKey });
   await tx.insert(accountFlags).values({
     userId,
     kind: "manual_review",
     reason: `A ${provider} payment was held, not granted: ${problem}. Check it with the processor, then grant or refund by hand.`,
-    details: { paymentEventId: row.id, provider, itemKey, amountCents: paid.amountCents, currency: paid.currency, transactionRef: row.transactionRef, problem },
+    details: { paymentEventId: row.id, provider, itemKey, amountCents: paid.amountCents, currency: paid.currency, transactionRef: row.transactionRef, problem, ...extra },
   });
   return {
     outcome: "ignored",
-    patch: { userId, amountCents: paid.amountCents, currency: paid.currency, metadata: { reason: "needs_review", review: problem, itemKey } },
+    patch: { userId, amountCents: paid.amountCents, currency: paid.currency, metadata: { reason: "needs_review", review: problem, itemKey, ...extra } },
     auditMeta: { userId, review: problem },
   };
+}
+
+/** The pass start that was held for review (and so never created a subscriptions row) for this subscription, if any. */
+async function heldPassStart(tx: Tx, provider: ProviderKey, subscriptionRef: string): Promise<{ userId: string; itemKey: string } | null> {
+  const [held] = await tx
+    .select({ userId: paymentEvents.userId, itemKey: sql<string | null>`${paymentEvents.metadata}->>'itemKey'` })
+    .from(paymentEvents)
+    .where(
+      and(
+        eq(paymentEvents.provider, provider),
+        eq(paymentEvents.type, "subscription_started"),
+        sql`${paymentEvents.metadata}->>'reason' = 'needs_review'`,
+        sql`${paymentEvents.metadata}->>'subscriptionRef' = ${subscriptionRef}`,
+      ),
+    )
+    .orderBy(desc(paymentEvents.createdAt))
+    .limit(1);
+  return held?.userId && held.itemKey ? { userId: held.userId, itemKey: held.itemKey } : null;
 }
 
 async function grant(tx: Tx, userId: string, credits: number, kind: "purchase" | "subscription_grant", key: string, paymentEventId: string, note: string) {

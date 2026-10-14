@@ -194,7 +194,10 @@ describe("attack R01: credits for less than the price", () => {
     const buyer = await makeUser();
     expect(await (await ccbillSale(buyer.id, "plan_studio", "4400000001", { billedInitialPrice: "19.99" })).json()).toMatchObject({ outcome: "ignored" });
     const renewal = await ccbill("RenewalSuccess", { subscriptionId: "4400000001", transactionId: "txn_4400000001_r", billedAmount: "59.99", billedCurrencyCode: "840", nextRenewalDate: "2026-12-11" });
-    expect(renewal.status).toBeGreaterThanOrEqual(400);
+    // Recorded and held for the operator beside its pass start (no longer refused with 500 on every retry), never granted.
+    expect(renewal.status).toBe(200);
+    expect(await renewal.json()).toMatchObject({ outcome: "ignored" });
+    expect((await flagsOf(buyer.id)).map((f) => f.kind)).toEqual(["manual_review", "manual_review"]);
     expect((await getBalance(buyer.id)).available).toBe(0);
     expect(await activePlan(buyer.id)).toBeNull();
   });
@@ -202,11 +205,20 @@ describe("attack R01: credits for less than the price", () => {
   // REGRESSION (low): a pass start held for review (R01, R02, R38) leaves no subscriptions row, so every RenewalSuccess
   // the processor bills for it throws "not known yet" and rolls back: 500 forever, the charge never recorded and never
   // put in front of the operator. The R33 path shows the intended handling: record it and hold it for review.
-  it.fails("HOLE: a renewal billed for a held pass is never recorded, only retried with 500", async () => {
+  // Closed: a held pass start records its subscription, and each renewal billed for it is recorded and held the same way.
+  it("HOLE: a renewal billed for a held pass is never recorded, only retried with 500", async () => {
     const buyer = await makeUser();
     await ccbillSale(buyer.id, "plan_studio", "4500000001", { billedInitialPrice: "19.99" });
     const renewal = await ccbill("RenewalSuccess", { subscriptionId: "4500000001", transactionId: "txn_4500000001_r", billedAmount: "19.99", billedCurrencyCode: "840" });
     expect(renewal.status).toBe(200);
+    const recorded = (await eventsOf("ccbill")).find((e) => e.type === "subscription_renewed");
+    expect(recorded).toMatchObject({ userId: buyer.id, amountCents: 1999, credits: null, transactionRef: "txn_4500000001_r" });
+    expect(recorded!.metadata).toMatchObject({ reason: "needs_review", itemKey: "plan_studio", subscriptionRef: "4500000001" });
+    const flags = await flagsOf(buyer.id);
+    expect(flags.map((f) => f.kind)).toEqual(["manual_review", "manual_review"]);
+    expect(flags.find((f) => f.details.paymentEventId === recorded!.id)!.details).toMatchObject({ subscriptionRef: "4500000001", amountCents: 1999 });
+    expect((await getBalance(buyer.id)).available).toBe(0);
+    expect(await activePlan(buyer.id)).toBeNull();
   });
 
   // HOLE (low, defence in depth): an unknown or missing billedCurrencyCode is read as USD (currencyFromNumeric's
