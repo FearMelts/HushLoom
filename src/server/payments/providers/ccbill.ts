@@ -136,8 +136,11 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
   // A sale is keyed on the one field its digest signs: one subscription is one sale, so a signed sale
   // re-posted with another timestamp or transactionId is a duplicate, not a second grant.
   const providerEventId = isSale ? `${eventType}:${subscriptionId}` : `${eventType}:${ref}:${timestamp}`;
-  const meta = { eventType, subscriptionId, transactionId, timestamp, clientSubacc: field(p, "clientSubacc") };
-  const currency = (field(p, "billedCurrency", "currency") ?? currencyFromNumeric(field(p, "billedCurrencyCode", "currencyCode"), "usd")).toLowerCase();
+  const currencyCode = field(p, "billedCurrencyCode", "currencyCode");
+  const meta = { eventType, subscriptionId, transactionId, timestamp, clientSubacc: field(p, "clientSubacc"), currencyCode };
+  // A currency code this adapter does not know, or none, is never read as USD: it is recorded as ISO 4217 "XXX" (no
+  // currency), so a sale or renewal in it fails the price check and is held for review with the code in its metadata.
+  const currency = (field(p, "billedCurrency", "currency") ?? currencyFromNumeric(currencyCode) ?? "xxx").toLowerCase();
 
   switch (eventType) {
     case "NewSaleSuccess": {

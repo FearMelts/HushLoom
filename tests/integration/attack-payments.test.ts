@@ -224,13 +224,31 @@ describe("attack R01: credits for less than the price", () => {
   // HOLE (low, defence in depth): an unknown or missing billedCurrencyCode is read as USD (currencyFromNumeric's
   // fallback), so the currency half of the R01 check passes for a currency it does not know. A buyer cannot change the
   // form's currency (formDigest covers currencyCode), so this needs CCBill to bill in another currency.
-  it.fails("HOLE: a sale billed in a currency the adapter does not know is treated as USD and granted", async () => {
+  // Closed: an unknown or missing code is recorded as ISO 4217 "XXX" (no currency), which fails the price check and is held.
+  it("HOLE: a sale billed in a currency the adapter does not know is treated as USD and granted", async () => {
     const buyer = await makeUser();
     // 752 is SEK: 59.99 SEK is about $5.50.
     const res = await ccbillSale(buyer.id, "plan_studio", "4600000001", { billedInitialPrice: "59.99", billedCurrencyCode: "752" });
     expect(res.status).toBeLessThan(500);
     expect((await getBalance(buyer.id)).available).toBe(0);
     expect(await activePlan(buyer.id)).toBeNull();
+    // A sale with no currency code at all is not read as USD either.
+    const bare = await ccbillRaw("NewSaleSuccess", [
+      ["subscriptionId", "4600000002"],
+      ["transactionId", "txn_4600000002"],
+      ["billedInitialPrice", "9.99"],
+      ["dynamicPricingValidationDigest", md5(`46000000021${CCBILL_SALT}`)],
+      ["X-hlUser", buyer.id],
+      ["X-hlItem", "pack_small"],
+      ["X-hlSig", ccbillSig(buyer.id, "pack_small")],
+    ]);
+    expect(await bare.json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(buyer.id)).available).toBe(0);
+    // Both are held for an operator with a currency the payment history can still display, and the code CCBill sent.
+    const held = await eventsOf("ccbill");
+    expect(held.map((e) => e.currency)).toEqual(["xxx", "xxx"]);
+    expect(held.map((e) => e.metadata.currencyCode ?? null).sort()).toEqual(["752", null]);
+    expect((await flagsOf(buyer.id)).map((f) => f.kind)).toEqual(["manual_review", "manual_review"]);
   });
 
   // HOLE (low, defence in depth; Stripe is off by default): the Stripe adapter still substitutes the item's price and

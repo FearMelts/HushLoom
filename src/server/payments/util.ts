@@ -67,8 +67,9 @@ export function currencyToNumeric(iso: string): string {
   return code;
 }
 
-export function currencyFromNumeric(numeric: string | undefined, fallback: string): string {
-  if (!numeric) return fallback;
+/** The ISO code for a numeric one, or null for a code that is missing or not in the table: never a guess. */
+export function currencyFromNumeric(numeric: string | undefined): string | null {
+  if (!numeric) return null;
   const hit = Object.entries(NUMERIC_CURRENCY).find(([, n]) => n === numeric.padStart(3, "0"));
-  return hit ? hit[0] : fallback;
+  return hit ? hit[0] : null;
 }
