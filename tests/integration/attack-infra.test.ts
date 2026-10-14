@@ -292,15 +292,12 @@ describe("I02: no query parameters reach Next.js's own error printer", () => {
       await resetDb();
     });
 
-    // HOLE (low): scrubQueryParams redacts the message, stack and `params` of each error in the chain,
-    // but the driver's PostgresError (the cause) keeps its own enumerable fields, and Postgres puts the
-    // offending values in `detail`: "Failing row contains (..., <prompt>, ...)" for a check or not-null
-    // violation, "Key (lower(email))=(...) already exists." for a unique violation. Next.js prints the
-    // cause with those fields. Every print the fix does cover (the NextServer path, base-server.js:1574
-    // for an error rethrown from a page) therefore still shows the bound values. No page render that
-    // writes a private column was found today (the template page's discovery_events insert binds ids);
-    // API routes go through route(), whose log line keeps only the cause's name and message.
-    test.fails("HOLE: after the scrub, a check violation still prints the prompt through the cause's detail", async () => {
+    // Was a hole (low): scrubQueryParams redacted the message, stack and `params` of each error in the
+    // chain, but the driver's PostgresError (the cause) keeps its own enumerable fields, and Postgres puts
+    // the offending values in `detail`: "Failing row contains (..., <prompt>, ...)" for a check or
+    // not-null violation, "Key (lower(email))=(...) already exists." for a unique violation. Next.js
+    // prints the cause with those fields. The scrub now redacts `detail` too.
+    it("holds: after the scrub, a check violation no longer prints the prompt through the cause's detail", async () => {
       const onRequestError = await hook();
       const user = await makeUser();
       const prompt = "two adults at a masquerade ball SECRET_FAILING_ROW";
@@ -319,7 +316,7 @@ describe("I02: no query parameters reach Next.js's own error printer", () => {
       expect(format(err)).not.toContain("SECRET_FAILING_ROW");
     });
 
-    test.fails("HOLE: after the scrub, a unique violation still prints the email through the cause's detail", async () => {
+    it("holds: after the scrub, a unique violation no longer prints the email through the cause's detail", async () => {
       const user = await makeUser();
       let err: unknown;
       try {
