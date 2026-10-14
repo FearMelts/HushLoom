@@ -213,6 +213,20 @@ describe("installErrorWebhook", () => {
     expect(mod.installErrorWebhook("web")).toBe(false);
   });
 
+  it("still installs the webhook when another variable fails the configuration check (I05)", async () => {
+    // A production build without MEDIA_SIGNING_SECRET: every request then fails with this error, which
+    // is exactly when the monitor has to hear about it.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("MEDIA_SIGNING_SECRET", undefined);
+    const mod = await fresh(URL_);
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 202 }));
+    expect(mod.installErrorWebhook("web")).toBe(true);
+    logger.error("unhandled route error", { path: "/api/generations", err: new Error("MEDIA_SIGNING_SECRET must be set in production") });
+    await flush();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(spy.mock.calls[0]![1]?.body))).toMatchObject({ source: "web", error: { message: "MEDIA_SIGNING_SECRET must be set in production" } });
+  });
+
   it("is a no-op for the statically imported copy too when unset", () => {
     expect(installErrorWebhook("web")).toBe(false);
   });

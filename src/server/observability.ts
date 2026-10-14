@@ -1,4 +1,4 @@
-import { env } from "@/server/env";
+import { env, errorWebhookUrlAlone } from "@/server/env";
 import { causeOf, logger, redactQueryParams, redactStack, setErrorSink, type ErrorSink } from "@/server/log";
 
 /**
@@ -141,15 +141,16 @@ export function createErrorWebhook(options: ErrorWebhookOptions): ErrorSink {
 
 /**
  * Routes this process's error log entries to ERROR_WEBHOOK_URL when it is set. Returns whether a
- * webhook was installed. A configuration that does not parse installs nothing here; the same
- * error surfaces, as before, on the first request or job that reads the configuration.
+ * webhook was installed. When the rest of the configuration fails its check, every request then
+ * fails with that error, which is when the monitor must hear about it: ERROR_WEBHOOK_URL is then
+ * checked on its own. An ERROR_WEBHOOK_URL that is not a URL installs nothing.
  */
 export function installErrorWebhook(source: ErrorSource): boolean {
   let url: string | undefined;
   try {
     url = env().ERROR_WEBHOOK_URL;
   } catch {
-    return false;
+    url = errorWebhookUrlAlone();
   }
   if (!url) return false;
   setErrorSink(createErrorWebhook({ url, source }));
