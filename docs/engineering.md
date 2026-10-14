@@ -842,7 +842,7 @@ Source: `src/server/storage/index.ts`, `src/server/media.ts`.
 | `local` (default) | Operational | Files under `STORAGE_LOCAL_DIR` (default `.storage`; absolute path required in production). `safeLocalPath` checks the key against a pattern and confirms the resolved path stays inside the directory. |
 | `s3` | Unverified (never run, including against the bundled MinIO; the tests use an in-memory stand-in for the client) | AWS SDK v3; region default `auto`; path-style addressing when an endpoint is set. The bucket stays private and is never linked to: its files are served through `/api/media` like local ones, so the serve-time checks apply to both drivers. |
 
-Interface: `put`, `get`, `delete`, `signedUrl`.
+Interface: `put`, `get`, `size`, `read` (a stream of a byte range), `delete`, `signedUrl`.
 
 ### Keys
 
@@ -859,7 +859,7 @@ Interface: `put`, `get`, `delete`, `signedUrl`.
 
 URLs (both drivers) are `/api/media?k=<key>&e=<expiry>&s=<sig>[&d=<name>]`, where the signature is HMAC-SHA256 over `key\nexpiry\ndownload` with `MEDIA_SIGNING_SECRET`. The expiry is rounded up to the next TTL boundary (`ceil((now + ttl) / ttl) x ttl`) so URLs stay stable for browser caching. A link therefore lives between one TTL and just under two.
 
-`/api/media` checks the signature and expiry (403 "Link expired or invalid."), then re-reads the asset row and refuses anything deleted or not clean (404). It answers with `Cache-Control: private, max-age=<seconds left>`, `X-Robots-Tag: noindex`, a `Content-Disposition` when a download name is set, and supports `Range` (206, or 416 when unsatisfiable). The same route serves S3 media, reading the object from the bucket, so a removed, held or matched asset stops being served at the next request through any driver, including through links issued earlier. The cost is that S3 media traffic passes through the web process.
+`/api/media` checks the signature and expiry (403 "Link expired or invalid."), then re-reads the asset row and refuses anything deleted or not clean (404). It answers with `Cache-Control: private, max-age=<seconds left>`, `X-Robots-Tag: noindex`, a `Content-Disposition` when a download name is set, and supports `Range` (206, or 416 when unsatisfiable). It reads only the requested bytes (a file stream from an offset, or an S3 ranged `GetObject`), never the whole file for a range. The same route serves S3 media, reading the object from the bucket, so a removed, held or matched asset stops being served at the next request through any driver, including through links issued earlier. The cost is that S3 media traffic passes through the web process.
 
 ### Uploads
 

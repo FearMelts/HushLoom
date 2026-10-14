@@ -1,12 +1,18 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { Readable } from "node:stream";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { env, mediaSigningSecret } from "@/server/env";
 
 export interface StorageDriver {
   put(key: string, body: Buffer, mime: string): Promise<void>;
   get(key: string): Promise<Buffer>;
+  /** The stored size in bytes. Throws when there is no such file. */
+  size(key: string): Promise<number>;
+  /** Streams the bytes from start to end inclusive (the whole file without a range), without loading the rest. */
+  read(key: string, range?: { start: number; end: number }): Promise<ReadableStream<Uint8Array>>;
   delete(key: string): Promise<void>;
   /** A short-lived /api/media URL (mediaUrl). Callers must check ownership before asking for one. */
   signedUrl(key: string, ttlSeconds: number, opts?: { download?: string }): Promise<string>;
@@ -69,6 +75,12 @@ class LocalDriver implements StorageDriver {
   async get(key: string) {
     return readFile(safeLocalPath(this.root, key));
   }
+  async size(key: string) {
+    return (await stat(safeLocalPath(this.root, key))).size;
+  }
+  async read(key: string, range?: { start: number; end: number }) {
+    return Readable.toWeb(createReadStream(safeLocalPath(this.root, key), range)) as ReadableStream<Uint8Array>;
+  }
   async delete(key: string) {
     await rm(safeLocalPath(this.root, key), { force: true });
   }
@@ -101,6 +113,15 @@ class S3Driver implements StorageDriver {
     const bytes = await res.Body?.transformToByteArray();
     if (!bytes) throw new Error("empty object");
     return Buffer.from(bytes);
+  }
+  async size(key: string) {
+    const res = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+    return res.ContentLength ?? 0;
+  }
+  async read(key: string, range?: { start: number; end: number }) {
+    const res = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key, Range: range ? `bytes=${range.start}-${range.end}` : undefined }));
+    if (!res.Body) throw new Error("empty object");
+    return res.Body.transformToWebStream() as ReadableStream<Uint8Array>;
   }
   async delete(key: string) {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));

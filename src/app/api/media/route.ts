@@ -23,7 +23,13 @@ export async function GET(req: NextRequest) {
   const [asset] = await getDb().select().from(mediaAssets).where(eq(mediaAssets.storageKey, key));
   if (!asset || asset.deletedAt || asset.scanStatus !== "clean") return NextResponse.json({ error: { code: "not_found", message: "Not found." } }, { status: 404 });
 
-  const body = await storage().get(key);
+  // Only the requested bytes are read, so a one-byte Range request costs one byte, not the whole file.
+  let size: number;
+  try {
+    size = await storage().size(key);
+  } catch {
+    return NextResponse.json({ error: { code: "not_found", message: "Not found." } }, { status: 404 });
+  }
   const headers: Record<string, string> = {
     "Content-Type": asset.mime,
     "Accept-Ranges": "bytes",
@@ -36,13 +42,13 @@ export async function GET(req: NextRequest) {
   if (range) {
     // "bytes=-N" asks for the last N bytes.
     const suffix = !range[1] && range[2] ? Number(range[2]) : null;
-    const start = suffix !== null ? Math.max(0, body.length - suffix) : range[1] ? Number(range[1]) : 0;
-    const end = suffix === null && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
-    if (start > end || start >= body.length) return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${body.length}` } });
-    return new NextResponse(new Uint8Array(body.subarray(start, end + 1)), {
+    const start = suffix !== null ? Math.max(0, size - suffix) : range[1] ? Number(range[1]) : 0;
+    const end = suffix === null && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+    if (start > end || start >= size) return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+    return new NextResponse(await storage().read(key, { start, end }), {
       status: 206,
-      headers: { ...headers, "Content-Range": `bytes ${start}-${end}/${body.length}`, "Content-Length": String(end - start + 1) },
+      headers: { ...headers, "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": String(end - start + 1) },
     });
   }
-  return new NextResponse(new Uint8Array(body), { headers: { ...headers, "Content-Length": String(body.length) } });
+  return new NextResponse(await storage().read(key), { headers: { ...headers, "Content-Length": String(size) } });
 }

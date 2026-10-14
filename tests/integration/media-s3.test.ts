@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { NextRequest } from "next/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
@@ -40,6 +40,12 @@ vi.spyOn(S3Client.prototype, "send").mockImplementation((async (cmd: unknown) =>
       ...(m ? { ContentRange: `bytes ${m[1]}-${Number(m[1]) + body.length - 1}/${all.length}` } : {}),
       Body: { transformToByteArray: async () => new Uint8Array(body), transformToWebStream: () => new Response(new Uint8Array(body)).body },
     };
+  }
+  if (cmd instanceof HeadObjectCommand) {
+    sent.push(`head ${cmd.input.Key}`);
+    const all = bucket.get(cmd.input.Key!);
+    if (!all) throw Object.assign(new Error("Not Found"), { name: "NotFound" });
+    return { ContentLength: all.length };
   }
   if (cmd instanceof DeleteObjectCommand) {
     sent.push(`delete ${cmd.input.Key}`);
@@ -110,5 +116,19 @@ describe("S3 media links stop working when the asset is removed (R13)", () => {
       expect(url).not.toMatch(/s3\.invalid|X-Amz-/i);
       expect(url).toMatch(/^\/api\/media\?/);
     }
+  });
+});
+
+describe("S3 media range requests fetch only the range (R29)", () => {
+  it("asks the bucket for one byte when the browser asks for one byte", async () => {
+    const u = await makeUser();
+    const { asset, bytes } = await publicAsset(u.id);
+    const url = await assetUrl(asset, null);
+    sent.length = 0;
+    const res = await mediaRoute(new NextRequest(new URL(url!, "http://localhost"), { headers: { range: "bytes=0-0" } }));
+    expect(res.status).toBe(206);
+    expect(Buffer.from(await res.arrayBuffer()).equals(bytes.subarray(0, 1))).toBe(true);
+    expect(sent).toContain(`get ${asset.storageKey} bytes=0-0`);
+    expect(sent).not.toContain(`get ${asset.storageKey}`);
   });
 });
