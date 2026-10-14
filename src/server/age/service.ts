@@ -3,7 +3,7 @@ import { audit } from "@/server/audit";
 import type { SessionUser } from "@/server/auth/session";
 import { getDb } from "@/server/db";
 import { ageVerifications, users } from "@/server/db/schema";
-import { env } from "@/server/env";
+import { env, isLiveDeployment } from "@/server/env";
 import { HttpError } from "@/server/http";
 import { logger } from "@/server/log";
 import { ageVerificationProvider } from "./index";
@@ -63,7 +63,9 @@ async function ageFields(user: AgeSubject): Promise<AgeFields> {
  * request's geo headers require it, so a stored uncovered place never unlocks a request from a
  * covered one. With no location on the request, the stored value decides alone. The jurisdiction
  * reported is the one that requires the check, else the stored one, else the request's.
- * A verified status past its expiry reads as expired and must be redone.
+ * A verified status past its expiry reads as expired and must be redone. A sandbox result proves
+ * nothing about anyone's age, so on a live site it reads as unverified (a preview database that
+ * goes live keeps no sandbox verifications).
  */
 export async function requirementFor(user: AgeSubject, ctx: AgeContext): Promise<AgeRequirement> {
   const f = await ageFields(user);
@@ -71,8 +73,9 @@ export async function requirementFor(user: AgeSubject, ctx: AgeContext): Promise
   const codes = current ? [f.jurisdiction, current].filter((c) => c !== null) : [f.jurisdiction];
   const required = codes.some((c) => jurisdictionRequired(c));
   const jurisdiction = codes.find((c) => jurisdictionRequired(c)) ?? f.jurisdiction ?? current;
-  const expiresAt = f.ageVerificationStatus === "verified" ? expiryFor(f.ageVerifiedAt) : null;
-  const status: AgeStatus = f.ageVerificationStatus === "verified" && (!expiresAt || expiresAt.getTime() <= Date.now()) ? "expired" : f.ageVerificationStatus;
+  const stored: AgeStatus = f.ageVerificationStatus === "verified" && f.ageVerificationProvider === "sandbox" && isLiveDeployment() ? "unverified" : f.ageVerificationStatus;
+  const expiresAt = stored === "verified" ? expiryFor(f.ageVerifiedAt) : null;
+  const status: AgeStatus = stored === "verified" && (!expiresAt || expiresAt.getTime() <= Date.now()) ? "expired" : stored;
   return { jurisdiction, required, status, verifiedAt: f.ageVerifiedAt, expiresAt, provider: f.ageVerificationProvider };
 }
 

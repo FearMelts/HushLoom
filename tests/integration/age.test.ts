@@ -488,3 +488,37 @@ describe("R14: derived drafts see the request's US state", () => {
     expect((await derive({ "x-country-code": "US", "x-region-code": "CA" })).status).toBe(201);
   });
 });
+
+describe("R16: sandbox results on a live site", () => {
+  /** Runs `fn` as if this were a live deployment (APP_ENV=production on the cached env), then restores it. */
+  async function asLiveSite<T>(fn: () => Promise<T>): Promise<T> {
+    const e = env();
+    const before = e.APP_ENV;
+    e.APP_ENV = "production";
+    try {
+      return await fn();
+    } finally {
+      e.APP_ENV = before;
+    }
+  }
+
+  it("does not count a sandbox 'verified' status once the site is live, but keeps a real provider's", async () => {
+    // Verified through the sandbox during a private preview, then the same database goes live.
+    const preview = await userIn("GB");
+    await verifyThroughSandbox(preview);
+    expect((await userRow(preview.id)).ageVerificationProvider).toBe("sandbox");
+    const real = await userIn("GB");
+    await getDb().update(users).set({ ageVerificationStatus: "verified", ageVerificationProvider: "yoti", ageVerifiedAt: new Date() }).where(eq(users.id, real.id));
+
+    await asLiveSite(async () => {
+      const req = await requirementFor({ id: preview.id }, ctx);
+      expect(req).toMatchObject({ required: true, status: "unverified" });
+      await expect(assertAgeVerified({ id: preview.id }, ctx)).rejects.toMatchObject({ status: 451, details: { status: "unverified" } });
+      expect((await viewerAccessFor(preview, ctx)).explicitAllowed).toBe(false);
+      expect(await requirementFor({ id: real.id }, ctx)).toMatchObject({ required: true, status: "verified" });
+      await expect(assertAgeVerified({ id: real.id }, ctx)).resolves.toBeUndefined();
+    });
+    // Off a live site the sandbox result still counts, as before.
+    expect((await requirementFor({ id: preview.id }, ctx)).status).toBe("verified");
+  });
+});
