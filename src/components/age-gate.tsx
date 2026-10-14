@@ -40,6 +40,10 @@ export function AgeGate() {
           This screen is a notice, not age verification. Creating requires an account with a date of birth.{" "}
           <Link href="/policies" className="underline hover:text-bone-300">
             Content policy
+          </Link>{" "}
+          ·{" "}
+          <Link href="/policies/takedown" className="underline hover:text-bone-300">
+            Request a takedown
           </Link>
         </p>
       </div>

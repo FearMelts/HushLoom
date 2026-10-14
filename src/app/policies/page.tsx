@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { pricing } from "@/config/pricing";
 
 export const metadata = { title: "Policies" };
@@ -42,6 +43,26 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
           as a consent record you can see in Settings.
         </p>
         <p>Withdrawing a consent deletes the upload or reference and every creation made from it. Creations that used an upload or a character can never be published as templates.</p>
+      </>
+    ),
+  },
+  {
+    id: "abuse",
+    title: "Abuse scanning and takedowns",
+    body: (
+      <>
+        <p>
+          Every upload and every creation is checked against known child sexual abuse material before it can be shown, used or published. A match is blocked, kept as evidence for the
+          authorities, and the account is suspended while a person reviews it. If the check cannot run, nothing unchecked is kept: an upload asks you to try again in a few minutes, and a
+          creation waits and retries, or fails with your credits returned.
+        </p>
+        <p>
+          To report content that shows you without your consent, uses your likeness, or involves anyone under 18,{" "}
+          <Link href="/policies/takedown" className="text-ember-400 underline-offset-2 hover:underline">
+            request a takedown
+          </Link>
+          . You do not need an account.
+        </p>
       </>
     ),
   },

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { AccountFlags, CreditAdjust, ModelTable, ReportQueue } from "@/components/admin";
+import { AccountFlags, CreditAdjust, ModelTable, ReportQueue, ReviewLink } from "@/components/admin";
 import { relativeTime } from "@/lib/format";
 import { adminStats, moderationQueue, modelsForAdmin, recentAudit } from "@/server/admin";
 import { getCurrentUser } from "@/server/auth/session";
@@ -34,9 +34,12 @@ export default async function AdminPage() {
   const secs = (n: number | null) => (n === null ? "–" : `${n.toFixed(1)}s`);
   return (
     <div className="space-y-8">
-      <div>
-        <p className="tag text-ember-400">Operators only</p>
-        <h1 className="font-display text-4xl">Admin</h1>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="tag text-ember-400">Operators only</p>
+          <h1 className="font-display text-4xl">Admin</h1>
+        </div>
+        <ReviewLink />
       </div>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Active users" value={stats.users} hint={`${stats.newUsers24h} new in 24h`} />

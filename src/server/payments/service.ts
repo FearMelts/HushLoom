@@ -271,6 +271,9 @@ export async function listFlags(opts: { includeCleared?: boolean; limit?: number
 }
 
 export async function clearFlag(adminId: string, flagId: string, note: string) {
+  // An abuse-scan flag is cleared only through the review queue, which also restores the asset and the account.
+  const [kind] = await getDb().select({ kind: accountFlags.kind }).from(accountFlags).where(eq(accountFlags.id, flagId));
+  if (kind?.kind === "csam_match") throw new HttpError(409, "use_review_queue", "Abuse-match flags are cleared from Admin › Abuse review.");
   const [flag] = await getDb()
     .update(accountFlags)
     .set({ clearedAt: new Date(), clearedBy: adminId, details: sql`${accountFlags.details} || ${JSON.stringify({ clearNote: note })}::jsonb` })
