@@ -81,8 +81,11 @@ services:
       context: .
       dockerfile: Dockerfile
     image: hushloom-web:local
+    # This machine only, unless WEB_BIND says otherwise. The app trusts the geo headers as received,
+    # so only the edge that sets them (and strips the client's copies) may reach it; and a port
+    # published on every interface skips host firewalls such as ufw (Docker's own iptables rules).
     ports:
-      - "${WEB_PORT:-3000}:3000"
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:3000"
     depends_on:
       migrate:
         condition: service_completed_successfully

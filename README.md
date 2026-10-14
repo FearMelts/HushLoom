@@ -130,7 +130,9 @@ docker compose up -d --build
 docker compose ps            # web and worker turn "healthy"
 ```
 
-Then open http://localhost:3000 (`WEB_PORT` changes the host port).
+Then open http://localhost:3000 (`WEB_PORT` changes the host port). The port is published on
+127.0.0.1 only, for a reverse proxy on the same machine; `WEB_BIND=0.0.0.0` publishes it on every
+interface, which Docker opens past host firewalls such as ufw, so then only the edge may reach it.
 
 What runs:
 
