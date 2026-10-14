@@ -1,6 +1,6 @@
-import { and, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/server/db";
-import { favorites, generationJobs, generationOutputs, mediaAssets, templates } from "@/server/db/schema";
+import { favorites, generationJobs, generationOutputs, mediaAssets, projects, templates, userProfiles } from "@/server/db/schema";
 import { assetUrl } from "@/server/media";
 
 export type CreationListItem = {
@@ -31,11 +31,27 @@ export type CreationFilters = {
   templateId?: string;
   modelKey?: string;
   folderId?: string;
+  /** Output quality as requested at creation; a creation without one was made in HD. */
+  quality?: "hd" | "4k";
+  /** Calendar days in UTC, "YYYY-MM-DD", both inclusive. */
+  from?: string;
+  to?: string;
+  /** Creations made from any template by this creator. */
+  templateCreatorId?: string;
   active?: boolean;
   sort?: "newest" | "oldest";
   limit?: number;
   offset?: number;
 };
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** "YYYY-MM-DD" to the start of that day in UTC, or undefined for anything else (including 2026-02-31). */
+export function utcDay(value: string | undefined): Date | undefined {
+  if (!value || !DAY.test(value)) return undefined;
+  const d = new Date(`${value}T00:00:00.000Z`);
+  return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value ? undefined : d;
+}
 
 export async function listCreations(userId: string, f: CreationFilters): Promise<CreationListItem[]> {
   const db = getDb();
@@ -49,6 +65,12 @@ export async function listCreations(userId: string, f: CreationFilters): Promise
   if (f.modelKey) conds.push(eq(generationJobs.modelKey, f.modelKey));
   if (f.favorites) conds.push(sql`exists (select 1 from ${favorites} fv where fv.user_id = ${userId} and fv.target_type = 'creation' and fv.target_id = ${generationJobs.id})`);
   if (f.folderId) conds.push(sql`exists (select 1 from folder_items fi join generation_outputs go on go.id = fi.output_id where fi.folder_id = ${f.folderId} and go.job_id = ${generationJobs.id})`);
+  if (f.quality) conds.push(sql`coalesce(${generationJobs.params}->>'quality', 'hd') = ${f.quality}`);
+  const from = utcDay(f.from);
+  const to = utcDay(f.to);
+  if (from) conds.push(gte(generationJobs.createdAt, from));
+  if (to) conds.push(lt(generationJobs.createdAt, new Date(to.getTime() + 86_400_000)));
+  if (f.templateCreatorId) conds.push(eq(templates.creatorId, f.templateCreatorId));
 
   const jobs = await db
     .select({ job: generationJobs, templateTitle: templates.title })
@@ -61,7 +83,38 @@ export async function listCreations(userId: string, f: CreationFilters): Promise
   return hydrate(userId, jobs);
 }
 
-const posterUrl = async (asset: typeof mediaAssets.$inferSelect | undefined, userId: string) => (asset ? assetUrl(asset, userId) : null);
+/**
+ * Options for the Library's extra filters, drawn only from this person's own creations: the
+ * projects they made something in, the templates they used and those templates' creators.
+ */
+export async function libraryFacets(userId: string) {
+  const db = getDb();
+  const mine = and(eq(generationJobs.userId, userId), isNull(generationJobs.deletedAt), sql`${generationJobs.status} not in ('awaiting_confirmation', 'draft')`);
+  const [usedProjects, usedTemplates, creators] = await Promise.all([
+    db
+      .selectDistinct({ id: projects.id, title: projects.title })
+      .from(generationJobs)
+      .innerJoin(projects, and(eq(projects.id, generationJobs.projectId), isNull(projects.deletedAt)))
+      .where(mine)
+      .orderBy(asc(projects.title)),
+    db
+      .selectDistinct({ id: templates.id, title: templates.title })
+      .from(generationJobs)
+      .innerJoin(templates, eq(templates.id, generationJobs.templateId))
+      .where(mine)
+      .orderBy(asc(templates.title)),
+    db
+      .selectDistinct({ id: userProfiles.userId, handle: userProfiles.handle, displayName: userProfiles.displayName })
+      .from(generationJobs)
+      .innerJoin(templates, eq(templates.id, generationJobs.templateId))
+      .innerJoin(userProfiles, eq(userProfiles.userId, templates.creatorId))
+      .where(mine)
+      .orderBy(asc(userProfiles.handle)),
+  ]);
+  return { projects: usedProjects, templates: usedTemplates, creators };
+}
+
+const posterUrl =async (asset: typeof mediaAssets.$inferSelect | undefined, userId: string) => (asset ? assetUrl(asset, userId) : null);
 
 async function hydrate(userId: string, jobs: { job: typeof generationJobs.$inferSelect; templateTitle: string | null }[]): Promise<CreationListItem[]> {
   const db = getDb();
