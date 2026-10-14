@@ -244,12 +244,13 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
         </div>
       </div>
 
-      <section aria-label="Scene timeline" className="-mx-4 mb-8 overflow-x-auto px-4 pb-2">
+      {/* On phones the tiles are 40vw, so the next tile (or Add scene) always peeks in; the edge fade marks the scroll. */}
+      <section aria-label="Scene timeline" className="edge-fade -mx-4 mb-8 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
         <ol className="flex gap-3">
           {data.scenes.map((s, i) => {
             const take = takeOf(s);
             return (
-              <li key={s.id} className="w-44 shrink-0">
+              <li key={s.id} className="w-[40vw] max-w-44 shrink-0 sm:w-44">
                 <button
                   type="button"
                   onClick={() => selectScene(s.id)}
@@ -274,7 +275,7 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
               </li>
             );
           })}
-          <li className="w-44 shrink-0">
+          <li className="w-[40vw] max-w-44 shrink-0 sm:w-44">
             <button type="button" onClick={addScene} disabled={busy === "add"} className="petal grid aspect-video w-full place-items-center border border-dashed border-bone-500/40 text-bone-400 hover:border-ember-400 hover:text-ember-400">
               <span className="flex items-center gap-1.5 text-sm">
                 <Plus size={16} aria-hidden /> Add scene
