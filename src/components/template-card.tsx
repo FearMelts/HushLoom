@@ -8,7 +8,7 @@ import type { TemplateCard as Card } from "@/server/discovery/templates";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { compact } from "@/lib/format";
-import { Badge, useToast } from "./ui";
+import { Badge, buttonClass, useToast } from "./ui";
 
 /**
  * Shown in place of a template's media when the viewer still needs an age check (addendum §2).
@@ -23,7 +23,15 @@ export function WithheldMedia({ signedIn, compact, link = true, label }: { signe
         <ShieldCheck size={compact ? 20 : 28} className="mx-auto text-ember-300" aria-hidden />
         <p className={cn("mt-2 font-display leading-snug text-bone-100", compact ? "text-[13px]" : "text-base")}>{label ?? (signedIn ? "Verify your age to see previews" : "Sign in and verify to see previews")}</p>
         {link ? (
-          <Link href={verifyHref(signedIn)} className="mt-2 inline-block font-mono text-[11px] uppercase tracking-[0.08em] text-ember-400 underline-offset-2 hover:underline">
+          // The cover's one action: a real button on a full-size cover, a 40 px text link on a small tile.
+          <Link
+            href={verifyHref(signedIn)}
+            className={
+              compact
+                ? "mt-1 inline-flex min-h-10 items-center font-mono text-[11px] uppercase tracking-[0.08em] text-ember-400 underline-offset-2 hover:underline"
+                : buttonClass("ember", "md", "mt-4")
+            }
+          >
             {signedIn ? "Verify now" : "Sign in"}
           </Link>
         ) : null}
@@ -36,7 +44,7 @@ export function WithheldMedia({ signedIn, compact, link = true, label }: { signe
  * The petal card: media first, a quiet caption underneath. Hover or focus plays
  * the muted preview and reveals Make; touch users get an explicit preview button.
  */
-export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card; feature?: boolean; signedIn: boolean; autoplay?: boolean }) {
+export function TemplateCard({ card, feature, signedIn, autoplay, className }: { card: Card; feature?: boolean; signedIn: boolean; autoplay?: boolean; className?: string }) {
   const video = useRef<HTMLVideoElement>(null);
   const [fav, setFav] = useState(card.isFavorited);
   const [favCount, setFavCount] = useState(card.favoriteCount);
@@ -76,7 +84,7 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
 
   return (
     <article
-      className={cn("group relative animate-rise", feature && "sm:col-span-2 sm:row-span-2")}
+      className={cn("group relative animate-rise", feature && "sm:col-span-2 sm:row-span-2", className)}
       onMouseEnter={play}
       onMouseLeave={stop}
       onFocus={play}
@@ -129,7 +137,7 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
           onClick={toggleFavorite}
           aria-pressed={fav}
           aria-label={fav ? `Remove ${card.title} from favorites` : `Save ${card.title} to favorites`}
-          className="absolute right-2 top-2 grid size-9 place-items-center rounded-full bg-ink-950/55 backdrop-blur transition-colors hover:bg-ink-950/80"
+          className="absolute right-2 top-2 grid size-10 place-items-center rounded-full bg-ink-950/55 backdrop-blur transition-colors hover:bg-ink-950/80"
         >
           <Heart
             size={17}
@@ -140,14 +148,17 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
 
         <div className="absolute inset-x-2.5 bottom-2.5 flex items-center justify-between gap-2">
           {card.mediaWithheld ? (
-            <Link href={verifyHref(signedIn)} className="pointer-events-auto inline-flex h-9 items-center gap-1 rounded-full bg-ink-950/60 px-2.5 text-[12px] text-ember-300 backdrop-blur hover:text-ember-200">
-              <ShieldCheck size={12} aria-hidden /> {signedIn ? "Verify now" : "Sign in"}
+            <Link
+              href={verifyHref(signedIn)}
+              className="pointer-events-auto inline-flex h-10 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-ink-950/60 px-2.5 text-[12px] text-ember-300 backdrop-blur hover:text-ember-200"
+            >
+              <ShieldCheck size={12} className="shrink-0" aria-hidden /> {signedIn ? "Verify now" : "Sign in"}
             </Link>
           ) : card.mediaType === "video" ? (
             <button
               type="button"
               onClick={() => (previewing ? stop() : play())}
-              className="pointer-events-auto inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-full bg-ink-950/60 px-3 text-[12px] text-bone-50 backdrop-blur"
+              className="pointer-events-auto inline-flex h-10 min-w-10 items-center justify-center gap-1 rounded-full bg-ink-950/60 px-3 text-[12px] text-bone-50 backdrop-blur"
               aria-label={previewing ? "Pause preview" : `Preview ${card.title}`}
               disabled={!card.previewUrl}
             >
@@ -156,11 +167,17 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
           ) : (
             <span />
           )}
+          {/* Withheld cards keep Make as an icon, so the verification pill beside it never has to wrap. */}
           <Link
             href={`/templates/${card.slug}#make`}
-            className="inline-flex h-9 translate-y-1 items-center gap-1.5 rounded-full bg-ember-500 px-3.5 text-[13px] font-semibold text-ink-950 opacity-0 transition-all duration-[var(--duration-base)] ease-[var(--ease-weave)] group-hover:translate-y-0 group-hover:opacity-100 focus:translate-y-0 focus:opacity-100 max-lg:translate-y-0 max-lg:opacity-100"
+            aria-label={card.mediaWithheld ? `Make ${card.title}` : undefined}
+            className={cn(
+              "inline-flex h-10 shrink-0 translate-y-1 items-center gap-1.5 rounded-full bg-ember-500 text-[13px] font-semibold text-ink-950 opacity-0 transition-all duration-[var(--duration-base)] ease-[var(--ease-weave)] group-hover:translate-y-0 group-hover:opacity-100 focus:translate-y-0 focus:opacity-100 max-lg:translate-y-0 max-lg:opacity-100",
+              card.mediaWithheld ? "w-10 justify-center" : "px-3.5",
+            )}
           >
-            <Wand2 size={14} aria-hidden /> Make
+            <Wand2 size={14} aria-hidden />
+            {card.mediaWithheld ? null : "Make"}
           </Link>
         </div>
       </div>
@@ -173,7 +190,14 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
               {card.title}
             </Link>
           </h3>
-          <Link href={`/creators/${card.creator.handle}`} className="block truncate font-mono text-[11.5px] text-bone-400 hover:text-bone-200">
+          {/*
+            A 40 px tap target that keeps the caption compact: the box reaches 4 px above the handle's line and 19 px
+            below it (into the gap under the card), and the negative margins give that room back.
+          */}
+          <Link
+            href={`/creators/${card.creator.handle}`}
+            className="-mb-[19px] -mt-1 block min-h-10 truncate pt-1 font-mono text-[11.5px] leading-[17px] text-bone-400 hover:text-bone-200"
+          >
             @{card.creator.handle}
           </Link>
         </div>
@@ -221,13 +245,44 @@ function onGridKeys(e: KeyboardEvent<HTMLDivElement>) {
   next.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
+/**
+ * The grid's column count at each breakpoint (it must match TemplateGrid's classes), whether the editorial
+ * feature tile (2x2 from sm) applies there, and the class that hides an item at that breakpoint only.
+ */
+const EDITORIAL_TRIM = [
+  { cols: 2, featured: false, hide: "max-sm:hidden" },
+  { cols: 3, featured: true, hide: "sm:max-md:hidden" },
+  { cols: 4, featured: true, hide: "md:max-xl:hidden" },
+  { cols: 5, featured: true, hide: "xl:max-2xl:hidden" },
+  { cols: 6, featured: true, hide: "2xl:hidden" },
+] as const;
+
+/**
+ * An editorial grid features its first card and ends on a whole row at every width: the cards that would
+ * start a last, partial row are hidden at that width (never so many that no full row is left).
+ */
+function editorialTrim(index: number, count: number): string[] {
+  return EDITORIAL_TRIM.filter(({ cols, featured }) => {
+    const cells = count + (featured ? 3 : 0);
+    const extra = cells % cols;
+    return extra > 0 && cells - extra >= cols && index >= count - extra;
+  }).map((t) => t.hide);
+}
+
 export function TemplateGrid({ cards, signedIn, autoplay, editorial }: { cards: Card[]; signedIn: boolean; autoplay?: boolean; editorial?: boolean }) {
   return (
     <div
       onKeyDown={onGridKeys}
       className="grid grid-flow-row-dense grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
       {cards.map((c, i) => (
-        <TemplateCard key={c.id} card={c} signedIn={signedIn} autoplay={autoplay} feature={editorial && i % 11 === 0} />
+        <TemplateCard
+          key={c.id}
+          card={c}
+          signedIn={signedIn}
+          autoplay={autoplay}
+          feature={editorial && i === 0}
+          className={editorial ? cn(editorialTrim(i, cards.length)) : undefined}
+        />
       ))}
     </div>
   );
@@ -235,7 +290,10 @@ export function TemplateGrid({ cards, signedIn, autoplay, editorial }: { cards: 
 
 export function TemplateRail({ cards, signedIn }: { cards: Card[]; signedIn: boolean }) {
   return (
-    <div className="scrollbar-none -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6" role="list">
+    // Scroll padding equal to the gutter: snap-start aligns cards to the snapport, which ignores the rail's own
+    // padding, so without it the first card snaps flush to the screen edge instead of the content edge.
+    // pb-5 holds the creator link's tap area, which reaches 19 px below each card's caption.
+    <div className="scrollbar-none -mx-4 flex scroll-px-4 snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-5 sm:-mx-6 sm:scroll-px-6 sm:px-6" role="list">
       {cards.map((c) => (
         <div key={c.id} role="listitem" className="w-[42vw] max-w-[220px] shrink-0 snap-start sm:w-[200px]">
           <TemplateCard card={c} signedIn={signedIn} />

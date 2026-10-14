@@ -6,7 +6,7 @@ import { CreatePanel } from "@/components/create-panel";
 import { Avatar } from "@/components/shell";
 import { FollowButton, MakeBar, RateStars, ReportButton, TemplateMedia } from "@/components/template-detail";
 import { TemplateRail } from "@/components/template-card";
-import { Badge, SectionHeading } from "@/components/ui";
+import { Badge, SectionHeading, SectionLink } from "@/components/ui";
 import { viewerAccess } from "@/server/age/access";
 import { createContext } from "@/server/create-context";
 import { getDb } from "@/server/db";
@@ -68,13 +68,15 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
         </div>
 
         <div className="min-w-0">
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {t.isVip ? <Badge tone="vip">VIP</Badge> : null}
             {t.quality === "4k" ? <Badge>4K</Badge> : null}
             {demo ? <Badge tone="demo">Demo media</Badge> : null}
             <Badge tone={t.mediaType === "video" ? "video" : "plain"}>{t.mediaType === "video" ? `Video${t.durationS ? ` · ${t.durationS}s` : ""}` : "Image"}</Badge>
             {data.category ? (
-              <Link href={`/explore?category=${data.category.slug}`}>
+              // inline-flex keeps the badge on the row's line (an inline wrapper dropped it to the baseline); the
+              // 40 px box is the tap target, and its negative margins keep the row 20 px tall.
+              <Link href={`/explore?category=${data.category.slug}`} className="-my-2.5 inline-flex min-h-10 items-center">
                 <Badge>{data.category.name}</Badge>
               </Link>
             ) : null}
@@ -82,7 +84,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
           </div>
           <h1 className="mt-3 font-display text-4xl leading-tight sm:text-5xl">{t.title}</h1>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <Link href={`/creators/${data.handle}`} className="flex items-center gap-2.5">
+            <Link href={`/creators/${data.handle}`} className="flex min-h-10 items-center gap-2.5">
               <Avatar name={data.displayName} size={36} />
               <span>
                 <span className="block text-sm">{data.displayName}</span>
@@ -90,14 +92,14 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
               </span>
             </Link>
             {!data.own ? <FollowButton creatorId={t.creatorId} initial={data.following} signedIn={Boolean(user)} /> : (
-              <Link href={`/creators/${data.handle}?tab=manage`} className="text-[13px] text-ember-300 underline">Manage template</Link>
+              <Link href={`/creators/${data.handle}?tab=manage`} className="inline-flex min-h-10 items-center text-[13px] text-ember-300 underline">Manage template</Link>
             )}
           </div>
           {t.description ? <p className="mt-4 text-[15px] leading-relaxed text-bone-300">{t.description}</p> : null}
           <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-bone-400">
             <div>
               <dt className="sr-only">Made</dt>
-              <dd>Made {compact(t.generationCount)} times</dd>
+              <dd>{t.generationCount === 1 ? "Made once" : `Made ${compact(t.generationCount)} times`}</dd>
             </div>
             <div>
               <dt className="sr-only">Favorites</dt>
@@ -122,7 +124,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
             <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Tags">
               {t.tags.map((tag) => (
                 <li key={tag}>
-                  <Link href={`/explore?q=${encodeURIComponent(tag)}`} className="tag rounded-full px-2.5 py-1 text-bone-400 hairline hover:text-bone-50">
+                  <Link href={`/explore?q=${encodeURIComponent(tag)}`} className="tag inline-flex h-6 items-center rounded-full px-2.5 text-bone-400 hairline hover:text-bone-50 max-sm:h-10 max-sm:px-3">
                     #{tag}
                   </Link>
                 </li>
@@ -186,18 +188,17 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
             kicker="Same tag"
             title={`More in #${tag}`}
             action={
-              <Link href={`/explore?q=${encodeURIComponent(tag)}`} className="inline-flex items-center gap-1 text-[13px] text-bone-300 hover:text-bone-50">
+              <SectionLink href={`/explore?q=${encodeURIComponent(tag)}`}>
                 See all <ArrowRight size={14} aria-hidden />
-              </Link>
+              </SectionLink>
             }
           />
           <TemplateRail cards={cards} signedIn={Boolean(user)} />
         </section>
       ))}
 
+      {/* The shell's bottom padding makes room for this bar while it shows (it publishes --dock-h). */}
       <MakeBar cost={makeCost} locked={locked} demo={demo} />
-      {/* Room for the phone "Make it" bar above the tab bar. */}
-      <div className="h-14 lg:hidden" aria-hidden />
     </div>
   );
 }

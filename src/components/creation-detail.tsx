@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Bookmark, Columns2, Copy, Download, FastForward, FolderPlus, Heart, Repeat, Send, Shuffle, Trash2, Wand2, X } from "lucide-react";
+import { Bookmark, Columns2, Copy, Download, FastForward, FolderPlus, Heart, Repeat, Send, Shuffle, Trash2, Wand2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -13,7 +13,7 @@ import { useOnline } from "@/lib/use-online";
 import { JOB_STARTED_EVENT } from "./job-tray";
 import { OFFLINE_MESSAGE, OfflineGuard } from "./offline";
 import { WithheldMedia } from "./template-card";
-import { Badge, Button, ButtonLink, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
+import { BackLink, Badge, Button, ButtonLink, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
 
 type Details = {
   prompt: string;
@@ -32,11 +32,16 @@ type Details = {
 
 type Pending = { id: string; costCredits: number; label: string; isDemo: boolean };
 
+// Below lg the media sits above the details in one column: capped at 60% of the screen height, so the status,
+// prompt and actions start on the first screen. Boxes keep 4:5 by capping their width; media keeps its own ratio.
+const capBox = "max-lg:mx-auto max-lg:w-[min(100%,48dvh)]";
+const capMedia = "max-lg:mx-auto max-lg:max-h-[60dvh] max-lg:w-auto";
+
 function Media({ item, className }: { item: CreationListItem; className?: string }) {
   if (item.output?.mediaWithheld) {
     // The server sent no media URL: the age rules here need a verification first.
     return (
-      <div className={cn("petal relative aspect-[4/5] overflow-hidden hairline", className)}>
+      <div className={cn("petal relative aspect-[4/5] overflow-hidden hairline", capBox, className)}>
         <WithheldMedia signedIn label="Verify your age to see this" />
       </div>
     );
@@ -44,7 +49,7 @@ function Media({ item, className }: { item: CreationListItem; className?: string
   if (!item.output?.url) {
     const running = item.status === "queued" || item.status === "processing";
     return (
-      <div className={cn("petal grid aspect-[4/5] place-items-center bg-ink-850 hairline", running && "skeleton", className)}>
+      <div className={cn("petal grid aspect-[4/5] place-items-center bg-ink-850 hairline", capBox, running && "skeleton", className)}>
         <div className="p-6 text-center">
           <p className="font-display text-2xl">{STATUS_LABEL[item.status]}</p>
           {running ? <p className="mt-1 font-mono text-[12px] text-bone-400" suppressHydrationWarning>{elapsed(item.startedAt ?? item.queuedAt ?? item.createdAt)} elapsed</p> : null}
@@ -54,10 +59,10 @@ function Media({ item, className }: { item: CreationListItem; className?: string
     );
   }
   return item.output.kind === "video" ? (
-    <video src={item.output.url} poster={item.output.posterUrl ?? undefined} controls loop playsInline muted preload="metadata" className={cn("petal w-full bg-ink-850", className)} aria-label="Your video" />
+    <video src={item.output.url} poster={item.output.posterUrl ?? undefined} controls loop playsInline muted preload="metadata" className={cn("petal w-full bg-ink-850", capMedia, className)} aria-label="Your video" />
   ) : (
     // eslint-disable-next-line @next/next/no-img-element -- signed URL
-    <img src={item.output.url} alt="Your creation" className={cn("petal w-full bg-ink-850 object-contain", className)} />
+    <img src={item.output.url} alt="Your creation" className={cn("petal w-full bg-ink-850 object-contain", capMedia, className)} />
   );
 }
 
@@ -176,9 +181,9 @@ export function CreationDetail({
 
   return (
     <div>
-      <Link href="/collection" className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-bone-400 hover:text-bone-50">
-        <ArrowLeft size={15} aria-hidden /> Library
-      </Link>
+      <div className="mb-4">
+        <BackLink href="/collection">Library</BackLink>
+      </div>
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div className="space-y-3">
           {compareWith ? (
@@ -209,6 +214,8 @@ export function CreationDetail({
 
         <div className="min-w-0 space-y-6">
           <div>
+            {/* The page title for heading navigation; the prompt below is what the person reads. */}
+            <h1 className="sr-only">{details.template ? `Creation from ${details.template.title}` : "Creation"}</h1>
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge tone={item.status === "failed" ? "danger" : item.status === "completed" ? "new" : "plain"}>{STATUS_LABEL[item.status]}</Badge>
               {item.isDemo ? <Badge tone="demo">Demo</Badge> : null}

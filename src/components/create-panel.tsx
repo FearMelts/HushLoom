@@ -14,7 +14,7 @@ import { draftKeyFor, type DraftKey } from "@/lib/draft-key";
 import { useOnline } from "@/lib/use-online";
 import { JOB_STARTED_EVENT } from "./job-tray";
 import { OFFLINE_MESSAGE, OfflineGuard } from "./offline";
-import { Badge, Button, Chip, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
+import { Badge, Button, ButtonLink, Chip, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
 
 export type CreateTemplate = {
   id: string;
@@ -131,7 +131,10 @@ export function CreatePanel({
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // An age-check refusal carries where to verify, so the alert can link there instead of describing the way.
+  const [error, setError] = useState<{ message: string; verifyPath: string | null } | null>(null);
+  const failed = (e: unknown, fallback: string) =>
+    setError(e instanceof ApiError ? (e.verifyPath ? { message: e.serverMessage, verifyPath: e.verifyPath } : { message: e.message, verifyPath: null }) : { message: fallback, verifyPath: null });
   const [presets, setPresets] = useState<Preset[]>([]);
   const [presetOpen, setPresetOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
@@ -277,7 +280,7 @@ export function CreatePanel({
       setUpload({ ...res, previewUrl: URL.createObjectURL(file) });
       forgetDraftKey();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Upload failed.");
+      failed(e, "Upload failed.");
     } finally {
       setUploading(false);
       setPendingFile(null);
@@ -319,7 +322,7 @@ export function CreatePanel({
       }
       setDraft(job);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Something went wrong.");
+      failed(e, "Something went wrong.");
     } finally {
       setBusy(false);
     }
@@ -336,7 +339,7 @@ export function CreatePanel({
       toast({ message: draft.isDemo ? "Weaving a demo placeholder." : "Weaving your creation.", action: { label: "Library", href: "/collection" } });
       router.refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not start.");
+      failed(e, "Could not start.");
       setDraft(null);
       forgetDraftKey();
     } finally {
@@ -437,7 +440,7 @@ export function CreatePanel({
                   setUpload(null);
                   forgetDraftKey();
                 }}
-                className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800" aria-label="Remove upload">
+                className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 max-sm:size-10" aria-label="Remove upload">
                 <X size={16} />
               </button>
             </div>
@@ -561,7 +564,8 @@ export function CreatePanel({
             <li
               key={s.id}
               className={cn(
-                "flex items-start gap-3 rounded-2xl px-3.5 py-3 text-[13px]",
+                // On phones the actions move under the text (max-sm:flex-wrap), so the explanation gets the full width.
+                "flex items-start gap-3 rounded-2xl px-3.5 py-3 text-[13px] max-sm:flex-wrap max-sm:gap-y-1",
                 s.severity === "block" ? "bg-danger-400/10 text-danger-400" : s.severity === "warn" ? "bg-brass-400/10" : "bg-ink-850 hairline",
               )}
             >
@@ -575,14 +579,23 @@ export function CreatePanel({
                 <p className={cn("mt-0.5", s.severity === "block" ? "" : "text-bone-300")}>{s.detail}</p>
                 {s.patch?.prompt ? <p className="mt-1.5 rounded-lg bg-ink-950/60 px-2.5 py-1.5 text-bone-200">{s.patch.prompt}</p> : null}
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-1">
+              <div className="-mr-2 -mt-1.5 flex shrink-0 flex-col items-end max-sm:-mb-1.5 max-sm:mt-0 max-sm:w-full max-sm:flex-row max-sm:justify-end max-sm:gap-1">
                 {s.patch ? (
-                  <button type="button" className="font-semibold text-ember-400 hover:text-ember-300" onClick={() => applyPatch(s.patch)}>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-10 items-center rounded-full px-3 font-semibold text-ember-400 hover:bg-ink-800 hover:text-ember-300 sm:min-h-8"
+                    onClick={() => applyPatch(s.patch)}
+                  >
                     {s.patchLabel ?? "Apply"}
                   </button>
                 ) : null}
                 {s.severity !== "block" ? (
-                  <button type="button" className="text-bone-500 hover:text-bone-300" onClick={() => setDismissed((d) => [...d, s.id])} aria-label={`Dismiss: ${s.title}`}>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-10 items-center rounded-full px-3 text-bone-500 hover:bg-ink-800 hover:text-bone-300 sm:min-h-8"
+                    onClick={() => setDismissed((d) => [...d, s.id])}
+                    aria-label={`Dismiss: ${s.title}`}
+                  >
                     Dismiss
                   </button>
                 ) : null}
@@ -847,9 +860,14 @@ export function CreatePanel({
       </div>
 
       {error ? (
-        <p className="rounded-xl bg-danger-400/10 px-3.5 py-2.5 text-[13px] text-danger-400" role="alert">
-          {error}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-danger-400/10 px-3.5 py-2.5 text-[13px] text-danger-400" role="alert">
+          <p>{error.message}</p>
+          {error.verifyPath ? (
+            <ButtonLink href={error.verifyPath} size="sm" variant="ember" className="shrink-0">
+              Verify your age
+            </ButtonLink>
+          ) : null}
+        </div>
       ) : null}
 
       <OfflineGuard>

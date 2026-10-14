@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ClosedList, EscalationQueue, TakedownQueue } from "@/components/admin-review";
-import { Badge } from "@/components/ui";
+import { BackLink, Badge } from "@/components/ui";
 import { getCurrentUser } from "@/server/auth/session";
 import { scanSettings } from "@/server/safety/scan";
 import { listEscalations } from "@/server/safety/review";
@@ -54,9 +54,7 @@ export default async function AbuseReviewPage({ searchParams }: { searchParams: 
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/admin" className="tag text-bone-500 hover:text-bone-300">
-          ← Admin
-        </Link>
+        <BackLink href="/admin">Admin</BackLink>
         <p className="tag mt-3 text-ember-400">Operators only</p>
         <h1 className="font-display text-4xl">Abuse review</h1>
         <p className="mt-2 max-w-2xl text-sm text-bone-400">

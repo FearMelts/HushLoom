@@ -193,7 +193,7 @@ function TakedownCard({ t }: { t: TakedownItem }) {
       </div>
       <p className="mt-1.5 break-all text-[13px] text-bone-100">
         {t.targetType === "template" ? (
-          <Link href={`/templates/${t.targetRef}`} target="_blank" className="inline-flex items-center gap-1 hover:text-ember-400">
+          <Link href={`/templates/${t.targetRef}`} target="_blank" className="-my-2.5 inline-flex min-h-10 items-center gap-1 hover:text-ember-400">
             {t.targetLabel ?? t.targetRef} <ExternalLink size={12} aria-hidden />
           </Link>
         ) : (

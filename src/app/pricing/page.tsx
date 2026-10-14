@@ -146,7 +146,7 @@ export default async function PricingPage({ searchParams }: { searchParams: Prom
         <section className="mb-12">
           <SectionHeading kicker="What the processor confirmed" title="Payments" />
           {payments.length ? (
-            <div className="overflow-x-auto">
+            <div className="edge-fade overflow-x-auto">
               <table className="w-full min-w-[640px] text-left text-[13px]" data-testid="payments-history">
                 <thead className="text-bone-500">
                   <tr className="border-b border-bone-50/10">
@@ -187,34 +187,57 @@ export default async function PricingPage({ searchParams }: { searchParams: Prom
         <section>
           <SectionHeading kicker="Every movement, newest first" title="Credit history" />
           {ledger.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[520px] text-left text-[13px]">
-                <thead className="text-bone-500">
-                  <tr className="border-b border-bone-50/10">
-                    <th className="py-2 font-medium">When</th>
-                    <th className="py-2 font-medium">What</th>
-                    <th className="py-2 text-right font-medium">Change</th>
-                    <th className="py-2 text-right font-medium">Available after</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ledger.map((l) => (
-                    <tr key={l.id} className="border-b border-bone-50/5">
-                      <td className="py-2 text-bone-400">{relativeTime(l.createdAt)}</td>
-                      <td className="py-2">
+            <>
+              {/* Phones: one entry per row, what and when on the left, the change and the balance after on the right. */}
+              <ul className="divide-y divide-bone-50/5 border-y border-bone-50/10 text-[13px] sm:hidden" aria-label="Credit history">
+                {ledger.map((l) => (
+                  <li key={l.id} className="flex items-start justify-between gap-4 py-2.5">
+                    <div className="min-w-0">
+                      <p>
                         {KIND_LABEL[l.kind] ?? l.kind}
                         {l.note ? <span className="text-bone-500"> · {l.note}</span> : null}
-                      </td>
-                      <td className={cn("py-2 text-right font-mono", l.availableDelta > 0 ? "text-sage-400" : l.availableDelta < 0 ? "text-bone-200" : "text-bone-500")}>
+                      </p>
+                      <p className="mt-0.5 text-[12px] text-bone-400">{relativeTime(l.createdAt)}</p>
+                    </div>
+                    <div className="shrink-0 text-right font-mono">
+                      <p className={l.availableDelta > 0 ? "text-sage-400" : l.availableDelta < 0 ? "text-bone-200" : "text-bone-500"}>
                         {l.availableDelta > 0 ? `+${l.availableDelta}` : l.availableDelta || "0"}
                         {l.reservedDelta ? <span className="text-bone-500"> ({l.reservedDelta > 0 ? "+" : ""}{l.reservedDelta} held)</span> : null}
-                      </td>
-                      <td className="py-2 text-right font-mono">{l.availableAfter}</td>
+                      </p>
+                      <p className="mt-0.5 text-[12px] text-bone-500">{l.availableAfter} available</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="edge-fade hidden overflow-x-auto sm:block">
+                <table className="w-full min-w-[520px] text-left text-[13px]">
+                  <thead className="text-bone-500">
+                    <tr className="border-b border-bone-50/10">
+                      <th className="py-2 font-medium">When</th>
+                      <th className="py-2 font-medium">What</th>
+                      <th className="py-2 text-right font-medium">Change</th>
+                      <th className="py-2 text-right font-medium">Available after</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {ledger.map((l) => (
+                      <tr key={l.id} className="border-b border-bone-50/5">
+                        <td className="py-2 text-bone-400">{relativeTime(l.createdAt)}</td>
+                        <td className="py-2">
+                          {KIND_LABEL[l.kind] ?? l.kind}
+                          {l.note ? <span className="text-bone-500"> · {l.note}</span> : null}
+                        </td>
+                        <td className={cn("py-2 text-right font-mono", l.availableDelta > 0 ? "text-sage-400" : l.availableDelta < 0 ? "text-bone-200" : "text-bone-500")}>
+                          {l.availableDelta > 0 ? `+${l.availableDelta}` : l.availableDelta || "0"}
+                          {l.reservedDelta ? <span className="text-bone-500"> ({l.reservedDelta > 0 ? "+" : ""}{l.reservedDelta} held)</span> : null}
+                        </td>
+                        <td className="py-2 text-right font-mono">{l.availableAfter}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           ) : (
             <p className="text-sm text-bone-400">No credit movements yet.</p>
           )}

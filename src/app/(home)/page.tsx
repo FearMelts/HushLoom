@@ -1,7 +1,7 @@
 import { ArrowRight, Film, ImageIcon } from "lucide-react";
 import Link from "next/link";
 import { TemplateGrid, TemplateRail } from "@/components/template-card";
-import { ButtonLink, SectionHeading } from "@/components/ui";
+import { ButtonLink, SectionHeading, SectionLink } from "@/components/ui";
 import { viewerAccess } from "@/server/age/access";
 import { getDb } from "@/server/db";
 import { userPreferences } from "@/server/db/schema";
@@ -73,9 +73,9 @@ export default async function HomePage() {
             kicker={forMe.personalized ? "From what you love" : "Popular to start"}
             title="For you"
             action={
-              <Link href="/settings#discovery" className="text-[13px] text-bone-400 hover:text-bone-50">
+              <SectionLink href="/settings#discovery">
                 Tune
-              </Link>
+              </SectionLink>
             }
           />
           <TemplateRail cards={forMe.items} signedIn={signedIn} />
@@ -95,9 +95,9 @@ export default async function HomePage() {
             kicker="Saved inspirations"
             title="Your favorites"
             action={
-              <Link href="/favorites" className="inline-flex items-center gap-1 text-[13px] text-bone-300 hover:text-bone-50">
+              <SectionLink href="/favorites">
                 All saved <ArrowRight size={14} aria-hidden />
-              </Link>
+              </SectionLink>
             }
           />
           <TemplateRail cards={saved} signedIn={signedIn} />
@@ -109,9 +109,9 @@ export default async function HomePage() {
           kicker="Most made this week"
           title="Trending tonight"
           action={
-            <Link href="/explore" className="inline-flex items-center gap-1 text-[13px] text-bone-300 hover:text-bone-50">
+            <SectionLink href="/explore">
               Explore all <ArrowRight size={14} aria-hidden />
-            </Link>
+            </SectionLink>
           }
         />
         <TemplateGrid cards={trending.items} signedIn={signedIn} autoplay={autoplay} editorial />
@@ -135,9 +135,9 @@ export default async function HomePage() {
           kicker="Fresh from creators"
           title="New"
           action={
-            <Link href="/explore?sort=new" className="inline-flex items-center gap-1 text-[13px] text-bone-300 hover:text-bone-50">
+            <SectionLink href="/explore?sort=new">
               See all <ArrowRight size={14} aria-hidden />
-            </Link>
+            </SectionLink>
           }
         />
         <TemplateRail cards={fresh.items} signedIn={signedIn} />

@@ -75,7 +75,8 @@ export function SettingsView({ data, email }: { data: Settings; email: string })
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <p className="tag text-ember-400">{email}</p>
+        {/* Not the uppercase .tag eyebrow: an address reads as it is written. */}
+        <p className="font-mono text-[12px] text-ember-400">{email}</p>
         <h1 className="font-display text-4xl">Settings</h1>
       </div>
 

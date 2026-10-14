@@ -41,11 +41,53 @@ function seededPalette(seedText: string) {
   };
 }
 
+/**
+ * Splits the prompt into at most `maxLines` lines of at most `perLine` characters, breaking at
+ * spaces where it can, and ends the last line with an ellipsis when the prompt is longer.
+ */
+export function captionLines(prompt: string, perLine: number, maxLines = 2): string[] {
+  const words = prompt.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  let i = 0;
+  while (i < words.length && lines.length < maxLines) {
+    const word = words[i]!;
+    const next = line ? `${line} ${word}` : word;
+    if (next.length <= perLine) {
+      line = next;
+      i++;
+    } else if (!line) {
+      // One word longer than a line: cut it.
+      lines.push(word.slice(0, perLine));
+      words[i] = word.slice(perLine);
+    } else {
+      lines.push(line);
+      line = "";
+    }
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  if (i < words.length) {
+    const last = lines[lines.length - 1] ?? "";
+    lines[lines.length - 1] = `${last.length + 2 > perLine ? last.slice(0, perLine - 1).trimEnd() : last}…`;
+  }
+  return lines;
+}
+
 export function demoSvg(prompt: string, seed: number, width: number, height: number): string {
   const p = seededPalette(`${prompt}|${seed}`);
-  const caption = escapeXml(prompt.length > 70 ? `${prompt.slice(0, 67)}…` : prompt);
   const band = Math.round(height * 0.09);
+  // The watermark fits the width too: on a 9:16 frame the band-sized type ran off both edges.
+  const markFs = Math.min(Math.round(band * 0.36), Math.floor((width * 0.9 - 2 * DEMO_WATERMARK.length) / (DEMO_WATERMARK.length * 0.72)));
   const fs = Math.max(14, Math.round(width / 26));
+  // The caption fits the width (DejaVu Sans runs about 0.6 em per character) in two lines, and
+  // starts below the top 16%, where the app draws its Demo badge and the favorite heart.
+  const left = Math.round(width * 0.06);
+  const perLine = Math.max(8, Math.floor((width - 2 * left) / (fs * 0.6)));
+  const lineHeight = Math.round(fs * 1.3);
+  const top = Math.round(height * 0.16 + fs);
+  const caption = captionLines(prompt, perLine)
+    .map((l, i) => `<tspan x="${left}" ${i === 0 ? `y="${top}"` : `dy="${lineHeight}"`}>${escapeXml(l)}</tspan>`)
+    .join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <defs>
     <radialGradient id="g1" cx="${p.x[0]}" cy="${p.y[0]}" r="0.8"><stop offset="0" stop-color="${p.c}"/><stop offset="1" stop-color="${p.c}" stop-opacity="0"/></radialGradient>
@@ -58,8 +100,8 @@ export function demoSvg(prompt: string, seed: number, width: number, height: num
   <circle cx="${Math.round(width * p.x[2]!)}" cy="${Math.round(height * p.y[2]!)}" r="${Math.round(Math.min(width, height) * 0.22)}" fill="#fff" fill-opacity="0.08"/>
   <rect y="${height - band}" width="100%" height="${band}" fill="url(#stripe)"/>
   <rect y="${height - band}" width="100%" height="${band}" fill="#000" fill-opacity="0.55"/>
-  <text x="50%" y="${height - band / 2}" dominant-baseline="middle" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" font-size="${Math.round(band * 0.36)}" fill="#fff" letter-spacing="2">${DEMO_WATERMARK}</text>
-  <text x="${Math.round(width * 0.06)}" y="${Math.round(height * 0.1)}" font-family="DejaVu Sans, Arial, sans-serif" font-size="${fs}" fill="#fff" fill-opacity="0.85">${caption}</text>
+  <text x="50%" y="${height - band / 2}" dominant-baseline="middle" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" font-size="${markFs}" fill="#fff" letter-spacing="2">${DEMO_WATERMARK}</text>
+  <text font-family="DejaVu Sans, Arial, sans-serif" font-size="${fs}" fill="#fff" fill-opacity="0.85">${caption}</text>
 </svg>`;
 }
 

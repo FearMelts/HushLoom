@@ -72,7 +72,7 @@ function CreditPill({ credits }: { credits: number }) {
   return (
     <Link
       href="/pricing"
-      className="inline-flex h-9 items-center gap-2 rounded-full bg-ink-850 pl-2 pr-3.5 text-sm hairline hover:bg-ink-800"
+      className="inline-flex h-10 items-center gap-2 rounded-full bg-ink-850 pl-2.5 pr-3.5 text-sm hairline hover:bg-ink-800"
       aria-label={`${credits} credits. Get more credits`}
     >
       <span className="grid size-5 place-items-center rounded-full bg-brass-400 text-[11px] font-bold text-ink-950" aria-hidden>
@@ -108,6 +108,18 @@ function SearchBox({ className }: { className?: string }) {
       />
     </form>
   );
+}
+
+/**
+ * Hands the page to React through a component instead of straight into the content <div>. On a cold load the
+ * page's part of the RSC payload can still be resolving when React hydrates the shell, so the element holding
+ * it suspends. React 19.2 (the version Next 15.5 bundles) replays a suspended host element without rewinding its
+ * hydration cursor, finds the element's own first child where the element should be, and throws error #418:
+ * the whole document is then thrown away and rendered again on the client. A component replays without touching
+ * the cursor. React 19.3 fixes the replay itself; this changes no markup.
+ */
+function PageSlot({ children }: { children: ReactNode }) {
+  return children;
 }
 
 export function Shell({ user, children }: { user: ShellUser; children: ReactNode }) {
@@ -190,7 +202,7 @@ export function Shell({ user, children }: { user: ShellUser; children: ReactNode
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-ink-950/80 pt-[env(safe-area-inset-top)] backdrop-blur lg:pl-[236px]">
         <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-3 px-4 sm:px-6">
-          <Link href="/" className="lg:hidden" aria-label="Hushloom home">
+          <Link href="/" className="inline-flex h-10 items-center lg:hidden" aria-label="Hushloom home">
             <Wordmark />
           </Link>
           <SearchBox className="ml-auto hidden w-full max-w-md sm:block lg:ml-0" />
@@ -214,8 +226,17 @@ export function Shell({ user, children }: { user: ShellUser; children: ReactNode
         <OfflineBanner />
       </header>
 
-      <main id="main" className="pb-28 lg:pb-12 lg:pl-[236px]">
-        <div className="mx-auto max-w-[1600px] px-4 pt-5 sm:px-6">{children}</div>
+      {/*
+        Bottom room for what floats over the page: the tab bar, and the job tray and docked page bar while they
+        show (both publish their height), so the last controls can always scroll clear of them.
+      */}
+      <main
+        id="main"
+        className="pb-[calc(7rem+env(safe-area-inset-bottom)+var(--tray-h,0px)+var(--dock-h,0px))] lg:pb-[calc(3rem+var(--tray-h,0px))] lg:pl-[236px]"
+      >
+        <div className="mx-auto max-w-[1600px] px-4 pt-5 sm:px-6">
+          <PageSlot>{children}</PageSlot>
+        </div>
       </main>
 
       {user ? <JobTray /> : null}

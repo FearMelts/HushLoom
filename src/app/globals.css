@@ -172,6 +172,37 @@ body {
 .scrollbar-none {
   scrollbar-width: none;
 }
+
+/*
+ * A right-edge fade on a horizontal scroller (put it on the element that scrolls) while more content waits past
+ * the edge, so a row or table with a hidden scrollbar still shows that it scrolls. It follows the scroll position
+ * (a scroll-driven animation): gone at the end of the scroll, and never shown on a row that fits, where the
+ * timeline is inactive and --edge-fade keeps its initial 0px. Without scroll-driven animations there is no fade.
+ */
+@property --edge-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+.edge-fade {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 var(--edge-fade));
+  mask-image: linear-gradient(to left, transparent, #000 var(--edge-fade));
+}
+@supports (animation-timeline: scroll()) {
+  .edge-fade {
+    animation: edge-fade linear both;
+    animation-timeline: scroll(self inline);
+  }
+}
+@keyframes edge-fade {
+  0%,
+  90% {
+    --edge-fade: 40px;
+  }
+  100% {
+    --edge-fade: 0px;
+  }
+}
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }

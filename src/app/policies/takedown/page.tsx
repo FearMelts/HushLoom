@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { BackLink } from "@/components/ui";
 import { TakedownForm } from "@/components/takedown-form";
 import { getCurrentUser } from "@/server/auth/session";
 
@@ -10,9 +10,7 @@ export default async function TakedownPage({ searchParams }: { searchParams: Pro
   const target = (await searchParams).target?.slice(0, 500) ?? "";
   return (
     <article className="mx-auto max-w-2xl">
-      <Link href="/policies" className="tag text-bone-500 hover:text-bone-300">
-        ← Policies
-      </Link>
+      <BackLink href="/policies">Policies</BackLink>
       <p className="tag mt-3 text-ember-400">Report and remove</p>
       <h1 className="font-display text-4xl">Request a takedown</h1>
       <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-bone-200">

@@ -46,7 +46,8 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
           </ButtonLink>
         </div>
       </div>
-      <div className="grid gap-8 xl:grid-cols-[1fr_320px]">
+      {/* minmax(0, 1fr): a long nowrap prompt in the Job monitor must truncate, not widen the page. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="rounded-[24px_8px_24px_8px] bg-ink-900/70 p-4 hairline sm:p-6">
           {preset ? <p className="mb-4 text-[13px] text-bone-300">Started from preset “{preset.name}”.</p> : null}
           <CreatePanel

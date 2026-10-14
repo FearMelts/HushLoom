@@ -14,7 +14,7 @@ import { STATUS_LABEL, relativeTime } from "@/lib/format";
 import { JOB_STARTED_EVENT, useJobEvents } from "./job-tray";
 import { CreationThumb } from "./library";
 import { OfflineGuard } from "./offline";
-import { Badge, Button, ButtonLink, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
+import { BackLink, Badge, Button, ButtonLink, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
 
 type ProjectSummary = {
   id: string;
@@ -23,7 +23,7 @@ type ProjectSummary = {
   updatedAt: string;
   scenes: number;
   clips: number;
-  cover: { kind: "image" | "video"; url: string | null; posterUrl: string | null } | null;
+  cover: { kind: "image" | "video"; url: string | null; posterUrl: string | null; isDemo: boolean } | null;
 };
 
 function Media({ output, className }: { output: { kind: "image" | "video"; url: string | null; posterUrl?: string | null } | null; className?: string }) {
@@ -77,6 +77,12 @@ export function ProjectsIndex({ projects }: { projects: ProjectSummary[] }) {
               <Link href={`/projects/${p.id}`} className="group block">
                 <div className="petal relative aspect-video overflow-hidden hairline">
                   <Media output={p.cover} className="absolute inset-0 size-full transition-transform duration-[var(--duration-slow)] group-hover:scale-[1.03]" />
+                  {/* The 16:9 crop cuts the placeholder's own band, so the tile says Demo itself, like a Library thumbnail. */}
+                  {p.cover?.isDemo ? (
+                    <div className="pointer-events-none absolute left-2 top-2 flex gap-1">
+                      <Badge tone="demo">Demo</Badge>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="mt-2.5 px-0.5">
                   <p className="font-display text-xl">{p.title}</p>
@@ -223,9 +229,9 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
 
   return (
     <div>
-      <Link href="/projects" className="mb-3 inline-flex items-center gap-1.5 text-[13px] text-bone-400 hover:text-bone-50">
-        <ArrowLeft size={14} aria-hidden /> Projects
-      </Link>
+      <div className="mb-3">
+        <BackLink href="/projects">Projects</BackLink>
+      </div>
       <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h1 className="font-display text-4xl">{data.project.title}</h1>
@@ -244,12 +250,13 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
         </div>
       </div>
 
-      <section aria-label="Scene timeline" className="-mx-4 mb-8 overflow-x-auto px-4 pb-2">
+      {/* On phones the tiles are 40vw, so the next tile (or Add scene) always peeks in; the edge fade marks the scroll. */}
+      <section aria-label="Scene timeline" className="edge-fade -mx-4 mb-8 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6">
         <ol className="flex gap-3">
           {data.scenes.map((s, i) => {
             const take = takeOf(s);
             return (
-              <li key={s.id} className="w-44 shrink-0">
+              <li key={s.id} className="w-[40vw] max-w-44 shrink-0 sm:w-44">
                 <button
                   type="button"
                   onClick={() => selectScene(s.id)}
@@ -258,15 +265,18 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
                   className={cn("petal relative block aspect-video w-full overflow-hidden hairline text-left", s.id === active?.id && "ring-2 ring-ember-500")}
                 >
                   <Media output={take?.creation.output ?? null} className="absolute inset-0 size-full" />
-                  <span className="absolute left-2 top-2 font-mono text-[11px] text-bone-50 drop-shadow">{String(i + 1).padStart(2, "0")}</span>
+                  <span className="pointer-events-none absolute left-2 top-2 flex items-center gap-1.5">
+                    <span className="font-mono text-[11px] text-bone-50 drop-shadow">{String(i + 1).padStart(2, "0")}</span>
+                    {take?.creation.isDemo && take.creation.output ? <Badge tone="demo">Demo</Badge> : null}
+                  </span>
                 </button>
                 <div className="mt-1.5 flex items-center justify-between gap-1">
                   <p className="truncate text-[13px] text-bone-200">{s.title}</p>
                   <span className="flex shrink-0">
-                    <button type="button" onClick={() => move(i, -1)} disabled={i === 0 || busy === "order"} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30" aria-label={`Move ${s.title} earlier`}>
+                    <button type="button" onClick={() => move(i, -1)} disabled={i === 0 || busy === "order"} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30 max-sm:size-10" aria-label={`Move ${s.title} earlier`}>
                       <ArrowLeft size={13} aria-hidden />
                     </button>
-                    <button type="button" onClick={() => move(i, 1)} disabled={i === data.scenes.length - 1 || busy === "order"} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30" aria-label={`Move ${s.title} later`}>
+                    <button type="button" onClick={() => move(i, 1)} disabled={i === data.scenes.length - 1 || busy === "order"} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30 max-sm:size-10" aria-label={`Move ${s.title} later`}>
                       <ArrowRight size={13} aria-hidden />
                     </button>
                   </span>
@@ -274,7 +284,7 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
               </li>
             );
           })}
-          <li className="w-44 shrink-0">
+          <li className="w-[40vw] max-w-44 shrink-0 sm:w-44">
             <button type="button" onClick={addScene} disabled={busy === "add"} className="petal grid aspect-video w-full place-items-center border border-dashed border-bone-500/40 text-bone-400 hover:border-ember-400 hover:text-ember-400">
               <span className="flex items-center gap-1.5 text-sm">
                 <Plus size={16} aria-hidden /> Add scene
@@ -285,7 +295,7 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
       </section>
 
       {active ? (
-        <div className="grid gap-8 lg:grid-cols-[340px_1fr]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[340px_minmax(0,1fr)]">
           <SceneGuide key={active.id} scene={active} characters={characters} onSaved={() => router.refresh()} canDelete={data.scenes.length > 1} />
           <section aria-label="Versions">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -310,7 +320,14 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
                 <div className="grid grid-cols-2 gap-3">
                   {compared.map((v) => (
                     <figure key={v.id}>
-                      <Media output={v.creation.output} className="aspect-video w-full rounded-xl" />
+                      <div className="relative">
+                        <Media output={v.creation.output} className="aspect-video w-full rounded-xl" />
+                        {v.creation.isDemo && v.creation.output ? (
+                          <div className="pointer-events-none absolute left-2 top-2 flex gap-1">
+                            <Badge tone="demo">Demo</Badge>
+                          </div>
+                        ) : null}
+                      </div>
                       <figcaption className="mt-1 font-mono text-[11px] text-bone-500" suppressHydrationWarning>
                         {v.branchLabel} · {relativeTime(v.createdAt)}
                       </figcaption>

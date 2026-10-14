@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import Link from "next/link";
 import {
   createContext,
@@ -28,8 +28,8 @@ const variants: Record<Variant, string> = {
   danger: "hairline text-danger-400 hover:bg-danger-400/10",
 };
 const sizes: Record<Size, string> = {
-  // Compact on desktop; 40 px tall on phones so every small control is an easy tap.
-  sm: "h-8 max-sm:h-10 px-3 text-[13px] gap-1.5 rounded-full",
+  // Compact on desktop; at least 40x40 on phones so every small control, icon-only ones too, is an easy tap.
+  sm: "h-8 min-w-8 max-sm:h-10 max-sm:min-w-10 px-3 text-[13px] gap-1.5 rounded-full",
   md: "h-10 px-4 text-sm gap-2 rounded-full",
   lg: "h-12 px-6 text-[15px] gap-2 rounded-full",
 };
@@ -182,14 +182,15 @@ export function Sheet({ open, onClose, title, children, wide }: { open: boolean;
       }}
       aria-label={view.title}
       className={cn(
-        "sheet m-auto max-h-[92dvh] w-[min(100vw-24px,var(--w))] overflow-auto rounded-panel bg-ink-900 p-0 text-bone-50 hairline data-[closing]:pointer-events-none",
-        "max-sm:mb-0 max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none max-sm:pb-[env(safe-area-inset-bottom)]",
+        // A real border, not the inset .hairline shadow: the sticky header paints over an inset shadow.
+        "sheet m-auto max-h-[92dvh] w-[min(100vw-24px,var(--w))] overflow-auto rounded-panel border border-[var(--line)] bg-ink-900 p-0 text-bone-50 data-[closing]:pointer-events-none",
+        "max-sm:mb-0 max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]",
       )}
       style={{ ["--w" as string]: wide ? "880px" : "480px" }}
     >
       <div className="sticky top-0 z-10 flex items-center justify-between bg-ink-900/95 px-5 pt-4 pb-3 backdrop-blur">
         <h2 className="font-display text-xl">{view.title}</h2>
-        <button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-full text-bone-300 hover:bg-ink-800 hover:text-bone-50" aria-label="Close">
+        <button type="button" onClick={onClose} className="-mr-1.5 grid size-10 place-items-center rounded-full text-bone-300 hover:bg-ink-800 hover:text-bone-50" aria-label="Close">
           <X size={18} />
         </button>
       </div>
@@ -254,7 +255,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             {t.tone === "success" ? <span className="size-2 rounded-full bg-sage-400" aria-hidden /> : null}
             <span className="flex-1">{t.message}</span>
             {t.action ? (
-              <Link href={t.action.href} className="font-semibold text-ember-400 hover:text-ember-300">
+              // A 40 px tap target; the negative margins keep the toast its compact height.
+              <Link href={t.action.href} className="-my-2.5 -mr-2 inline-flex min-h-10 shrink-0 items-center px-2 font-semibold text-ember-400 hover:text-ember-300">
                 {t.action.label}
               </Link>
             ) : null}
@@ -278,6 +280,28 @@ export function EmptyState({ title, body, action }: { title: string; body: strin
       <p className="mt-2 text-sm text-bone-400">{body}</p>
       {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
     </div>
+  );
+}
+
+/** A page's back link ("← Library"): 13 px text on a 40 px tap target; the negative margins keep its line height. */
+export function BackLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link href={href} className="-my-2.5 inline-flex min-h-10 items-center gap-1.5 text-[13px] text-bone-400 hover:text-bone-50">
+      <ArrowLeft size={14} aria-hidden /> {children}
+    </Link>
+  );
+}
+
+/**
+ * A section heading's action link ("See all", "Tune"): a 40 px tap target. The negative margins keep its text
+ * where a bare link would sit, aligned with the heading's bottom and the content's right edge.
+ */
+export function SectionLink({ className, ...rest }: ComponentProps<typeof Link>) {
+  return (
+    <Link
+      className={cn("-mr-2 -mb-2.5 inline-flex min-h-10 shrink-0 items-center gap-1 px-2 text-[13px] text-bone-300 hover:text-bone-50", className)}
+      {...rest}
+    />
   );
 }
 
