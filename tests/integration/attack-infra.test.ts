@@ -117,13 +117,12 @@ describe("I01: every Drizzle query parameter is redacted in log lines and webhoo
       await resetDb();
     });
 
-    // HOLE (low): serialize() in src/server/log.ts redacts only values that are Error instances. Call
-    // sites that log a caught error's message as a string put the whole "params: ..." section on
+    // Was a hole (low): serialize() in src/server/log.ts redacted only values that are Error instances.
+    // Call sites that log a caught error's message as a string put the whole "params: ..." section on
     // stdout verbatim: push/notify.ts:63 (err: err.message), generation/service.ts:359,
-    // generation/processor.ts:101, 106, 207 (message: err.message) and 223 (err: message). Today the
-    // queries behind these sites bind ids, storage keys, hashes and timestamps, not prompts or emails,
-    // so nothing private was found leaking this way; any new query there that binds user content would.
-    test.fails("HOLE: a Drizzle error a call site logs as a string keeps its parameters on stdout (push.notify_failed)", async () => {
+    // generation/processor.ts:101, 106, 207 (message: err.message) and 223 (err: message). serialize()
+    // now redacts string values too.
+    it("holds: a Drizzle error a call site logs as a string loses its parameters on stdout (push.notify_failed)", async () => {
       // A bound value notify's first query cannot accept, so Postgres rejects it and Drizzle wraps it.
       const bound = "BOUND-VALUE-SECRET";
       const result = await notifyJobFinished(
@@ -134,6 +133,11 @@ describe("I01: every Drizzle query parameter is redacted in log lines and webhoo
       const line = printed.find((p) => p.includes("push.notify_failed"));
       expect(line).toBeDefined();
       expect(line).not.toContain(bound);
+      expect(JSON.parse(line!).err).toMatch(/^Failed query: select .*\nparams: \[redacted\]$/s);
+      // The same for a warning that carries the message under another key (processor.ts:207).
+      vi.stubEnv("LOG_TESTS", "1");
+      logger.warn("generation.provider_error", { jobId: "j1", message: new DrizzleQueryError(QUERY, ["SECRET_WARN_STRING", "x"], timeout()).message });
+      expect(printed.join("\n")).not.toContain("SECRET_WARN_STRING");
     });
   });
 });

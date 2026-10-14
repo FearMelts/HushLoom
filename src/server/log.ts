@@ -52,11 +52,13 @@ export function causeOf(err: Error): { name: string; message: string } | undefin
   return cause instanceof Error ? { name: cause.name, message: redactQueryParams(cause.message) } : undefined;
 }
 
+/** Error values become name, message, stack and cause; strings are redacted too, since call sites log a caught error's message as one. */
 function serialize(meta: Record<string, unknown> | undefined) {
   if (!meta) return {};
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(meta)) {
-    out[k] = v instanceof Error ? { name: v.name, message: redactQueryParams(v.message), stack: redactStack(v), cause: causeOf(v) } : v;
+    if (v instanceof Error) out[k] = { name: v.name, message: redactQueryParams(v.message), stack: redactStack(v), cause: causeOf(v) };
+    else out[k] = typeof v === "string" ? redactQueryParams(v) : v;
   }
   return out;
 }
