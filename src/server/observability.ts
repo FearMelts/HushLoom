@@ -1,5 +1,5 @@
-import { env } from "@/server/env";
-import { causeOf, logger, redactedMessage, redactedStack, redactQueryParams, setErrorSink, type ErrorSink } from "@/server/log";
+import { env, errorWebhookUrlAlone } from "@/server/env";
+import { causeOf, logger, redactedMessage, redactQueryParams, redactStack, setErrorSink, type ErrorSink } from "@/server/log";
 
 /**
  * Error monitoring hook (spec part VI, audit gap G8). Every logger.error entry is a JSON line on
@@ -49,7 +49,7 @@ function errorOf(value: unknown): ErrorEvent["error"] {
     return {
       name: value.name,
       message: clip(redactedMessage(value), MAX_MESSAGE),
-      stack: value.stack ? clip(redactedStack(value)!, MAX_STACK) : undefined,
+      stack: value.stack ? clip(redactStack(value) ?? "", MAX_STACK) : undefined,
       digest: typeof digest === "string" ? digest : undefined,
       cause: cause ? { name: cause.name, message: clip(cause.message, MAX_MESSAGE) } : undefined,
     };
@@ -141,15 +141,16 @@ export function createErrorWebhook(options: ErrorWebhookOptions): ErrorSink {
 
 /**
  * Routes this process's error log entries to ERROR_WEBHOOK_URL when it is set. Returns whether a
- * webhook was installed. A configuration that does not parse installs nothing here; the same
- * error surfaces, as before, on the first request or job that reads the configuration.
+ * webhook was installed. When the rest of the configuration fails its check, every request then
+ * fails with that error, which is when the monitor must hear about it: ERROR_WEBHOOK_URL is then
+ * checked on its own. An ERROR_WEBHOOK_URL that is not a URL installs nothing.
  */
 export function installErrorWebhook(source: ErrorSource): boolean {
   let url: string | undefined;
   try {
     url = env().ERROR_WEBHOOK_URL;
   } catch {
-    return false;
+    url = errorWebhookUrlAlone();
   }
   if (!url) return false;
   setErrorSink(createErrorWebhook({ url, source }));

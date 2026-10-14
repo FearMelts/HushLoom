@@ -2,12 +2,71 @@ type Level = "debug" | "info" | "warn" | "error";
 
 /**
  * Drizzle's query errors carry the bound parameters in their message and stack ("params: ..."), and
- * those can hold prompts or emails. Logs keep the query text and drop the values.
+ * those can hold prompts or emails. Logs keep the query text and drop the values. The parameters end
+ * the message, and one can hold newlines (a prompt typed over several lines, even a line that starts
+ * with "at "), so everything after "params: " goes: never cut at what merely looks like a stack frame.
  */
 export function redactQueryParams(text: string): string;
 export function redactQueryParams(text: string | undefined): string | undefined;
 export function redactQueryParams(text: string | undefined): string | undefined {
-  return text?.replace(/\nparams: [\s\S]*?(?=\n\s+at |$)/, "\nparams: [redacted]");
+  return text?.replace(/\nparams: [\s\S]*$/, "\nparams: [redacted]");
+}
+
+/**
+ * The error's stack with its message redacted as redactedMessage does and its frames kept. The stack
+ * repeats the message verbatim, so that copy is swapped for the redacted one; a stack that does not hold
+ * the message as is loses everything after "params: ", frames included, and any quoted rejected value.
+ */
+export function redactStack(err: Error): string | undefined {
+  const { stack, message } = err;
+  if (!stack) return stack;
+  const redacted = redactedMessage(err);
+  const at = redacted === message ? -1 : stack.indexOf(message);
+  return at >= 0 ? stack.slice(0, at) + redacted + stack.slice(at + message.length) : withoutRejectedValue(err, redactQueryParams(stack));
+}
+
+/**
+ * Redacts, in place, the query parameters an error and its causes carry: message, stack and Drizzle's
+ * own `params` field, and the driver's `detail` field, where Postgres repeats the offending values
+ * ("Failing row contains (...)", "Key (lower(email))=(...) already exists."). For an error that other
+ * code prints after the app has logged it: Next.js's production server prints every error it reports
+ * to instrumentation with console.error. The whole cause chain is walked: Next.js's production
+ * inspect prints causes at any depth.
+ */
+export function scrubQueryParams(err: unknown): void {
+  const seen = new Set<Error>();
+  for (let e: unknown = err; e instanceof Error && !seen.has(e); e = e.cause) {
+    seen.add(e);
+    if (typeof (e as { detail?: unknown }).detail === "string") (e as { detail?: unknown }).detail = "[redacted]";
+    const message = redactedMessage(e);
+    if (message === e.message) continue;
+    e.stack = redactStack(e);
+    e.message = message;
+    if (Object.hasOwn(e, "params")) (e as { params?: unknown }).params = "[redacted]";
+  }
+}
+
+const INSPECT = Symbol.for("nodejs.util.inspect.custom");
+
+/**
+ * Makes every instance of `errorClass` scrub itself (scrubQueryParams) whenever util.inspect formats it,
+ * as console.error does, directly or as another error's cause. Next.js prints an App Router page's or
+ * route handler's error before it calls instrumentation's onRequestError (RouteModule.onRequestError),
+ * so the hook's scrub comes too late for that print. The error is then formatted as before, by the
+ * inspect Error.prototype carries (Next.js's production server installs one) or natively.
+ */
+export function scrubWhenInspected(errorClass: { prototype: Error }): void {
+  const parent = Object.getPrototypeOf(errorClass.prototype) as Record<symbol, unknown>;
+  Object.defineProperty(errorClass.prototype, INSPECT, {
+    configurable: true,
+    writable: true,
+    value(this: Error, ...args: unknown[]) {
+      scrubQueryParams(this);
+      const inherited = parent[INSPECT];
+      // Returning the error itself has util.inspect format it natively.
+      return typeof inherited === "function" ? (inherited as (...a: unknown[]) => unknown).apply(this, args) : this;
+    },
+  });
 }
 
 /**
@@ -24,22 +83,19 @@ export function redactedMessage(err: Error): string {
   return withoutRejectedValue(err, redactQueryParams(err.message));
 }
 
-/** An error's stack as logs keep it; its first line repeats the message. */
-export function redactedStack(err: Error): string | undefined {
-  return redactQueryParams(err.stack?.replace(err.message, withoutRejectedValue(err, err.message)));
-}
-
 /** The direct cause's name and message (a wrapped query error's real reason, such as ECONNREFUSED). */
 export function causeOf(err: Error): { name: string; message: string } | undefined {
   const cause: unknown = err.cause;
   return cause instanceof Error ? { name: cause.name, message: redactedMessage(cause) } : undefined;
 }
 
+/** Error values become name, message, stack and cause; strings are redacted too, since call sites log a caught error's message as one. */
 function serialize(meta: Record<string, unknown> | undefined) {
   if (!meta) return {};
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(meta)) {
-    out[k] = v instanceof Error ? { name: v.name, message: redactedMessage(v), stack: redactedStack(v), cause: causeOf(v) } : v;
+    if (v instanceof Error) out[k] = { name: v.name, message: redactedMessage(v), stack: redactStack(v), cause: causeOf(v) };
+    else out[k] = typeof v === "string" ? redactQueryParams(v) : v;
   }
   return out;
 }

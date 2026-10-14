@@ -154,6 +154,12 @@ export function env(): Env {
   return parsed;
 }
 
+/** ERROR_WEBHOOK_URL checked on its own, for when the rest of the configuration fails its check. */
+export function errorWebhookUrlAlone(): string | undefined {
+  const parsed = schema.shape.ERROR_WEBHOOK_URL.safeParse(process.env.ERROR_WEBHOOK_URL);
+  return parsed.success ? parsed.data : undefined;
+}
+
 /** True on a live site: APP_ENV=production, or APP_ENV unset on a production build. Sandboxes refuse to run there. */
 export function isLiveDeployment(): boolean {
   const e = env();

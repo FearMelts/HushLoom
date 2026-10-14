@@ -1,3 +1,5 @@
+import { inspect } from "node:util";
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logger, setErrorSink } from "@/server/log";
 import { createErrorWebhook, installErrorWebhook, toErrorEvent } from "@/server/observability";
@@ -103,6 +105,31 @@ describe("error webhook", () => {
     expect(JSON.parse(stderr[0]!).err.cause).toEqual({ name: "Error", message: "connect ECONNREFUSED 127.0.0.1:5432" });
   });
 
+  it("redacts every query parameter even when one holds a line that starts with 'at ' (I01)", async () => {
+    const { fetch, calls } = fakeFetch();
+    setErrorSink(createErrorWebhook({ url: URL_, source: "web", fetch }));
+    // A prompt typed over several lines: the blank line before "at" looks like the start of a stack frame.
+    const prompt = "two adults in a velvet booth\n\nat a masquerade ball, masks half lifted";
+    const query = `insert into "generation_jobs" ("prompt", "negative_prompt") values ($1, $2)`;
+    const err = new DrizzleQueryError(query, [prompt, "watermark"], new Error("canceling statement due to statement timeout"));
+    logger.error("unhandled route error", { path: "/api/generations", err });
+    await flush();
+
+    const sent = String(calls[0]!.init.body);
+    for (const leaked of ["masquerade", "masks half lifted", "watermark"]) {
+      expect(stderr.join("\n")).not.toContain(leaked);
+      expect(sent).not.toContain(leaked);
+    }
+    const sentError = calls[0]!.event.error as { message: string; stack: string };
+    expect(sentError.message).toBe(`Failed query: ${query}\nparams: [redacted]`);
+    // The stack keeps its frames after the redacted message.
+    expect(sentError.stack).toContain(`Failed query: ${query}\nparams: [redacted]\n`);
+    expect(sentError.stack).toMatch(/\n\s+at .*observability\.test\.ts/);
+    const line = JSON.parse(stderr[0]!) as { err: { message: string; stack: string } };
+    expect(line.err.message).toBe(`Failed query: ${query}\nparams: [redacted]`);
+    expect(line.err.stack).toMatch(/\n\s+at .*observability\.test\.ts/);
+  });
+
   it("returns at once and survives a monitor that hangs, rejects, answers 500 or throws", async () => {
     const hanging = fakeFetch((call) => new Promise((_, reject) => call.init.signal?.addEventListener("abort", () => reject(call.init.signal?.reason))));
     setErrorSink(createErrorWebhook({ url: URL_, source: "web", fetch: hanging.fetch, timeoutMs: 20 }));
@@ -186,6 +213,20 @@ describe("installErrorWebhook", () => {
     expect(mod.installErrorWebhook("web")).toBe(false);
   });
 
+  it("still installs the webhook when another variable fails the configuration check (I05)", async () => {
+    // A production build without MEDIA_SIGNING_SECRET: every request then fails with this error, which
+    // is exactly when the monitor has to hear about it.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("MEDIA_SIGNING_SECRET", undefined);
+    const mod = await fresh(URL_);
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 202 }));
+    expect(mod.installErrorWebhook("web")).toBe(true);
+    logger.error("unhandled route error", { path: "/api/generations", err: new Error("MEDIA_SIGNING_SECRET must be set in production") });
+    await flush();
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(spy.mock.calls[0]![1]?.body))).toMatchObject({ source: "web", error: { message: "MEDIA_SIGNING_SECRET must be set in production" } });
+  });
+
   it("is a no-op for the statically imported copy too when unset", () => {
     expect(installErrorWebhook("web")).toBe(false);
   });
@@ -216,6 +257,32 @@ describe("instrumentation", () => {
     const sent = String(calls[0]!.init.body);
     expect(sent).not.toContain("TOKEN");
     expect(stderr.join("\n")).not.toContain("share=TOKEN");
+  });
+
+  it("leaves no query parameters for Next.js's own error printer, which prints the same error next (I02)", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    const { onRequestError } = await import("@/instrumentation");
+    const search = "masked strangers in a hotel corridor";
+    const query = `select "id", "title" from "templates" where "title" ilike $1 limit $2`;
+    const timeout = () => new Error("canceling statement due to statement timeout");
+    const direct = new DrizzleQueryError(query, [`%${search}%`, 24], timeout());
+    const wrapped = new Error("render failed", { cause: new DrizzleQueryError(query, [`%${search}%`, 24], timeout()) });
+    for (const err of [direct, wrapped]) {
+      await onRequestError(
+        err,
+        { path: "/explore", method: "GET", headers: {} },
+        { routerKind: "App Router", routePath: "/explore", routeType: "render", revalidateReason: undefined },
+      );
+      // In production NextServer.instrumentationOnRequestError awaits this hook, then hands the same
+      // error object to console.error (next/dist/server/next-server.js), which prints it with inspect.
+      const printed = inspect(err);
+      expect(printed).not.toContain(search);
+      // inspect indents a cause's lines, so the query and its redacted parameters are checked apart.
+      expect(printed).toContain(query);
+      expect(printed).toMatch(/\n\s*params: \[redacted\]\n/);
+      expect(printed).toMatch(/\n\s+at .*observability\.test\.ts/);
+    }
+    expect(stderr.join("\n")).not.toContain(search);
   });
 
   it("does nothing in the Edge runtime", async () => {

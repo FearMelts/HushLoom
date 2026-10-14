@@ -1,8 +1,10 @@
 node_modules
 .next/
 .storage/
-.env
-.env.local
+# Every environment file holds real keys (Next.js reads .env.production, .env.*.local and others on
+# its own); only the template is committed.
+.env*
+!.env.example
 *.tsbuildinfo
 next-env.d.ts
 playwright-report/
