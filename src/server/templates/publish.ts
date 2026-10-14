@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getModel } from "@/server/ai/registry";
 import { audit } from "@/server/audit";
@@ -147,19 +147,28 @@ export const updateTemplateSchema = z.object({
   changelog: z.string().trim().max(200).optional(),
 });
 
-/** Metadata edits apply in place; a prompt change creates a new template version. */
+/**
+ * Metadata edits apply in place; a prompt change creates a new template version. The row is read
+ * and locked inside the transaction and only the fields the request supplied are written, so an
+ * edit in flight never writes back a status, version or field that moderation, a suspension or
+ * another edit changed meanwhile.
+ */
 export async function updateTemplate(user: SessionUser, templateId: string, input: z.infer<typeof updateTemplateSchema>) {
-  const db = getDb();
-  const [t] = await db.select().from(templates).where(and(eq(templates.id, templateId), isNull(templates.deletedAt)));
-  if (!t || (t.creatorId !== user.id && user.role !== "admin")) throw notFound();
-  if (t.status === "removed") throw new HttpError(403, "removed", "This template was removed by moderation.");
-  const verdict = checkPrompt(input.title ?? "", input.description ?? "", (input.tags ?? []).join(" "), input.prompt ?? "");
-  if (!verdict.allowed) throw new HttpError(422, "policy_blocked", verdict.message);
-  const category = input.categorySlug
-    ? (await db.select().from(templateCategories).where(eq(templateCategories.slug, input.categorySlug)))[0]
-    : undefined;
+  return getDb().transaction(async (tx) => {
+    const [t] = await tx.select().from(templates).where(and(eq(templates.id, templateId), isNull(templates.deletedAt))).for("update");
+    if (!t || (t.creatorId !== user.id && user.role !== "admin")) throw notFound();
+    if (t.status === "removed") throw new HttpError(403, "removed", "This template was removed by moderation.");
+    const verdict = checkPrompt(input.title ?? "", input.description ?? "", (input.tags ?? []).join(" "), input.prompt ?? "");
+    if (!verdict.allowed) throw new HttpError(422, "policy_blocked", verdict.message);
+    if (input.status === "published") {
+      // A suspension unpublishes everything the account had live; nothing goes back up until it is lifted.
+      const [creator] = await tx.select({ status: users.status }).from(users).where(eq(users.id, t.creatorId));
+      if (creator?.status !== "active") throw new HttpError(403, "creator_suspended", "This account is suspended, so its templates stay unpublished.");
+    }
+    const category = input.categorySlug
+      ? (await tx.select().from(templateCategories).where(eq(templateCategories.slug, input.categorySlug)))[0]
+      : undefined;
 
-  return db.transaction(async (tx) => {
     let version = t.currentVersion;
     if (input.prompt) {
       const [current] = await tx
@@ -182,20 +191,21 @@ export async function updateTemplate(user: SessionUser, templateId: string, inpu
     const [updated] = await tx
       .update(templates)
       .set({
-        title: input.title ?? t.title,
-        description: input.description ?? t.description,
-        tags: input.tags ?? t.tags,
-        categoryId: category?.id ?? t.categoryId,
-        isVip: input.isVip ?? t.isVip,
-        status: input.status ?? t.status,
-        publishedAt: input.status === "published" && !t.publishedAt ? new Date() : t.publishedAt,
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.tags !== undefined ? { tags: input.tags } : {}),
+        ...(category ? { categoryId: category.id } : {}),
+        ...(input.isVip !== undefined ? { isVip: input.isVip } : {}),
+        // Only an explicit request changes the status.
+        ...(input.status ? { status: input.status, publishedAt: input.status === "published" && !t.publishedAt ? new Date() : t.publishedAt } : {}),
         currentVersion: version,
         updatedAt: new Date(),
       })
-      .where(eq(templates.id, t.id))
+      .where(and(eq(templates.id, t.id), ne(templates.status, "removed")))
       .returning();
+    if (!updated) throw new HttpError(403, "removed", "This template was removed by moderation.");
     await audit(user.id, "template.update", "template", t.id, { fields: Object.keys(input) }, tx);
-    return updated!;
+    return updated;
   });
 }
 

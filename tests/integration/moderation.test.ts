@@ -1,14 +1,25 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { createSession, userForToken, type SessionUser } from "@/server/auth/session";
-import { closeDb, getDb } from "@/server/db";
-import { accountFlags, auditLogs, generationJobs, generationOutputs, mediaAssets, moderationEvents, takedownRequests, templates, users } from "@/server/db/schema";
+import { closeDb, getDb, type Tx } from "@/server/db";
+import {
+  accountFlags,
+  auditLogs,
+  generationJobs,
+  generationOutputs,
+  mediaAssets,
+  moderationEvents,
+  takedownRequests,
+  templates,
+  templateVersions,
+  users,
+} from "@/server/db/schema";
 import { confirmJob, createDraft } from "@/server/generation/service";
 import { processJob } from "@/server/generation/processor";
 import { closeRedis } from "@/server/redis";
 import { resolveEscalation } from "@/server/safety/review";
 import { resolveTakedown, type TakedownCategory } from "@/server/safety/takedowns";
-import { publishTemplate } from "@/server/templates/publish";
+import { publishTemplate, updateTemplate } from "@/server/templates/publish";
 import { key, makeUser, resetDb } from "../helpers";
 
 const ctx = { country: null };
@@ -135,5 +146,79 @@ describe("R08 takedowns reach every copy of the creation", () => {
     expect(after!.status).toBe("suspended");
     const jobs = await getDb().select().from(generationJobs).where(inArray(generationJobs.id, [job.id]));
     expect(jobs[0]!.deletedAt).not.toBeNull();
+  });
+});
+
+/** Waits until `n` other connections to this database are blocked on a lock (a request mid-flight). */
+async function lockWaiters(n: number) {
+  for (let i = 0; i < 250; i++) {
+    const [row] = await getDb().execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`);
+    if (row!.n >= n) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`expected ${n} blocked requests`);
+}
+
+/** Runs `change` in a transaction that stays open until `inFlight` requests are blocked behind it, then commits. */
+async function whileInFlight<T>(change: (tx: Tx) => Promise<void>, start: () => Promise<T>[]) {
+  let pending: Promise<T | unknown>[] = [];
+  await getDb().transaction(async (tx) => {
+    await change(tx);
+    pending = start().map((p) => p.catch((e: unknown) => e));
+    await lockWaiters(pending.length);
+  });
+  return Promise.all(pending);
+}
+
+describe("R11 template edits never write back what they read before a concurrent change", () => {
+  async function published() {
+    const creator = await makeUser({ credits: 50 });
+    const t = await publish(creator, (await finished(creator)).id, "Edited Look");
+    const row = async () => (await getDb().select().from(templates).where(eq(templates.id, t.id)))[0]!;
+    return { creator, t, row };
+  }
+
+  it("an edit in flight while moderation removes the template does not put it back up", async () => {
+    const { creator, t, row } = await published();
+    const [result] = await whileInFlight(
+      async (tx) => void (await tx.update(templates).set({ status: "removed", updatedAt: new Date() }).where(eq(templates.id, t.id))),
+      () => [updateTemplate(creator, t.id, { title: "Harmless rename" })],
+    );
+    expect((await row()).status).toBe("removed");
+    expect(result).toMatchObject({ status: 403, code: "removed" });
+  });
+
+  it("an edit in flight while the creator is suspended does not republish their template", async () => {
+    const { creator, t, row } = await published();
+    const suspend = async (tx: Tx) => {
+      await tx.update(users).set({ status: "suspended" }).where(eq(users.id, creator.id));
+      await tx.update(templates).set({ status: "unpublished" }).where(eq(templates.creatorId, creator.id));
+    };
+    await whileInFlight(suspend, () => [updateTemplate(creator, t.id, { title: "Harmless rename" })]);
+    expect((await row())).toMatchObject({ status: "unpublished", title: "Harmless rename" });
+    // Even asked for outright, a suspended creator's template stays down.
+    await expect(updateTemplate(creator, t.id, { status: "published" })).rejects.toMatchObject({ status: 403 });
+    expect((await row()).status).toBe("unpublished");
+  });
+
+  it("a metadata edit keeps a prompt version made meanwhile, and two prompt edits both land", async () => {
+    const { creator, t, row } = await published();
+    await whileInFlight(
+      async (tx) => {
+        await tx.insert(templateVersions).values({ templateId: t.id, version: 2, prompt: "a newer recipe", modelKey: "demo-still", defaults: {}, changelog: "v2" });
+        await tx.update(templates).set({ currentVersion: 2 }).where(eq(templates.id, t.id));
+      },
+      () => [updateTemplate(creator, t.id, { title: "Renamed meanwhile" })],
+    );
+    expect(await row()).toMatchObject({ title: "Renamed meanwhile", currentVersion: 2 });
+
+    const results = await whileInFlight(
+      async (tx) => void (await tx.select().from(templates).where(eq(templates.id, t.id)).for("update")),
+      () => [updateTemplate(creator, t.id, { prompt: "recipe three" }), updateTemplate(creator, t.id, { prompt: "recipe four" })],
+    );
+    expect(results.every((r) => !(r instanceof Error))).toBe(true);
+    const versions = await getDb().select().from(templateVersions).where(eq(templateVersions.templateId, t.id));
+    expect(versions.map((v) => v.version).sort()).toEqual([1, 2, 3, 4]);
+    expect((await row()).currentVersion).toBe(4);
   });
 });
