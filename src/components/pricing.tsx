@@ -52,7 +52,8 @@ export function BuyButton({
         }}
       >
         {label}
-        {sandbox ? <span className="tag opacity-70">· sandbox</span> : null}
+        {/* The sandbox label must stay legible: on the ember button full ink (dimmed it measured 4.32:1). */}
+        {sandbox ? <span className={cn("tag", !featured && "opacity-70")}>· sandbox</span> : null}
       </Button>
     </OfflineGuard>
   );
