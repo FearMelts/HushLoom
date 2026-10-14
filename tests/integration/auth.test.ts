@@ -13,10 +13,15 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers(),
 }));
 
+import * as React from "react";
+import type { ReactElement } from "react";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
 import { POST as signupRoute } from "@/app/api/auth/signup/route";
 import { POST as takedownRoute } from "@/app/api/takedowns/route";
+import AuthPage from "@/app/auth/page";
+import { AuthForms } from "@/components/auth-forms";
 import { registerUser } from "@/server/auth/account";
+import { createSession } from "@/server/auth/session";
 import { closeDb } from "@/server/db";
 import { closeRedis } from "@/server/redis";
 import { resetDb } from "../helpers";
@@ -43,6 +48,7 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  vi.unstubAllGlobals();
   await closeRedis();
   await closeDb();
 });
@@ -85,4 +91,44 @@ describe("R05 sign-in and sign-up limits", () => {
     }
     expect((await call(takedownRoute, "POST", "/api/takedowns", {}, viaProxy("10.7.99.1", "203.0.113.11"))).status).toBe(429);
   });
+});
+
+/** Where /auth?next=... sends someone: the server redirect when signed in, or the form's router.replace target when signed out. */
+async function authLanding(next: string): Promise<string> {
+  // Vitest compiles the page's JSX with the classic runtime (tsconfig keeps JSX for Next), which reads a global React.
+  vi.stubGlobal("React", React);
+  try {
+    const el = (await AuthPage({ searchParams: Promise.resolve({ next }) })) as ReactElement;
+    const find = (node: unknown): string | undefined => {
+      if (!node || typeof node !== "object") return undefined;
+      if (Array.isArray(node)) return node.map(find).find((v) => v !== undefined);
+      const e = node as ReactElement<{ next?: string; children?: unknown }>;
+      return e.type === AuthForms ? e.props.next : find(e.props?.children);
+    };
+    const target = find(el);
+    if (target === undefined) throw new Error("AuthForms not rendered");
+    return target;
+  } catch (e) {
+    const digest = (e as { digest?: unknown }).digest;
+    if (typeof digest !== "string" || !digest.startsWith("NEXT_REDIRECT")) throw e;
+    return digest.split(";")[2]!;
+  }
+}
+
+describe("R23 sign-in redirect target", () => {
+  // Each resolves to another origin in a browser (backslash, tab and newline read as "/" or vanish), or does once a
+  // check normalizes it ("/.//x" becomes the protocol-relative "//x").
+  const hostile = ["/\\evil.example", "/\t/evil.example", "/\n/evil.example", "/\\/evil.example", "//evil.example", "/.//evil.example", "https://evil.example/", "javascript:alert(1)"];
+
+  for (const signedIn of [false, true]) {
+    it(`never leaves the app (${signedIn ? "already signed in: server redirect" : "signed out: after the form"})`, async () => {
+      if (signedIn) requestScope.token = (await createSession((await victim()).id, null)).token;
+      for (const next of hostile) {
+        const target = await authLanding(next);
+        expect({ next, origin: new URL(target, "https://hushloom.example/auth").origin }).toEqual({ next, origin: "https://hushloom.example" });
+      }
+      expect(await authLanding("/settings#age-verification")).toBe("/settings#age-verification");
+      expect(await authLanding("/templates/night-swim?ref=home")).toBe("/templates/night-swim?ref=home");
+    });
+  }
 });
