@@ -44,7 +44,7 @@ export function WithheldMedia({ signedIn, compact, link = true, label }: { signe
  * The petal card: media first, a quiet caption underneath. Hover or focus plays
  * the muted preview and reveals Make; touch users get an explicit preview button.
  */
-export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card; feature?: boolean; signedIn: boolean; autoplay?: boolean }) {
+export function TemplateCard({ card, feature, signedIn, autoplay, className }: { card: Card; feature?: boolean; signedIn: boolean; autoplay?: boolean; className?: string }) {
   const video = useRef<HTMLVideoElement>(null);
   const [fav, setFav] = useState(card.isFavorited);
   const [favCount, setFavCount] = useState(card.favoriteCount);
@@ -84,7 +84,7 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
 
   return (
     <article
-      className={cn("group relative animate-rise", feature && "sm:col-span-2 sm:row-span-2")}
+      className={cn("group relative animate-rise", feature && "sm:col-span-2 sm:row-span-2", className)}
       onMouseEnter={play}
       onMouseLeave={stop}
       onFocus={play}
@@ -245,13 +245,44 @@ function onGridKeys(e: KeyboardEvent<HTMLDivElement>) {
   next.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
+/**
+ * The grid's column count at each breakpoint (it must match TemplateGrid's classes), whether the editorial
+ * feature tile (2x2 from sm) applies there, and the class that hides an item at that breakpoint only.
+ */
+const EDITORIAL_TRIM = [
+  { cols: 2, featured: false, hide: "max-sm:hidden" },
+  { cols: 3, featured: true, hide: "sm:max-md:hidden" },
+  { cols: 4, featured: true, hide: "md:max-xl:hidden" },
+  { cols: 5, featured: true, hide: "xl:max-2xl:hidden" },
+  { cols: 6, featured: true, hide: "2xl:hidden" },
+] as const;
+
+/**
+ * An editorial grid features its first card and ends on a whole row at every width: the cards that would
+ * start a last, partial row are hidden at that width (never so many that no full row is left).
+ */
+function editorialTrim(index: number, count: number): string[] {
+  return EDITORIAL_TRIM.filter(({ cols, featured }) => {
+    const cells = count + (featured ? 3 : 0);
+    const extra = cells % cols;
+    return extra > 0 && cells - extra >= cols && index >= count - extra;
+  }).map((t) => t.hide);
+}
+
 export function TemplateGrid({ cards, signedIn, autoplay, editorial }: { cards: Card[]; signedIn: boolean; autoplay?: boolean; editorial?: boolean }) {
   return (
     <div
       onKeyDown={onGridKeys}
       className="grid grid-flow-row-dense grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
       {cards.map((c, i) => (
-        <TemplateCard key={c.id} card={c} signedIn={signedIn} autoplay={autoplay} feature={editorial && i % 11 === 0} />
+        <TemplateCard
+          key={c.id}
+          card={c}
+          signedIn={signedIn}
+          autoplay={autoplay}
+          feature={editorial && i === 0}
+          className={editorial ? cn(editorialTrim(i, cards.length)) : undefined}
+        />
       ))}
     </div>
   );
