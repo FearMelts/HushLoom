@@ -9,6 +9,7 @@ import { closeDb, getDb, getSql } from "@/server/db";
 import { consentRecords, generationJobs, generationOutputs, mediaAssets, moderationEvents, uploads, users } from "@/server/db/schema";
 import { confirmJob, createDraft } from "@/server/generation/service";
 import { processJob } from "@/server/generation/processor";
+import { logger } from "@/server/log";
 import { acceptUpload, assetUrl, purgeAssetsNow, purgeDeletedMedia } from "@/server/media";
 import { settingsFor } from "@/server/me";
 import { closeRedis } from "@/server/redis";
@@ -422,6 +423,7 @@ describe("attack R12 (upload entry point): the same evidence on the upload path"
   // bytes. The users row is now locked FOR NO KEY UPDATE, which a foreign-key check does not wait on.
   it("an upload's match recorded during a consent withdrawal on that upload waits for it instead of deadlocking", async () => {
     const u = await makeUser({ credits: 50 });
+    const errors = vi.spyOn(logger, "error");
     const scan = pausedScanner(MATCH);
     const upload = acceptUpload(u.id, { bytes: await png(), declaredMime: "image/png" }, { statement: "x", subjectLabel: null }, "source").then(
       () => "accepted",
@@ -443,11 +445,15 @@ describe("attack R12 (upload entry point): the same evidence on the upload path"
       scan.release();
       await lockWaiters(2);
     });
-    const [uploadOutcome] = await Promise.all([upload, withdrawal]);
+    const [uploadOutcome, withdrawalOutcome] = await Promise.all([upload, withdrawal]);
 
     expect(uploadOutcome).toBe("upload_rejected");
+    expect(withdrawalOutcome).toBe("withdrawn");
     expect(await escalationsFor(asset.id)).toHaveLength(1);
     expect((await userRow(u.id)).status).toBe("suspended");
+    // Recorded on the first attempt: recordMatch's retry would otherwise hide a deadlock here.
+    expect(errors.mock.calls.map(([msg]) => msg)).not.toContain("scan.match_record_failed");
+    expect(await storedBytes(asset.storageKey)).not.toBeNull();
   });
 });
 
