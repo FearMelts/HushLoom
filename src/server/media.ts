@@ -43,7 +43,7 @@ export type UploadResult = { assetId: string; kind: "image" | "video"; width: nu
 
 /**
  * Accepts an upload only with a consent record that covers the people in it.
- * Images are decoded and re-encoded, which drops EXIF/GPS metadata and rejects
+ * Images are decoded and re-encoded without transparency, which drops EXIF/GPS metadata and rejects
  * anything that is not really an image. Videos must be MP4, and are rewritten without their
  * container metadata (stripVideoMetadata) before they are stored or scanned.
  */
@@ -78,7 +78,9 @@ export async function acceptUpload(
     if (!meta.width || !meta.height || !["jpeg", "png", "webp"].includes(meta.format ?? "")) {
       throw new HttpError(415, "unsupported_type", "Use a JPG, PNG or WebP image.");
     }
-    body = await sharp(file.bytes).rotate().webp({ quality: 92 }).toBuffer();
+    // Transparency is flattened onto black, as photoDnaJpeg flattens what it sends, so the stored file holds
+    // exactly the pixels the hash matcher sees: no alpha channel is kept to hide a picture from the scan.
+    body = await sharp(file.bytes).rotate().flatten({ background: "#000000" }).webp({ quality: 92 }).toBuffer();
     const out = await sharp(body).metadata();
     kind = "image";
     mime = "image/webp";
