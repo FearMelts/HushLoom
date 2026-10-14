@@ -131,7 +131,7 @@ export default function PoliciesPage() {
       </p>
       <nav aria-label="On this page" className="mt-6 flex flex-wrap gap-2">
         {sections.map((s) => (
-          <a key={s.id} href={`#${s.id}`} className="hairline rounded-full px-3 py-1 text-[13px] text-bone-300 hover:bg-ink-800">
+          <a key={s.id} href={`#${s.id}`} className="hairline inline-flex h-8 items-center rounded-full px-3 text-[13px] text-bone-300 hover:bg-ink-800 max-sm:h-10 max-sm:px-3.5">
             {s.title}
           </a>
         ))}
