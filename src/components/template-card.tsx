@@ -140,8 +140,11 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
 
         <div className="absolute inset-x-2.5 bottom-2.5 flex items-center justify-between gap-2">
           {card.mediaWithheld ? (
-            <Link href={verifyHref(signedIn)} className="pointer-events-auto inline-flex h-10 items-center gap-1 rounded-full bg-ink-950/60 px-2.5 text-[12px] text-ember-300 backdrop-blur hover:text-ember-200">
-              <ShieldCheck size={12} aria-hidden /> {signedIn ? "Verify now" : "Sign in"}
+            <Link
+              href={verifyHref(signedIn)}
+              className="pointer-events-auto inline-flex h-10 shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-ink-950/60 px-2.5 text-[12px] text-ember-300 backdrop-blur hover:text-ember-200"
+            >
+              <ShieldCheck size={12} className="shrink-0" aria-hidden /> {signedIn ? "Verify now" : "Sign in"}
             </Link>
           ) : card.mediaType === "video" ? (
             <button
@@ -156,11 +159,17 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
           ) : (
             <span />
           )}
+          {/* Withheld cards keep Make as an icon, so the verification pill beside it never has to wrap. */}
           <Link
             href={`/templates/${card.slug}#make`}
-            className="inline-flex h-10 translate-y-1 items-center gap-1.5 rounded-full bg-ember-500 px-3.5 text-[13px] font-semibold text-ink-950 opacity-0 transition-all duration-[var(--duration-base)] ease-[var(--ease-weave)] group-hover:translate-y-0 group-hover:opacity-100 focus:translate-y-0 focus:opacity-100 max-lg:translate-y-0 max-lg:opacity-100"
+            aria-label={card.mediaWithheld ? `Make ${card.title}` : undefined}
+            className={cn(
+              "inline-flex h-10 shrink-0 translate-y-1 items-center gap-1.5 rounded-full bg-ember-500 text-[13px] font-semibold text-ink-950 opacity-0 transition-all duration-[var(--duration-base)] ease-[var(--ease-weave)] group-hover:translate-y-0 group-hover:opacity-100 focus:translate-y-0 focus:opacity-100 max-lg:translate-y-0 max-lg:opacity-100",
+              card.mediaWithheld ? "w-10 justify-center" : "px-3.5",
+            )}
           >
-            <Wand2 size={14} aria-hidden /> Make
+            <Wand2 size={14} aria-hidden />
+            {card.mediaWithheld ? null : "Make"}
           </Link>
         </div>
       </div>
