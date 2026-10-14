@@ -18,8 +18,11 @@ import type { ReactElement } from "react";
 import { eq } from "drizzle-orm";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
 import { POST as signupRoute } from "@/app/api/auth/signup/route";
+import { GET as generationsGet } from "@/app/api/generations/route";
 import { DELETE as meDelete, PATCH as mePatch } from "@/app/api/me/route";
+import { GET as projectGet } from "@/app/api/projects/[id]/route";
 import { POST as takedownRoute } from "@/app/api/takedowns/route";
+import { GET as templatesGet } from "@/app/api/templates/route";
 import AuthPage from "@/app/auth/page";
 import { AuthForms } from "@/components/auth-forms";
 import { registerUser } from "@/server/auth/account";
@@ -235,5 +238,27 @@ describe("R41 impossible dates of birth", () => {
     // A real leap day still signs up.
     expect((await call(signupRoute, "POST", "/api/auth/signup", { email: "leap@example.test", password: PASSWORD, handle: "leap_day", displayName: "Leap", dateOfBirth: "2000-02-29", acceptTerms: true, confirmAdult: true })).status).toBe(201);
     vi.restoreAllMocks();
+  });
+});
+
+describe("R43 malformed but schema-valid input", () => {
+  it("is answered as a client error, never a 500", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    // A takedown link with a broken percent-escape still reaches a human, as a plain link.
+    const takedown = (await call(takedownRoute, "POST", "/api/takedowns", { category: "other", target: "/templates/%zz", email: "a@b.co", goodFaith: true })).status;
+
+    const user = await victim();
+    requestScope.token = (await createSession(user.id, null)).token;
+    const outcomes = {
+      takedown,
+      // A NUL character, which Postgres refuses in any text (22021), in a search and in a path id.
+      search: (await call(templatesGet, "GET", "/api/templates?q=%00")).status,
+      projectId: (await projectGet(new NextRequest("http://localhost/api/projects/%00"), { params: Promise.resolve({ id: "\u0000" }) })).status,
+      // An offset past bigint (22003).
+      offset: (await call(generationsGet, "GET", "/api/generations?offset=1e20")).status,
+    };
+    expect(outcomes).toEqual({ takedown: 201, search: 422, projectId: 422, offset: 422 });
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
   });
 });

@@ -17,7 +17,7 @@ const listQuery = z.object({
   modelKey: z.string().max(60).optional(),
   folderId: z.string().uuid().optional(),
   sort: z.enum(["newest", "oldest"]).optional(),
-  offset: z.coerce.number().int().min(0).optional(),
+  offset: z.coerce.number().int().min(0).max(10_000).optional(),
 });
 
 export const GET = route(async (req) => {

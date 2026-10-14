@@ -47,7 +47,14 @@ export async function resolveTarget(raw: string): Promise<{ targetType: TargetTy
     return { targetType: "url", targetRef: ref };
   }
   const parts = url.pathname.split("/").filter(Boolean);
-  if (parts[0] === "templates" && parts[1]) return { targetType: "template", targetRef: decodeURIComponent(parts[1]) };
+  if (parts[0] === "templates" && parts[1]) {
+    try {
+      return { targetType: "template", targetRef: decodeURIComponent(parts[1]) };
+    } catch {
+      // A broken percent-escape (/templates/%zz): a human still sees the link as it was pasted.
+      return { targetType: "url", targetRef: ref };
+    }
+  }
   if (parts[0] === "collection" && parts[1] && UUID.test(parts[1])) return { targetType: "output", targetRef: parts[1].toLowerCase() };
   if (parts[0] === "api" && parts[1] === "media") {
     const key = url.searchParams.get("k");
