@@ -16,6 +16,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { POST as charactersRoute } from "@/app/api/characters/route";
+import { POST as deriveRoute } from "@/app/api/generations/[id]/derive/route";
 import { GET as meRoute } from "@/app/api/me/route";
 import { GET as templatesRoute } from "@/app/api/templates/route";
 import { POST as uploadsRoute } from "@/app/api/uploads/route";
@@ -463,5 +464,27 @@ describe("R04: character photos go through the same gate as uploads", () => {
     await verifyThroughSandbox(gb);
     expect((await postCharacter()).status).toBe(201);
     expect(await getDb().select().from(characterReferences).where(eq(characterReferences.userId, gb.id))).toHaveLength(1);
+  });
+});
+
+describe("R14: derived drafts see the request's US state", () => {
+  it("returns 451 to an unverified Texas user who derives a variation of their own earlier job", async () => {
+    // No stored jurisdiction (an older account, or a signup without geo headers) and an earlier job made elsewhere.
+    const user = await userIn(null);
+    const src = await createDraft(user, draftInput(), ctx);
+    await signIn(user);
+    const derive = (headers: Record<string, string>) =>
+      deriveRoute(
+        new NextRequest(`http://localhost/api/generations/${src.id}/derive`, {
+          method: "POST",
+          body: JSON.stringify({ relation: "variation", idempotencyKey: key() }),
+          headers: { "content-type": "application/json", ...headers },
+        }),
+        { params: Promise.resolve({ id: src.id }) },
+      );
+    const tx = await derive({ "x-country-code": "US", "x-region-code": "TX" });
+    expect(tx.status).toBe(451);
+    expect(await tx.json()).toMatchObject({ error: { code: "age_verification_required", details: { jurisdiction: "US-TX" } } });
+    expect((await derive({ "x-country-code": "US", "x-region-code": "CA" })).status).toBe(201);
   });
 });

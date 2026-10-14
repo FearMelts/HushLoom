@@ -64,7 +64,7 @@ const schema = z.object({
   AGE_VERIFICATION_ENFORCE: z.enum(["true", "false"]).default("true"),
   /** Comma-separated override of the jurisdictions that require verification (defaults in src/config/jurisdictions.ts). */
   AGE_VERIFICATION_REGIONS: z.string().optional(),
-  /** When no geo header is present and regions are configured, block creation (true) or allow (false). */
+  /** When the location is unknown (no geo header, an XX/T1/A1/A2 marker, or "US" without a state) and regions are configured, block creation (true) or allow (false). */
   AGE_VERIFICATION_FAIL_CLOSED: z.enum(["true", "false"]).default("false"),
   /** Yoti: the Age Verification API key (sent as "Authorization: Bearer"). */
   AGE_VERIFICATION_API_KEY: z.string().optional(),
