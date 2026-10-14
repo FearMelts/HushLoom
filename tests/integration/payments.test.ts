@@ -2,14 +2,14 @@ import { createHash, createHmac } from "node:crypto";
 import Stripe from "stripe";
 import { NextRequest } from "next/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { POST as sandboxRoute } from "@/app/api/pricing/sandbox/route";
 import { POST as paymentsWebhook } from "@/app/api/webhooks/payments/[provider]/route";
 import { adjustCredits } from "@/server/admin";
 import { createSession } from "@/server/auth/session";
 import { getBalance, listLedger } from "@/server/credits/ledger";
 import { closeDb, getDb } from "@/server/db";
-import { accountFlags, auditLogs, paymentEvents, subscriptions } from "@/server/db/schema";
+import { accountFlags, auditLogs, creditAccounts, paymentEvents, subscriptions } from "@/server/db/schema";
 import { paymentsStatus, providerByKey, startCheckout } from "@/server/payments";
 import { compactUserId } from "@/server/payments/providers/segpay";
 import { readSandboxToken, SANDBOX_SIGNATURE_HEADER, signSandboxBody, type SandboxBody } from "@/server/payments/providers/sandbox";
@@ -169,6 +169,42 @@ describe("sandbox provider", () => {
     expect(await openFlags(u.id)).toHaveLength(0);
     expect((await startCheckout(u, "pack_small")).url).toContain("/pricing/sandbox");
     expect(await getDb().select().from(auditLogs).where(eq(auditLogs.action, "flag.clear"))).toHaveLength(1);
+  });
+
+  it("R18: two reversals of one payment processed at the same time claw the grant back once", async () => {
+    const u = await makeUser();
+    const admin = await makeUser({ role: "admin" });
+    await sale(u.id, "sbx_sale_c", "pack_medium", { amountCents: 4499, transactionRef: "sbx_txn_c" });
+    await adjustCredits(admin.id, { account: u.handle, amount: 450, reason: "credits from elsewhere", idempotencyKey: key() });
+    expect((await getBalance(u.id)).available).toBe(1000);
+
+    // Hold the account row so both reversals get as far as they can before either moves credits.
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => (locked = r));
+    const holder = getDb().transaction(async (tx) => {
+      await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, u.id)).for("update");
+      locked();
+      await released;
+    });
+    await isLocked;
+    const both = Promise.all([
+      send({ kind: "refund", eventId: "sbx_c_refund", transactionRef: "sbx_txn_c", amountCents: 4499 }),
+      send({ kind: "chargeback", eventId: "sbx_c_cb", transactionRef: "sbx_txn_c", amountCents: 4499 }),
+    ]);
+    const waiting = async () =>
+      (await getDb().execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`))[0]!.n;
+    for (let i = 0; i < 200 && (await waiting()) < 2; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(await waiting()).toBe(2);
+    release();
+    await holder;
+    for (const res of await both) expect(res.status).toBe(200);
+
+    expect((await getBalance(u.id)).available).toBe(450);
+    const reversals = (await events("sandbox")).filter((e) => e.type === "refund" || e.type === "chargeback");
+    expect(reversals.reduce((sum, e) => sum + (e.credits ?? 0), 0)).toBe(-550);
+    expect((await flagsOf(u.id)).map((f) => f.kind)).toEqual(["chargeback"]);
   });
 
   it("records a credit_debt flag when the refunded credits were already spent", async () => {

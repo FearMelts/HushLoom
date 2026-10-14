@@ -220,6 +220,10 @@ async function clawback(tx: Tx, provider: ProviderKey, event: Extract<PaymentEve
   const userId = original.userId;
   const granted = original.credits;
 
+  // Reversals of one payment run one at a time: lock it before reading what earlier ones took back,
+  // so a refund and a chargeback processed together cannot each claw back the whole grant.
+  await tx.select({ id: paymentEvents.id }).from(paymentEvents).where(eq(paymentEvents.id, original.id)).for("update");
+
   // Earlier reversals of the same payment (partial refunds, a refund followed by a chargeback).
   const earlier = await tx
     .select({ credits: sql<number>`coalesce(sum(-${paymentEvents.credits}), 0)::int`, amount: sql<number>`coalesce(sum(-${paymentEvents.amountCents}), 0)::int` })
