@@ -14,6 +14,7 @@ import sharp from "sharp";
 import { sql } from "drizzle-orm";
 import { applyMovement } from "@/server/credits/ledger";
 import { closeDb, getDb } from "@/server/db";
+import { isLiveDeployment } from "@/server/env";
 import { ADULT_STATEMENT, TERMS_STATEMENT } from "@/server/auth/account";
 import {
   consentRecords,
@@ -35,6 +36,13 @@ import {
 import { hashPassword } from "@/server/auth/session";
 import { scanAsset } from "@/server/safety/scan";
 import { newStorageKey, sha256, storage } from "@/server/storage";
+
+// The seeded accounts, an admin among them, share one password (printed below when generated). However
+// the seed is started (compose's own check covers only `docker compose run seed`), never on a live site.
+if (isLiveDeployment()) {
+  console.error("The seed creates sample accounts that share one password: it runs in development or on a private preview (APP_ENV=staging), never on a live site.");
+  process.exit(1);
+}
 
 const db = getDb();
 
