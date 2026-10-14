@@ -189,7 +189,7 @@ export function Sheet({ open, onClose, title, children, wide }: { open: boolean;
     >
       <div className="sticky top-0 z-10 flex items-center justify-between bg-ink-900/95 px-5 pt-4 pb-3 backdrop-blur">
         <h2 className="font-display text-xl">{view.title}</h2>
-        <button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-full text-bone-300 hover:bg-ink-800 hover:text-bone-50" aria-label="Close">
+        <button type="button" onClick={onClose} className="-mr-1.5 grid size-10 place-items-center rounded-full text-bone-300 hover:bg-ink-800 hover:text-bone-50" aria-label="Close">
           <X size={18} />
         </button>
       </div>
