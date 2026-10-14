@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { crc32, deflateSync } from "node:zlib";
 import { NextRequest } from "next/server";
 import sharp from "sharp";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -131,24 +132,46 @@ describe("R09 image decode bounds — bypass attempts", () => {
 
   it("a raster image over the pixel limit is still refused with 413 before decode", async () => {
     const u = await makeUser();
-    // A declared 16000x16000 image: small file, huge canvas, well over the 40 MP limit.
-    const huge = Buffer.from(
+    // A declared 16000x16000 image: small file, huge canvas, well over the 40 MP limit. This was an SVG; SVG
+    // no longer reaches the decoder at all (R09-svg), so the pixel guard is exercised with a 94-byte PNG.
+    const chunk = (type: string, data: Buffer) => {
+      const typed = Buffer.concat([Buffer.from(type, "latin1"), data]);
+      const out = Buffer.alloc(12 + data.length);
+      out.writeUInt32BE(data.length, 0);
+      typed.copy(out, 4);
+      out.writeUInt32BE(crc32(typed), 8 + data.length);
+      return out;
+    };
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(16000, 0);
+    ihdr.writeUInt32BE(16000, 4);
+    ihdr[8] = 8; // 8-bit greyscale
+    const huge = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk("IHDR", ihdr),
+      chunk("IDAT", deflateSync(Buffer.alloc(16001))),
+      chunk("IEND", Buffer.alloc(0)),
+    ]);
+    expect(huge.length).toBeLessThan(200);
+    await expect(
+      acceptUpload(u.id, { bytes: huge, declaredMime: "image/png" }, consent, "source"),
+    ).rejects.toMatchObject({ status: 413 });
+    // The same canvas declared by an SVG is refused as a type we do not read, before any parse.
+    const svg = Buffer.from(
       `<svg xmlns="http://www.w3.org/2000/svg" width="16000" height="16000"><rect width="10" height="10"/></svg>`,
     );
     await expect(
-      acceptUpload(u.id, { bytes: huge, declaredMime: "image/svg+xml" }, consent, "source"),
-    ).rejects.toMatchObject({ status: 413 });
+      acceptUpload(u.id, { bytes: svg, declaredMime: "image/svg+xml" }, consent, "source"),
+    ).rejects.toMatchObject({ status: 415, code: "unsupported_type" });
+    expect(await getDb().select().from(mediaAssets).where(eq(mediaAssets.ownerId, u.id))).toHaveLength(0);
   });
 
-  // HOLE (resource bound). R09 claims "every decode of outside bytes" is bounded and that an image
-  // over the limit is "refused from its header ... before any pixels are decoded". The limit it adds
-  // (untrustedImage.limitInputPixels) bounds the raster output area only. An SVG with a tiny declared
-  // canvas but a very large element tree is under the pixel limit, so it is parsed in full before the
-  // format check rejects it: ~100k nodes already costs ~0.8 s and ~170 MB here, and a 20 MB SVG
-  // (allowed by MAX_IMAGE_BYTES) runs ~8 s / ~1.5 GB. acceptUpload hands sharp the raw bytes with the
-  // client-declared mime, so this is reachable on both upload routes. The decode of outside bytes is
-  // not bounded for SVG; a proper fix would cap bytes/complexity or refuse SVG outright.
-  it.fails("a small-canvas SVG with a huge node tree is decoded unbounded, not refused cheaply", async () => {
+  // Was a hole (R09-svg): untrustedImage.limitInputPixels bounds the raster output area only. An SVG
+  // with a tiny declared canvas but a very large element tree is under the pixel limit, so sharp
+  // parsed it in full before the format check rejected it (~100k nodes cost ~0.8 s and ~170 MB; a
+  // 20 MB SVG ~8 s / ~1.5 GB), on both upload routes. Only JPEG, PNG and WebP, told apart by their
+  // first bytes, now reach the decoder; anything else is refused 415 without being parsed.
+  it("a small-canvas SVG with a huge node tree is refused cheaply, not decoded", async () => {
     const u = await makeUser();
     const body =
       `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8">` +
@@ -157,8 +180,21 @@ describe("R09 image decode bounds — bypass attempts", () => {
     const started = Date.now();
     await acceptUpload(u.id, { bytes: Buffer.from(body), declaredMime: "image/svg+xml" }, consent, "source").catch(() => undefined);
     const elapsed = Date.now() - started;
-    // A bounded decode would reject this near-instantly; it currently spends real CPU parsing the tree.
+    // A bounded decode rejects this near-instantly; it used to spend real CPU parsing the tree.
     expect(elapsed).toBeLessThan(300);
+  });
+
+  it("a few hundred bytes of SVG whose entities expand into a huge tree are refused cheaply", async () => {
+    // A byte cap would not bound SVG: 100,000 elements come out of a ~370-byte document.
+    const u = await makeUser();
+    const tens = (name: string, of: string) => `<!ENTITY ${name} "${of.repeat(10)}">`;
+    const bomb =
+      `<?xml version="1.0"?><!DOCTYPE svg [${tens("r", "<rect/>")}${tens("s", "&r;")}${tens("t", "&s;")}${tens("u", "&t;")}${tens("v", "&u;")}]>` +
+      `<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8">&v;</svg>`;
+    expect(bomb.length).toBeLessThan(1024);
+    const started = Date.now();
+    await expect(acceptUpload(u.id, { bytes: Buffer.from(bomb), declaredMime: "image/svg+xml" }, consent, "source")).rejects.toMatchObject({ status: 415 });
+    expect(Date.now() - started).toBeLessThan(300);
   });
 });
 

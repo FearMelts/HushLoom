@@ -8,7 +8,7 @@ import { getDb } from "@/server/db";
 import { consentRecords, mediaAssets, templates, uploads } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { HttpError } from "@/server/http";
-import { isPixelLimitError, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE, untrustedImage } from "@/server/images";
+import { acceptedImageFormat, isPixelLimitError, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE, untrustedImage } from "@/server/images";
 import { logger } from "@/server/log";
 import { newStorageKey, sha256, storage } from "@/server/storage";
 import { MAX_SCANNED_VIDEO_S, MAX_VIDEO_SIDE, probeVideo, scanAsset, scanFailClosed, type VideoInfo } from "@/server/safety/scan";
@@ -86,6 +86,9 @@ export async function acceptUpload(
     mime = "video/mp4";
   } else {
     if (file.bytes.length > MAX_IMAGE_BYTES) throw new HttpError(413, "too_large", "Images can be up to 20 MB.");
+    // Only a JPEG, PNG or WebP by its first bytes is handed to sharp: anything else (an SVG above all, whose
+    // parse cost the pixel limit does not bound) is refused without being parsed, whatever mime the client sent.
+    if (!acceptedImageFormat(file.bytes)) throw new HttpError(415, "unsupported_type", "Use a JPG, PNG or WebP image.");
     // The pixel limit is checked from the header, before anything is decoded (a small PNG can hold a huge image).
     const unreadable = (err: unknown) =>
       isPixelLimitError(err)
