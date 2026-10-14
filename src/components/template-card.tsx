@@ -8,7 +8,7 @@ import type { TemplateCard as Card } from "@/server/discovery/templates";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { compact } from "@/lib/format";
-import { Badge, useToast } from "./ui";
+import { Badge, buttonClass, useToast } from "./ui";
 
 /**
  * Shown in place of a template's media when the viewer still needs an age check (addendum §2).
@@ -23,7 +23,15 @@ export function WithheldMedia({ signedIn, compact, link = true, label }: { signe
         <ShieldCheck size={compact ? 20 : 28} className="mx-auto text-ember-300" aria-hidden />
         <p className={cn("mt-2 font-display leading-snug text-bone-100", compact ? "text-[13px]" : "text-base")}>{label ?? (signedIn ? "Verify your age to see previews" : "Sign in and verify to see previews")}</p>
         {link ? (
-          <Link href={verifyHref(signedIn)} className="mt-2 inline-block font-mono text-[11px] uppercase tracking-[0.08em] text-ember-400 underline-offset-2 hover:underline">
+          // The cover's one action: a real button on a full-size cover, a 40 px text link on a small tile.
+          <Link
+            href={verifyHref(signedIn)}
+            className={
+              compact
+                ? "mt-1 inline-flex min-h-10 items-center font-mono text-[11px] uppercase tracking-[0.08em] text-ember-400 underline-offset-2 hover:underline"
+                : buttonClass("ember", "md", "mt-4")
+            }
+          >
             {signedIn ? "Verify now" : "Sign in"}
           </Link>
         ) : null}
