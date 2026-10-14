@@ -80,7 +80,7 @@ export function ProjectsIndex({ projects }: { projects: ProjectSummary[] }) {
                 </div>
                 <div className="mt-2.5 px-0.5">
                   <p className="font-display text-xl">{p.title}</p>
-                  <p className="font-mono text-[11px] text-bone-500">
+                  <p className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>
                     {p.scenes} {p.scenes === 1 ? "scene" : "scenes"} · {p.clips} finished · {relativeTime(p.updatedAt)}
                   </p>
                 </div>
@@ -311,7 +311,7 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
                   {compared.map((v) => (
                     <figure key={v.id}>
                       <Media output={v.creation.output} className="aspect-video w-full rounded-xl" />
-                      <figcaption className="mt-1 font-mono text-[11px] text-bone-500">
+                      <figcaption className="mt-1 font-mono text-[11px] text-bone-500" suppressHydrationWarning>
                         {v.branchLabel} · {relativeTime(v.createdAt)}
                       </figcaption>
                     </figure>
@@ -332,7 +332,7 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
                         <Badge>
                           <GitBranch size={9} aria-hidden /> {v.branchLabel}
                         </Badge>
-                        {parent ? <span className="font-mono text-[11px] text-bone-500">from {relativeTime(parent.createdAt)}</span> : null}
+                        {parent ? <span className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>from {relativeTime(parent.createdAt)}</span> : null}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {done && !v.isSelected ? (

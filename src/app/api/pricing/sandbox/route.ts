@@ -36,10 +36,13 @@ export const POST = route(async (req) => {
     if (!claims || claims.userId !== user.id) throw new HttpError(403, "bad_token", "This sandbox link has expired or is not yours. Start again from pricing.");
     const item = checkoutItem(claims.itemKey);
     if (!item) throw new HttpError(422, "unknown_item", "That package does not exist.");
-    const ref = randomUUID().slice(0, 12);
+    // A checkout link settles once, as a processor's checkout does: the event id and references come
+    // from the link's nonce, so the same request sent again (or "complete" after "fail") is a duplicate
+    // event that grants nothing.
+    const ref = claims.nonce.slice(0, 12);
     body = {
       kind: input.action === "complete" ? "sale" : "failure",
-      eventId: newSandboxEventId(input.action === "complete" ? "sale" : "failure"),
+      eventId: `sbx_checkout_${claims.nonce}`,
       userId: user.id,
       itemKey: item.key,
       amountCents: item.priceCents,

@@ -1,6 +1,9 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
+import { BASE, expect, test } from "./evidence";
 
-const BASE = `http://localhost:${process.env.E2E_PORT ?? 3100}`;
+// Every test here records its console errors, page errors and failed requests through the evidence
+// fixture (tests/e2e/evidence.ts), and fails on an undeclared console error, page error or 5xx.
+
 const SEED_PASSWORD = "e2e-password-123";
 const stamp = Date.now().toString(36);
 
@@ -36,24 +39,26 @@ test.describe.configure({ mode: "serial" });
 let creationId = "";
 let mediaUrl = "";
 
-test("an adult signs up, makes a demo image from a template, and finds it in the Library", async ({ page, browser }) => {
+test("an adult signs up, makes a demo image from a template, and finds it in the Library", async ({ page, browser, evidence }) => {
+  evidence.watch(page);
   await enterAgeGate(page);
   const handle = `e2e_${stamp}`;
   await signUp(page, handle);
   await expect(page).toHaveURL(`${BASE}/`);
-  await expect(balance(page)).toContainText("0");
+  await expect(balance(page)).toHaveText("0");
 
   // An admin grants credits through the real admin API.
-  const admin = await browser.newContext({ baseURL: BASE });
+  const admin = await evidence.newContext(browser);
   await apiAs(admin.request, "admin@hushloom.local", SEED_PASSWORD);
   const grant = await admin.request.post("/api/admin/credits", { data: { account: handle, amount: 40, reason: "e2e", idempotencyKey: `e2e-${stamp}` }, headers: { Origin: BASE } });
   expect(grant.status()).toBe(200);
+  evidence.note("admin grant through POST /api/admin/credits", { status: grant.status(), account: handle, amount: 40 });
   await admin.close();
 
   await page.goto("/explore?q=velvet");
   await page.getByRole("link", { name: /Velvet Hour/ }).first().click();
   await expect(page.getByRole("heading", { name: "Velvet Hour" })).toBeVisible();
-  await expect(page.getByTestId("cost-line")).toContainText("4");
+  await expect(page.getByTestId("cost-line")).toHaveText(/^4 credits · you have \d+/);
   await page.getByRole("button", { name: "Make it" }).click();
   await expect(page.getByTestId("confirm-cost")).toHaveText("4 credits");
   await expect(page.getByText("You will get a labeled placeholder")).toBeVisible();
@@ -78,42 +83,135 @@ test("an adult signs up, makes a demo image from a template, and finds it in the
   expect(mediaUrl).toContain("/api/media?");
 
   // 40 granted, 4 spent.
-  await expect(balance(page)).toContainText("36");
+  await expect(balance(page)).toHaveText("36");
+  await evidence.shot(page, "journey-01-creation-detail");
 });
 
-test("another member cannot see that creation or its media", async ({ browser }) => {
+test("another member cannot see that creation or its media", async ({ browser, evidence }) => {
   expect(creationId).not.toBe("");
-  const ctx = await browser.newContext({ baseURL: BASE });
-  const page = await ctx.newPage();
+  evidence.allow({ url: `/collection/${creationId}`, status: 404, why: "another member's creation page is a 404" });
+  const { ctx, page } = await evidence.newPage(browser);
+  const mediaRequests: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/media")) mediaRequests.push(r.url());
+  });
   await enterAgeGate(page);
   await signUp(page, `peek_${stamp}`);
   await expect(page).toHaveURL(`${BASE}/`);
 
+  // The page answers 404 with the not-found screen and nothing of the creation.
   const detail = await page.goto(`/collection/${creationId}`);
   expect(detail?.status()).toBe(404);
-  expect((await ctx.request.get(`/api/generations/${creationId}`)).status()).toBe(404);
-  expect((await ctx.request.post(`/api/generations/${creationId}/derive`, { data: { relation: "variation", idempotencyKey: `peek-${stamp}` }, headers: { Origin: BASE } })).status()).toBe(404);
-  expect((await ctx.request.delete(`/api/generations/${creationId}`, { headers: { Origin: BASE } })).status()).toBe(404);
+  await expect(page.getByRole("heading", { name: "A loose thread", level: 1 })).toBeVisible();
+  await expect(page.getByText("This page does not exist, or it is private to someone else.")).toBeVisible();
+  await expect(page.getByAltText("Your creation")).toHaveCount(0);
+  const mediaKey = new URL(mediaUrl, BASE).searchParams.get("k")!;
+  expect(mediaKey).toMatch(/^outputs\//);
+  const html = await page.content();
+  expect(html).not.toContain(mediaKey);
+  expect(html).not.toContain(encodeURIComponent(mediaKey));
+  const imgSources = await page.locator("img").evaluateAll((els) => els.map((el) => (el as HTMLImageElement).currentSrc || el.getAttribute("src") || ""));
+  expect(imgSources.filter((src) => src.includes(mediaKey) || src.includes(encodeURIComponent(mediaKey)))).toEqual([]);
+  expect(mediaRequests.filter((u) => u.includes(encodeURIComponent(mediaKey)))).toEqual([]);
+  await evidence.shot(page, "journey-02-other-member-not-found");
+
+  const api = {
+    get: (await ctx.request.get(`/api/generations/${creationId}`)).status(),
+    derive: (await ctx.request.post(`/api/generations/${creationId}/derive`, { data: { relation: "variation", idempotencyKey: `peek-${stamp}` }, headers: { Origin: BASE } })).status(),
+    delete: (await ctx.request.delete(`/api/generations/${creationId}`, { headers: { Origin: BASE } })).status(),
+  };
+  evidence.note("another member's API calls on the creation", api);
+  expect(api).toEqual({ get: 404, derive: 404, delete: 404 });
 
   const tampered = new URL(mediaUrl, BASE);
   tampered.searchParams.set("s", "forged");
-  expect((await ctx.request.get(tampered.toString())).status()).toBe(403);
-
+  const forged = (await ctx.request.get(tampered.toString())).status();
   // A request from another site is refused before it reaches the handler.
-  expect((await ctx.request.post("/api/folders", { data: { name: "x" }, headers: { Origin: "https://evil.example" } })).status()).toBe(403);
+  const crossSite = (await ctx.request.post("/api/folders", { data: { name: "x" }, headers: { Origin: "https://evil.example" } })).status();
+  evidence.note("forged media signature and cross-site POST", { forgedMedia: forged, crossSitePost: crossSite });
+  expect(forged).toBe(403);
+  expect(crossSite).toBe(403);
+
+  // The owner's creation is untouched by those attempts.
+  const owner = await evidence.newContext(browser);
+  await apiAs(owner.request, `e2e_${stamp}@example.test`, "e2e-member-pass");
+  expect((await owner.request.get(`/api/generations/${creationId}`)).status()).toBe(200);
   await ctx.close();
 });
 
-test("an under-18 date of birth is refused", async ({ page }) => {
+// Regression for the not-found status fix: no loading boundary may sit above a page that can 404 or
+// redirect, or the page streams a 200 shell before it calls notFound() or redirect().
+test("missing and private pages answer 404, signed-out private pages redirect, and list pages still answer 200", async ({ browser, evidence }) => {
+  const missing = [
+    "/collection/00000000-0000-4000-8000-000000000000",
+    "/collection/not-a-uuid",
+    "/templates/no-such-template",
+    "/creators/no-such-creator",
+    "/projects/00000000-0000-4000-8000-000000000000",
+    "/generate/no-such-kind",
+    // Operator pages are a 404 to members.
+    "/admin",
+    "/admin/review",
+  ];
+  evidence.allow(...missing.map((path) => ({ url: `${BASE}${path}`, status: 404, why: "a missing, private or operator-only page is a 404" })));
+  const { ctx, page } = await evidence.newPage(browser);
+  await enterAgeGate(page);
+
+  // Signed out (past the age gate): a private detail page redirects to sign-in with a real 307.
+  const redirects: Record<string, { status: number; location: string | undefined }> = {};
+  for (const path of ["/collection/00000000-0000-4000-8000-000000000000", "/projects/00000000-0000-4000-8000-000000000000"]) {
+    const res = await ctx.request.get(path, { maxRedirects: 0 });
+    redirects[path] = { status: res.status(), location: res.headers()["location"] };
+  }
+  // A public detail page that does not exist is a 404 for anyone.
+  const anonymous = {
+    template: (await ctx.request.get("/templates/no-such-template", { maxRedirects: 0 })).status(),
+    creator: (await ctx.request.get("/creators/no-such-creator", { maxRedirects: 0 })).status(),
+  };
+  evidence.note("signed-out requests", { redirects, anonymous });
+  expect(redirects).toEqual({
+    "/collection/00000000-0000-4000-8000-000000000000": { status: 307, location: "/auth?next=/collection/00000000-0000-4000-8000-000000000000" },
+    "/projects/00000000-0000-4000-8000-000000000000": { status: 307, location: "/auth?next=/projects/00000000-0000-4000-8000-000000000000" },
+  });
+  expect(anonymous).toEqual({ template: 404, creator: 404 });
+
+  await signUp(page, `miss_${stamp}`);
+  await expect(page).toHaveURL(`${BASE}/`);
+  const statuses: Record<string, number | undefined> = {};
+  for (const path of missing) {
+    const res = await page.goto(path);
+    statuses[path] = res?.status();
+    await expect(page.getByRole("heading", { name: "A loose thread", level: 1 }), path).toBeVisible();
+  }
+  await evidence.shot(page, "journey-02b-missing-page-404");
+  // The list pages keep their loading skeletons and still answer 200.
+  for (const path of ["/", "/explore", "/collection", "/projects", "/favorites"]) {
+    const res = await page.goto(path);
+    statuses[path] = res?.status();
+    await expect(page.getByRole("heading", { name: "A loose thread" }), path).toHaveCount(0);
+  }
+  evidence.note("signed-in navigation statuses", statuses);
+  expect(statuses).toEqual({ ...Object.fromEntries(missing.map((path) => [path, 404])), "/": 200, "/explore": 200, "/collection": 200, "/projects": 200, "/favorites": 200 });
+});
+
+test("an under-18 date of birth is refused", async ({ page, evidence }) => {
+  evidence.allow({ url: /\/api\/auth\/signup$/, status: 403, method: "POST", why: "sign-up refuses an under-18 date of birth (underage)" });
+  evidence.watch(page);
   await enterAgeGate(page);
   const dob = new Date();
   dob.setUTCFullYear(dob.getUTCFullYear() - 16);
+  const refused = page.waitForResponse((r) => r.url().endsWith("/api/auth/signup") && r.request().method() === "POST");
   await signUp(page, `kid_${stamp}`, dob.toISOString().slice(0, 10));
+  const res = await refused;
+  expect(res.status()).toBe(403);
+  expect(((await res.json()) as { error?: { code?: string } }).error?.code).toBe("underage");
   await expect(page.getByRole("alert").filter({ hasText: "adults only" })).toHaveText("Hushloom is for adults only.");
   await expect(page).toHaveURL(/\/auth/);
+  await evidence.shot(page, "journey-03-under-18-refused");
 });
 
-test("the assistant blocks a prohibited prompt before anything is charged", async ({ page }) => {
+test("the assistant blocks a prohibited prompt before anything is charged", async ({ page, evidence }) => {
+  evidence.watch(page);
   await enterAgeGate(page);
   await page.goto("/auth?mode=signin");
   await page.getByLabel("Email").fill("demo@hushloom.local");
@@ -124,6 +222,7 @@ test("the assistant blocks a prohibited prompt before anything is charged", asyn
   await page.getByLabel("Prompt", { exact: true }).fill("a teen at the beach");
   await expect(page.getByText("This can't be created")).toBeVisible();
   await expect(page.getByRole("button", { name: "Make it" })).toBeDisabled();
+  await evidence.shot(page, "journey-04-prohibited-prompt-blocked");
 });
 
 for (const [name, width, height] of [
@@ -131,22 +230,26 @@ for (const [name, width, height] of [
   ["tablet", 820, 1180],
   ["desktop", 1440, 960],
 ] as const) {
-  test(`layout holds on ${name}`, async ({ browser }, info) => {
-    const ctx = await browser.newContext({ baseURL: BASE, viewport: { width, height } });
-    const page = await ctx.newPage();
+  test(`layout holds on ${name}`, async ({ browser, evidence }) => {
+    const { page } = await evidence.newPage(browser, { viewport: { width, height } });
     await enterAgeGate(page);
-    for (const path of ["/", "/explore", "/templates/velvet-hour", "/pricing"]) {
+    for (const [path, slugName] of [
+      ["/", "home"],
+      ["/explore", "explore"],
+      ["/templates/velvet-hour", "template"],
+      ["/pricing", "pricing"],
+    ] as const) {
       await page.goto(path);
       await page.waitForLoadState("networkidle");
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       expect(overflow, `${path} scrolls sideways on ${name}`).toBeLessThanOrEqual(0);
-      await page.screenshot({ path: info.outputPath(`${name}${path.replace(/\//g, "_")}.png`) });
+      await evidence.shot(page, `journey-layout-${name}-${slugName}`);
     }
-    await ctx.close();
   });
 }
 
-test("keyboard users can skip to content and reach navigation", async ({ page }) => {
+test("keyboard users can skip to content and reach navigation", async ({ page, evidence }) => {
+  evidence.watch(page);
   await enterAgeGate(page);
   await page.goto("/explore");
   await page.keyboard.press("Tab");

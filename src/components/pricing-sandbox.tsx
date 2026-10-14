@@ -21,8 +21,12 @@ export function SandboxCheckout({ token, mode, purchases, passes }: { token?: st
     try {
       const res = await api<{ outcome: string; next: string }>("/api/pricing/sandbox", { body: { action, token, ...extra } });
       if (ok) toast({ message: `${ok} (sandbox, ${res.outcome})`, tone: "success" });
-      if (action === "complete" || action === "fail") router.push(res.next);
-      else router.refresh();
+      if (action === "complete" || action === "fail") {
+        router.push(res.next);
+        // A client navigation keeps the root layout as it was, and the shell's balance pill lives there:
+        // refresh so the pill shows the credits the purchase just added, as the pricing panel does.
+        router.refresh();
+      } else router.refresh();
     } catch (e) {
       toast({ message: e instanceof ApiError ? e.message : "The sandbox did not answer.", tone: "error" });
     } finally {
@@ -55,7 +59,7 @@ export function SandboxCheckout({ token, mode, purchases, passes }: { token?: st
                 <p className="text-sm text-bone-100">
                   {p.label} <Badge tone="demo">sandbox</Badge>
                 </p>
-                <p className="font-mono text-[11px] text-bone-500">
+                <p className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>
                   {p.amount} · {p.credits} credits · {relativeTime(p.when)} · {p.transactionRef}
                 </p>
               </div>

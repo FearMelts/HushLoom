@@ -38,7 +38,7 @@ function Media({ item, className }: { item: CreationListItem; className?: string
       <div className={cn("petal grid aspect-[4/5] place-items-center bg-ink-850 hairline", running && "skeleton", className)}>
         <div className="p-6 text-center">
           <p className="font-display text-2xl">{STATUS_LABEL[item.status]}</p>
-          {running ? <p className="mt-1 font-mono text-[12px] text-bone-400">{elapsed(item.startedAt ?? item.queuedAt ?? item.createdAt)} elapsed</p> : null}
+          {running ? <p className="mt-1 font-mono text-[12px] text-bone-400" suppressHydrationWarning>{elapsed(item.startedAt ?? item.queuedAt ?? item.createdAt)} elapsed</p> : null}
           {item.failureMessage ? <p className="mt-2 max-w-xs text-sm text-bone-300">{item.failureMessage}</p> : null}
         </div>
       </div>
@@ -180,7 +180,7 @@ export function CreationDetail({
               </figure>
               <figure>
                 <Media item={compareWith} />
-                <figcaption className="mt-1.5 flex items-center justify-between text-[12px] text-bone-400">
+                <figcaption className="mt-1.5 flex items-center justify-between text-[12px] text-bone-400" suppressHydrationWarning>
                   {compareWith.relation ?? "original"} · {relativeTime(compareWith.createdAt)}
                   <button type="button" onClick={() => setCompareWith(null)} className="text-bone-300 hover:text-bone-50" aria-label="Close comparison">
                     <X size={14} />
@@ -204,7 +204,7 @@ export function CreationDetail({
               <Badge tone={item.status === "failed" ? "danger" : item.status === "completed" ? "new" : "plain"}>{STATUS_LABEL[item.status]}</Badge>
               {item.isDemo ? <Badge tone="demo">Demo</Badge> : null}
               {details.relation ? <Badge>{details.relation}</Badge> : null}
-              <span className="font-mono text-[11.5px] text-bone-500">{relativeTime(item.createdAt)}</span>
+              <span className="font-mono text-[11.5px] text-bone-500" suppressHydrationWarning>{relativeTime(item.createdAt)}</span>
             </div>
             <p className="mt-3 text-[15px] leading-relaxed">{details.prompt}</p>
             {details.negativePrompt ? <p className="mt-1 text-[13px] text-bone-400">Avoid: {details.negativePrompt}</p> : null}

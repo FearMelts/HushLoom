@@ -65,7 +65,7 @@ export function ReportQueue({ reports }: { reports: Report[] }) {
               )}
             </span>
             {r.template && r.template.status !== "published" ? <Badge>{r.template.status}</Badge> : null}
-            <span className="font-mono text-[11px] text-bone-500">
+            <span className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>
               {r.reporter ? `@${r.reporter}` : "system"} · {relativeTime(r.createdAt)}
             </span>
           </div>

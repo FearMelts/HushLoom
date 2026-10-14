@@ -175,7 +175,7 @@ export function SettingsView({ data, email }: { data: Settings; email: string })
                   {c.subjectLabel ? <span className="text-bone-400"> · {c.subjectLabel}</span> : null}
                 </p>
                 <p className="mt-0.5 text-[12.5px] text-bone-400">{c.statement}</p>
-                <p className="mt-1 font-mono text-[11px] text-bone-500">granted {relativeTime(c.grantedAt)}</p>
+                <p className="mt-1 font-mono text-[11px] text-bone-500" suppressHydrationWarning>granted {relativeTime(c.grantedAt)}</p>
               </div>
               {c.kind === "terms" || c.kind === "adult_attestation" ? null : (
                 <Button size="sm" variant="quiet" onClick={() => setWithdrawing(c)}>
@@ -190,7 +190,7 @@ export function SettingsView({ data, email }: { data: Settings; email: string })
             <summary className="cursor-pointer text-[13px] text-bone-400">{past.length} withdrawn</summary>
             <ul className="mt-2 space-y-1 text-[12.5px] text-bone-500">
               {past.map((c) => (
-                <li key={c.id}>
+                <li key={c.id} suppressHydrationWarning>
                   {CONSENT_LABEL[c.kind] ?? c.kind}
                   {c.subjectLabel ? ` · ${c.subjectLabel}` : ""} · withdrawn {relativeTime(c.withdrawnAt!)}
                 </li>

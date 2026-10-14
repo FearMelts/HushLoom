@@ -5,6 +5,16 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 export const BASE_URL = `http://localhost:${PORT}`;
 
+// Requests the service worker makes (network-first public pages, precaching) get the context's
+// offline state and extra headers too, as a real device and a real edge would apply them. Without it
+// Chromium's service worker stays online under context.setOffline(true) and the offline page never shows.
+process.env.PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS ??= "1";
+
+// One media signing secret per run, set here so the test workers (which inherit this process's env)
+// can sign a valid /api/media URL themselves: the scan test proves a held file is refused even with a
+// good signature, and that the same signature on a clean file is served.
+const MEDIA_SIGNING_SECRET = (process.env.E2E_MEDIA_SIGNING_SECRET ??= randomBytes(32).toString("hex"));
+
 // Everything the e2e stack needs, isolated from the dev database, Redis db and storage.
 const env = {
   NODE_ENV: "production",
@@ -15,7 +25,7 @@ const env = {
   DATABASE_URL: process.env.E2E_DATABASE_URL ?? "postgres://playbox@localhost:5432/playbox_e2e",
   REDIS_URL: process.env.E2E_REDIS_URL ?? "redis://localhost:6379/2",
   STORAGE_LOCAL_DIR: path.resolve(".storage-e2e"),
-  MEDIA_SIGNING_SECRET: process.env.E2E_MEDIA_SIGNING_SECRET ?? randomBytes(32).toString("hex"),
+  MEDIA_SIGNING_SECRET,
   SEED_PASSWORD: "e2e-password-123",
   ENABLE_DEMO_PROVIDER: "true",
   WORKER_HEALTH_PORT: "3901",
@@ -33,8 +43,9 @@ export default defineConfig({
   webServer: [
     {
       // Fresh database, production build, then the standalone server exactly as the Dockerfile runs it.
-      // Standalone output copies neither .next/static nor public/ (sw.js, manifest, icons); both are copied in.
-      command: `npx tsx scripts/e2e-prepare.ts && npx next build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public && PORT=${PORT} node .next/standalone/server.js`,
+      // Standalone output copies neither .next/static nor public/ (sw.js, manifest, icons); e2e-serve copies
+      // both in, and also finds server.js when Next nests the app (a worktree inside another checkout).
+      command: `npx tsx scripts/e2e-prepare.ts && npx next build && PORT=${PORT} node scripts/e2e-serve.mjs`,
       url: `${BASE_URL}/api/health`,
       env,
       timeout: 600_000,

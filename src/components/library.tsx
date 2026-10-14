@@ -96,7 +96,7 @@ export function CreationThumb({ item, selectable, selected, onSelect }: { item: 
                 <span className="absolute inset-y-0 w-1/2 rounded-full bg-ember-500 animate-thread" />
               </div>
               <p className="mt-3 text-[13px] text-bone-200">{STATUS_LABEL[item.status]}…</p>
-              <p className="font-mono text-[11px] text-bone-500">{elapsed(item.startedAt ?? item.queuedAt ?? item.createdAt)}</p>
+              <p className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>{elapsed(item.startedAt ?? item.queuedAt ?? item.createdAt)}</p>
             </div>
           </div>
         ) : (
@@ -126,7 +126,7 @@ export function CreationThumb({ item, selectable, selected, onSelect }: { item: 
       <div className="mt-2 flex items-start justify-between gap-2 px-0.5">
         <div className="min-w-0">
           <p className="truncate text-[13px] text-bone-200">{item.templateTitle ?? item.prompt}</p>
-          <p className="font-mono text-[11px] text-bone-500">{relativeTime(item.createdAt)}</p>
+          <p className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>{relativeTime(item.createdAt)}</p>
         </div>
         {item.status === "failed" ? (
           <OfflineGuard note={false} className="shrink-0">

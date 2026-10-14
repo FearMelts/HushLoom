@@ -86,7 +86,7 @@ export function JobMonitor({ items }: { items: CreationListItem[] }) {
             />
             <Link href={`/collection/${i.id}`} className="min-w-0 flex-1">
               <span className="block truncate text-[13px] text-bone-100">{i.prompt}</span>
-              <span className="block font-mono text-[11px] text-bone-500">
+              <span className="block font-mono text-[11px] text-bone-500" suppressHydrationWarning>
                 {STATUS_LABEL[i.status]} · {active ? elapsed(i.startedAt ?? i.queuedAt ?? i.createdAt) : relativeTime(i.finishedAt ?? i.createdAt)} · {i.costCredits} cr
                 {i.isDemo ? " · demo" : ""}
               </span>
