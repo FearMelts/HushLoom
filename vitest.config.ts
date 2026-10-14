@@ -3,6 +3,8 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: { alias: { "@": path.resolve(__dirname, "src") } },
+  // tsconfig keeps JSX for Next ("preserve"); tests that call a page component need the runtime Next uses.
+  esbuild: { jsx: "automatic" },
   test: {
     include: ["tests/unit/**/*.test.ts", "tests/integration/**/*.test.ts"],
     globalSetup: ["tests/global-setup.ts"],

@@ -14,6 +14,8 @@ vi.mock("next/headers", () => ({
 }));
 
 import { GET as adminTakedownsRoute } from "@/app/api/admin/takedowns/route";
+import TemplatePage from "@/app/templates/[id]/page";
+import { CreatePanel, type CreateTemplate } from "@/components/create-panel";
 import { suspendUser } from "@/server/admin";
 import { createSession, userForToken, type SessionUser } from "@/server/auth/session";
 import { closeDb, getDb, type Tx } from "@/server/db";
@@ -356,5 +358,55 @@ describe("R26 the takedown queue puts urgent requests first before it pages", ()
     const body = await res.json();
     expect(body).toMatchObject({ total: 151, offset: 100 });
     expect(body.takedowns).toHaveLength(51);
+  });
+});
+
+type Element = { type: unknown; props: Record<string, unknown> };
+/** Every element in a server component's output, with the props that would be sent to the browser. */
+function elements(node: unknown, out: Element[] = []): Element[] {
+  if (Array.isArray(node)) node.forEach((n) => elements(n, out));
+  else if (node && typeof node === "object" && "props" in node && "type" in node) {
+    out.push(node as Element);
+    elements((node as Element).props.children, out);
+  }
+  return out;
+}
+/** Every string reachable from a value (props, arrays, nested objects). */
+function strings(value: unknown, out: string[] = [], seen = new Set<unknown>()): string[] {
+  if (typeof value === "string") out.push(value);
+  else if (value && typeof value === "object" && !seen.has(value)) {
+    seen.add(value);
+    for (const v of Object.values(value)) strings(v, out, seen);
+  }
+  return out;
+}
+
+describe("R35 a locked VIP template sends its recipe only to viewers who can make it", () => {
+  const RECIPE = "velvet masquerade ballroom at midnight, candle smoke drifting";
+  const NEGATIVE = "fluorescent office lighting";
+
+  async function render(viewer: SessionUser, slug: string) {
+    requestScope.token = (await createSession(viewer.id, null)).token;
+    const page = await TemplatePage({ params: Promise.resolve({ id: slug }) });
+    const all = elements(page);
+    return { panel: all.find((e) => e.type === CreatePanel)!, sent: strings(all.map((e) => e.props)).join("\n") };
+  }
+
+  it("leaves the prompt, negative prompt and settings out for a member without a pass, and keeps them for the creator", async () => {
+    const creator = await makeUser({ credits: 50 });
+    const job = await finished(creator, { prompt: RECIPE, negativePrompt: NEGATIVE, params: { aspectRatio: "4:5", lighting: "candlelit" } });
+    const t = await publishTemplate(creator, { jobId: job.id, title: "Masquerade", description: "", tags: [], isVip: true });
+
+    const { panel, sent } = await render(await makeUser(), t.slug);
+    const locked = panel.props.template as CreateTemplate;
+    expect(locked.locked).toBe(true);
+    expect(locked).toMatchObject({ title: "Masquerade", prompt: "", negativePrompt: "" });
+    expect(locked.defaults).toEqual({});
+    expect(sent).not.toContain("velvet masquerade");
+    expect(sent).not.toContain(NEGATIVE);
+
+    const own = (await render(creator, t.slug)).panel.props.template as CreateTemplate;
+    expect(own).toMatchObject({ locked: false, prompt: RECIPE, negativePrompt: NEGATIVE });
+    expect(own.defaults).toMatchObject({ aspectRatio: "4:5", lighting: "candlelit" });
   });
 });
