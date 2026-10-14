@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
+import { WithheldMedia } from "./template-card";
 import { Button, ButtonLink, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
 
-type Character = { id: string; name: string; createdAt: string; consentGrantedAt: string; imageUrl: string | null };
+type Character = { id: string; name: string; createdAt: string; consentGrantedAt: string; imageUrl: string | null; mediaWithheld: boolean };
 
 export function TrainView({ characters, statement }: { characters: Character[]; statement: string }) {
   const router = useRouter();
@@ -84,6 +85,9 @@ export function TrainView({ characters, statement }: { characters: Character[]; 
                 {c.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element -- signed URL
                   <img src={c.imageUrl} alt={`Reference photo for ${c.name}`} className="absolute inset-0 size-full object-cover" />
+                ) : c.mediaWithheld ? (
+                  // The server sent no photo URL: the age rules here need a verification first.
+                  <WithheldMedia signedIn compact label="Verify your age to see this photo" />
                 ) : null}
               </div>
               <div className="mt-2 flex items-start justify-between gap-2 px-0.5">

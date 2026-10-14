@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
 import { assertAgeVerified } from "@/server/age/gate";
+import { viewerAccessFor } from "@/server/age/service";
 import { createCharacter, listCharacters } from "@/server/characters";
 import { HttpError, requireUser, route } from "@/server/http";
 import { rateLimit } from "@/server/redis";
 import { requestCountry, requestRegion } from "@/server/request";
 
-export const GET = route(async () => {
+export const GET = route(async (req) => {
   const user = await requireUser();
-  return NextResponse.json({ characters: await listCharacters(user.id) });
+  const access = await viewerAccessFor(user, { country: requestCountry(req), region: requestRegion(req) });
+  return NextResponse.json({ characters: await listCharacters(user.id, access) });
 });
 
 export const POST = route(async (req) => {

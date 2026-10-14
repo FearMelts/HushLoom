@@ -2,6 +2,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { withdrawConsent } from "@/server/auth/account";
 import { getDb } from "@/server/db";
 import { characterReferences, consentRecords, mediaAssets, uploads } from "@/server/db/schema";
+import type { MediaAccess } from "@/server/generation/views";
 import { HttpError, notFound } from "@/server/http";
 import { acceptUpload, assetUrl } from "@/server/media";
 
@@ -11,9 +12,11 @@ export const LIKENESS_STATEMENT =
 /**
  * A character reference is a consented photo the generator conditions on. This build
  * does not fine-tune or train a model on it; providers that accept a reference image
- * receive it at generation time.
+ * receive it at generation time. The photo is the member's own and may be explicit, so a
+ * member who now needs a verification they lack gets no image URL, as for their creations
+ * (addendum §2); the list itself, and removing a character, stay available.
  */
-export async function listCharacters(userId: string) {
+export async function listCharacters(userId: string, access: MediaAccess) {
   const rows = await getDb()
     .select({ ref: characterReferences, asset: mediaAssets, grantedAt: consentRecords.grantedAt })
     .from(characterReferences)
@@ -27,7 +30,8 @@ export async function listCharacters(userId: string) {
       name: r.ref.name,
       createdAt: r.ref.createdAt.toISOString(),
       consentGrantedAt: r.grantedAt.toISOString(),
-      imageUrl: await assetUrl(r.asset, userId),
+      imageUrl: access.explicitAllowed ? await assetUrl(r.asset, userId) : null,
+      mediaWithheld: !access.explicitAllowed,
       width: r.asset.width,
       height: r.asset.height,
     })),

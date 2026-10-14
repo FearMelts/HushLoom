@@ -2,12 +2,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { NextRequest } from "next/server";
-import { afterAll, beforeEach, describe, expect, it, test, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 
 // Attack tests for the age-verification fixes R03 (stored jurisdiction overrode the request's) and
 // R04 (character photos skipped the upload gate). Each test tries another way to reach the same
-// behavior. Tests marked test.fails are open holes: they assert the safe behavior and fail today.
+// behavior. The holes they found are closed now; each of those tests says what it was.
 
 // Route handlers read the session cookie and the geo headers through next/headers; the tests stand in for that request scope.
 const requestScope = vi.hoisted(() => ({ token: null as string | null, headers: {} as Record<string, string> }));
@@ -342,11 +342,11 @@ describe("R04 attack: character photos", () => {
     for (const f of readsUpload) expect(readFileSync(f, "utf8"), f).toMatch(/assertAgeVerified\(user, \{ country: requestCountry\(req\), region: requestRegion\(req\) \}\)/);
   });
 
-  // HOLE: the fix gates new character uploads only. GET /api/characters (and the /train page, which calls
-  // the same listCharacters) still signs the stored likeness photos for a member who needs verification
-  // here and lacks it. A photo kept from an uncovered place, or from before the gate, is served back from
-  // GB. R04's scenario names this serve-back path; the R15 notes list it as not covered.
-  test.fails("HOLE: GET /api/characters withholds stored likeness photos from an unverified member in GB", async () => {
+  // Was a hole: the fix gated new character uploads only. GET /api/characters (and the /train page, which
+  // calls the same listCharacters) still signed the stored likeness photos for a member who needs
+  // verification here and lacks it, so a photo kept from an uncovered place, or from before the gate, was
+  // served back from GB. listCharacters now takes the viewer's age decision, as the creation lists do.
+  it("GET /api/characters withholds stored likeness photos from an unverified member in GB", async () => {
     const nl = await userIn("NL");
     await createCharacter(nl.id, { bytes: await png(), declaredMime: "image/png" }, "Mara", null);
     await signIn(nl, GB);
@@ -354,5 +354,9 @@ describe("R04 attack: character photos", () => {
     const { characters } = (await res.json()) as { characters: { imageUrl: string | null }[] };
     expect(characters).toHaveLength(1);
     expect(characters[0]!.imageUrl).toBeNull();
+    expect(characters[0]).toMatchObject({ name: "Mara", mediaWithheld: true });
+    // The same member from the uncovered place still gets the photo, so only the age decision withholds it.
+    const fromNl = await charactersGet(new NextRequest("http://localhost/api/characters", { headers: { "x-country-code": "NL" } }), undefined as never);
+    expect(((await fromNl.json()) as { characters: { imageUrl: string | null; mediaWithheld: boolean }[] }).characters[0]).toMatchObject({ imageUrl: expect.stringMatching(/^\/api\/media\?/), mediaWithheld: false });
   });
 });

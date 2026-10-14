@@ -19,7 +19,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       if (e instanceof HttpError && e.status === 404) return null;
       throw e;
     }),
-    listCharacters(user.id),
+    listCharacters(user.id, viewer),
   ]);
   if (!data) notFound();
   return <ProjectWorkspace data={data} characters={characters.map((c) => ({ id: c.id, name: c.name }))} />;
