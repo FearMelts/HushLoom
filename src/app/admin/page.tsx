@@ -68,18 +68,26 @@ export default async function AdminPage() {
         </div>
       </div>
       <Panel title="Audit log">
-        <div className="overflow-x-auto">
+        <div className="edge-fade overflow-x-auto">
           <table className="w-full min-w-[640px] text-left text-[12.5px]">
             <tbody>
-              {log.map((l) => (
-                <tr key={l.id} className="border-b border-bone-50/5 align-top">
-                  <td className="py-1.5 pr-3 text-bone-500">{relativeTime(l.createdAt)}</td>
-                  <td className="py-1.5 pr-3">{l.actor ? `@${l.actor}` : "system"}</td>
-                  <td className="py-1.5 pr-3 font-mono">{l.action}</td>
-                  <td className="py-1.5 pr-3 font-mono text-bone-400">{l.target}</td>
-                  <td className="py-1.5 font-mono text-bone-500">{Object.keys(l.metadata).length ? JSON.stringify(l.metadata).slice(0, 120) : ""}</td>
-                </tr>
-              ))}
+              {log.map((l) => {
+                const meta = Object.keys(l.metadata).length ? JSON.stringify(l.metadata) : "";
+                return (
+                  <tr key={l.id} className="border-b border-bone-50/5 align-top">
+                    <td className="whitespace-nowrap py-1.5 pr-3 text-bone-500">{relativeTime(l.createdAt)}</td>
+                    <td className="whitespace-nowrap py-1.5 pr-3">{l.actor ? `@${l.actor}` : "system"}</td>
+                    <td className="whitespace-nowrap py-1.5 pr-3 font-mono">{l.action}</td>
+                    <td className="whitespace-nowrap py-1.5 pr-3 font-mono text-bone-400">{l.target}</td>
+                    {/* The first 120 characters on one line, ending in an ellipsis when cut; the whole of it on hover. */}
+                    <td className="py-1.5 font-mono text-bone-500">
+                      <div className="max-w-[28rem] truncate" title={meta.length > 120 ? meta : undefined}>
+                        {meta.length > 120 ? `${meta.slice(0, 120)}…` : meta}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
