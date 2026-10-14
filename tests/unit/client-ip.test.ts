@@ -46,6 +46,15 @@ describe("clientIp (R05)", () => {
     expect(clientIp(req("203.0.113.9"))).toBe("203.0.113.9");
   });
 
+  it("drops the port and brackets a proxy may write, so each new connection's source port is not a new key", async () => {
+    const clientIp = await clientIpWith("1");
+    expect(clientIp(req("6.6.6.6, 203.0.113.30:40001"))).toBe("203.0.113.30");
+    expect(clientIp(req("203.0.113.30:40002"))).toBe("203.0.113.30");
+    expect(clientIp(req("[2001:db8:42:7::1]:443"))).toBe("2001:db8:42:7::/64");
+    expect(clientIp(req("[2001:db8:42:7::2]"))).toBe("2001:db8:42:7::/64");
+    expect(clientIp(req("[::ffff:203.0.113.30]:40003"))).toBe("203.0.113.30");
+  });
+
   it("bounds the bucket key", async () => {
     const clientIp = await clientIpWith("0");
     expect(clientIp(req("x".repeat(500))).length).toBe(64);

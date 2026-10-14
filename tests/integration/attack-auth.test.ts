@@ -180,10 +180,10 @@ describe("R05 attack: the per-IP limits behind one appending proxy", () => {
     expect(statuses).toEqual([...Array(30).fill(401), 429]);
   }, 120_000);
 
-  // HOLE (deployment-dependent): some proxies write "address:port" into X-Forwarded-For (Azure Application
-  // Gateway documents this format). clientIp() keeps the port, so every new TCP connection from the same
-  // client gets a fresh bucket.
-  it.fails("an address:port entry from the proxy keys on the address, not on the ephemeral port", async () => {
+  // Was a hole (R05-H2, fixed): some proxies write "address:port" into X-Forwarded-For (Azure Application
+  // Gateway documents this format). clientIp() kept the port, so every new TCP connection from the same
+  // client got a fresh bucket. The port and IPv6 brackets are now dropped before keying.
+  it("an address:port entry from the proxy keys on the address, not on the ephemeral port", async () => {
     const statuses: number[] = [];
     for (let i = 0; i < 11; i++) statuses.push((await call(signupRoute, "POST", "/api/auth/signup", {}, viaProxy(`203.0.113.30:${40001 + i}`))).status);
     expect(statuses).toEqual([...Array(10).fill(422), 429]);

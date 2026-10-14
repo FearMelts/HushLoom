@@ -23,12 +23,15 @@ export function clientIp(req: Pick<Request, "headers">): string {
 /**
  * One key per client. A single IPv6 subscriber, phone or cloud VM is routed a whole /64 and can give every
  * request a new address in it, so IPv6 is keyed by that /64. An IPv4 client of a dual-stack listener shows
- * up as an IPv4-mapped address (::ffff:a.b.c.d) and keys as that IPv4 address. Anything else is bounded.
+ * up as an IPv4-mapped address (::ffff:a.b.c.d) and keys as that IPv4 address. Some proxies write
+ * "address:port" ("[address]:port" for IPv6); the port changes with every connection, so it is dropped.
+ * Anything else is bounded.
  */
 function addressKey(entry: string): string {
-  if (isIPv4(entry)) return entry;
-  if (!isIPv6(entry)) return entry.slice(0, 64);
-  const words = ipv6Words(entry.split("%")[0]!);
+  const addr = /^\[([^\]]+)\](?::\d+)?$/.exec(entry)?.[1] ?? /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/.exec(entry)?.[1] ?? entry;
+  if (isIPv4(addr)) return addr;
+  if (!isIPv6(addr)) return entry.slice(0, 64);
+  const words = ipv6Words(addr.split("%")[0]!);
   if (words.slice(0, 5).every((w) => w === 0) && words[5] === 0xffff) return [words[6]! >> 8, words[6]! & 0xff, words[7]! >> 8, words[7]! & 0xff].join(".");
   return `${words.slice(0, 4).map((w) => w.toString(16)).join(":")}::/64`;
 }
