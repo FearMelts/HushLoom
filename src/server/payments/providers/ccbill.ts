@@ -144,7 +144,19 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
       if (!safeEqual(sig, passthroughSignature(c.salt, userId, itemKey))) throw new WebhookRejected("bad_signature", "Pass-through signature does not match.");
       const item = checkoutItem(itemKey);
       if (!item) return { type: "ignored", providerEventId, raw: `unknown item ${itemKey}`, metadata: meta };
-      const amountCents = parseMoneyCents(field(p, "billedInitialPrice", "accountingInitialPrice", "initialPrice")) ?? item.priceCents;
+      // The pass-through pair is not tied to the form's price, so a pair issued for one item can ride on another
+      // item's form. What CCBill billed decides: it must be exactly the item's price, and a pass needs recurring terms.
+      const billed = parseMoneyCents(field(p, "billedInitialPrice", "accountingInitialPrice", "initialPrice"));
+      const amountCents = billed ?? 0;
+      const nextRenewal = parseDate(field(p, "nextRenewalDate"));
+      const review =
+        billed === null
+          ? "CCBill sent no billed price"
+          : billed !== item.priceCents || currency !== item.currency
+            ? `billed ${toMoneyString(billed)} ${currency.toUpperCase()}, ${item.label} costs ${toMoneyString(item.priceCents)} ${item.currency.toUpperCase()}`
+            : item.kind === "plan" && !nextRenewal
+              ? `${item.label} was bought on a form without recurring terms`
+              : undefined;
       if (item.kind === "plan") {
         return {
           type: "subscription_started",
@@ -155,12 +167,13 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
           amountCents,
           currency,
           transactionRef: transactionId ?? subscriptionId!,
-          currentPeriodEnd: parseDate(field(p, "nextRenewalDate")),
+          currentPeriodEnd: nextRenewal,
           grantsFirstPeriod: true,
+          review,
           metadata: meta,
         };
       }
-      return { type: "purchase_completed", providerEventId, userId, itemKey, amountCents, currency, transactionRef: transactionId ?? subscriptionId!, metadata: { ...meta, subscriptionRef: subscriptionId } };
+      return { type: "purchase_completed", providerEventId, userId, itemKey, amountCents, currency, transactionRef: transactionId ?? subscriptionId!, review, metadata: { ...meta, subscriptionRef: subscriptionId } };
     }
     case "RenewalSuccess":
       return {

@@ -7,7 +7,7 @@ import { accountFlags, creditAccounts, paymentEvents, subscriptions, userProfile
 import { HttpError } from "@/server/http";
 import { logger } from "@/server/log";
 import type { PaymentEvent, PaymentProvider } from "./types";
-import { checkoutItem } from "./util";
+import { checkoutItem, toMoneyString } from "./util";
 
 export type Outcome = "processed" | "duplicate" | "ignored";
 type ProviderKey = PaymentProvider["key"];
@@ -54,6 +54,8 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
     case "purchase_completed": {
       const item = checkoutItem(event.itemKey);
       if (!item || item.kind !== "pack") return { outcome: "ignored", patch: { metadata: { reason: "unknown_pack", itemKey: event.itemKey } } };
+      const problem = event.review ?? notPaidInFull(event, item);
+      if (problem) return holdForReview(tx, provider, event.userId, row, event, item.key, problem);
       await grant(tx, event.userId, item.credits, "purchase", `${provider}:${event.providerEventId}`, row.id, `${item.label} pack`);
       return {
         outcome: "processed",
@@ -64,6 +66,8 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
     case "subscription_started": {
       const plan = pricing.plans.find((p) => p.key === event.itemKey);
       if (!plan) return { outcome: "ignored", patch: { metadata: { reason: "unknown_plan", itemKey: event.itemKey } } };
+      const problem = event.review ?? notPaidInFull(event, { label: plan.label, priceCents: plan.priceCents, currency: pricing.currency });
+      if (problem) return holdForReview(tx, provider, event.userId, row, event, plan.key, problem);
       await tx
         .insert(subscriptions)
         .values({
@@ -98,6 +102,8 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
       const plan = sub && pricing.plans.find((p) => p.key === sub.planKey);
       // The start event may still be on its way; fail so the processor retries later.
       if (!sub || !plan) throw new Error(`subscription ${event.providerSubscriptionId} not known yet`);
+      const problem = notPaidInFull(event, { label: plan.label, priceCents: plan.priceCents, currency: pricing.currency });
+      if (problem) return holdForReview(tx, provider, sub.userId, row, event, plan.key, problem);
       await grant(tx, sub.userId, plan.monthlyCredits, "subscription_grant", `${provider}:${event.providerEventId}`, row.id, `${plan.label} monthly credits`);
       await tx
         .update(subscriptions)
@@ -132,6 +138,32 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
     case "ignored":
       return { outcome: "ignored", patch: { metadata: { raw: event.raw } } };
   }
+}
+
+/**
+ * What was bought is decided by what the processor charged, not by the item the pass-through names:
+ * a payment short of the price, or in another currency, is never granted automatically.
+ */
+function notPaidInFull(paid: { amountCents: number; currency: string }, item: { label: string; priceCents: number; currency: string }): string | null {
+  if (paid.currency.toLowerCase() !== item.currency.toLowerCase()) return `paid in ${paid.currency.toUpperCase()}, ${item.label} is priced in ${item.currency.toUpperCase()}`;
+  if (!(paid.amountCents >= item.priceCents)) return `paid ${toMoneyString(paid.amountCents)}, ${item.label} costs ${toMoneyString(item.priceCents)}`;
+  return null;
+}
+
+/** Records a confirmed payment that must not be granted automatically and puts it in front of an operator. Nothing is granted. */
+async function holdForReview(tx: Tx, provider: ProviderKey, userId: string, row: EventRow, paid: { amountCents: number; currency: string }, itemKey: string, problem: string): Promise<Applied> {
+  logger.warn("payment held for review", { provider, id: row.providerEventId, itemKey });
+  await tx.insert(accountFlags).values({
+    userId,
+    kind: "manual_review",
+    reason: `A ${provider} payment was held, not granted: ${problem}. Check it with the processor, then grant or refund by hand.`,
+    details: { paymentEventId: row.id, provider, itemKey, amountCents: paid.amountCents, currency: paid.currency, transactionRef: row.transactionRef, problem },
+  });
+  return {
+    outcome: "ignored",
+    patch: { userId, amountCents: paid.amountCents, currency: paid.currency, metadata: { reason: "needs_review", review: problem, itemKey } },
+    auditMeta: { userId, review: problem },
+  };
 }
 
 async function grant(tx: Tx, userId: string, credits: number, kind: "purchase" | "subscription_grant", key: string, paymentEventId: string, note: string) {

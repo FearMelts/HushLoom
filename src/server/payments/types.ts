@@ -17,7 +17,17 @@ export type CheckoutResult = { url: string; providerRef?: string };
  * unique on provider + providerEventId). `metadata` is stored on the event row verbatim.
  */
 export type PaymentEvent = (
-  | { type: "purchase_completed"; providerEventId: string; userId: string; itemKey: string; amountCents: number; currency: string; transactionRef: string }
+  | {
+      type: "purchase_completed";
+      providerEventId: string;
+      userId: string;
+      itemKey: string;
+      amountCents: number;
+      currency: string;
+      transactionRef: string;
+      /** Set when the processor confirmed a payment whose terms do not match what was sold: recorded and held for manual review, never granted. */
+      review?: string;
+    }
   | {
       type: "subscription_started";
       providerEventId: string;
@@ -31,6 +41,8 @@ export type PaymentEvent = (
       currentPeriodEnd?: Date;
       /** True when this event is itself the charge for the first period (CCBill, Segpay, sandbox). Stripe sends a separate invoice. */
       grantsFirstPeriod?: boolean;
+      /** As on purchase_completed: held for manual review, no pass and no credits. */
+      review?: string;
     }
   | { type: "subscription_renewed"; providerEventId: string; providerSubscriptionId: string; amountCents: number; currency: string; transactionRef: string; currentPeriodEnd?: Date }
   | { type: "subscription_updated"; providerEventId: string; providerSubscriptionId: string; status: string; currentPeriodEnd?: Date }

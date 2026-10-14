@@ -190,6 +190,27 @@ describe("sandbox provider", () => {
     expect((await startCheckout(u, "pack_small")).url).toContain("/pricing/sandbox");
   });
 
+  it("R01: a payment short of the price or in another currency grants nothing, whatever the processor, and goes to manual review", async () => {
+    const u = await makeUser();
+    expect(await (await sale(u.id, "sbx_short_1", "pack_large", { amountCents: 999, transactionRef: "sbx_txn_s1" })).json()).toMatchObject({ outcome: "ignored" });
+    expect(await (await sale(u.id, "sbx_short_2", "plan_studio", { amountCents: 1999, transactionRef: "sbx_txn_s2", subscriptionRef: "sbx_sub_s2" })).json()).toMatchObject({ outcome: "ignored" });
+    expect(await (await sale(u.id, "sbx_short_3", "pack_small", { currency: "eur", transactionRef: "sbx_txn_s3" })).json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect(await getDb().select().from(subscriptions).where(eq(subscriptions.userId, u.id))).toHaveLength(0);
+    expect((await flagsOf(u.id)).map((f) => f.kind)).toEqual(["manual_review", "manual_review", "manual_review"]);
+    const held = (await events("sandbox")).find((e) => e.providerEventId === "sbx_short_1");
+    expect(held).toMatchObject({ userId: u.id, amountCents: 999, credits: null });
+    expect(held!.metadata).toMatchObject({ reason: "needs_review", itemKey: "pack_large" });
+
+    // A renewal paid short grants nothing either.
+    await sale(u.id, "sbx_plan_ok", "plan_member", { amountCents: 1999, transactionRef: "sbx_txn_ok", subscriptionRef: "sbx_sub_ok" });
+    expect((await getBalance(u.id)).available).toBe(400);
+    const shortRenewal = await send({ kind: "renewal", eventId: "sbx_renew_short", amountCents: 999, transactionRef: "sbx_txn_r", subscriptionRef: "sbx_sub_ok" });
+    expect(await shortRenewal.json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(u.id)).available).toBe(400);
+    expect((await flagsOf(u.id)).filter((f) => f.kind === "manual_review")).toHaveLength(4);
+  });
+
   it("starts a pass, grants each renewal once, and ends it on cancellation", async () => {
     const u = await makeUser();
     await sale(u.id, "sbx_plan_1", "plan_member", { amountCents: 1999, transactionRef: "sbx_txn_p1", subscriptionRef: "sbx_sub_1" });
@@ -354,6 +375,39 @@ describe("ccbill provider (digests computed locally from the documented formulas
     await expectRejected(await post("NewSaleSuccess", { ...base, clientAccnum: "123456", subscriptionId: "1", transactionId: "2", dynamicPricingValidationDigest: md5(`11${CCBILL_SALT}`) }), "bad_signature");
     expect((await getBalance(u.id)).available).toBe(0);
     expect(await events("ccbill")).toHaveLength(0);
+  });
+
+  it("R01: a sale whose billed price or terms do not match the claimed item grants nothing and goes to manual review", async () => {
+    const u = await makeUser();
+    // Control: the Studio Pass bought on its own form.
+    const ok = await newSale(u.id, "plan_studio", "3000000000", "txn_r01_0", { billedInitialPrice: "59.99" });
+    expect(await ok.json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(1500);
+
+    // Each one is a real, digest-valid CCBill sale carrying a genuine pass-through pair this server issued for another item.
+    const buyer = await makeUser();
+    const spliced: { itemKey: string; sub: string; extra: Record<string, string> }[] = [
+      // Spark's one-time $9.99 form carrying the Studio Pass pair.
+      { itemKey: "plan_studio", sub: "3000000001", extra: { billedInitialPrice: "9.99", nextRenewalDate: "" } },
+      // The Night Pass's $19.99 monthly form carrying the Studio Pass pair.
+      { itemKey: "plan_studio", sub: "3000000002", extra: { billedInitialPrice: "19.99" } },
+      // Spark's $9.99 form carrying the Blaze pair.
+      { itemKey: "pack_large", sub: "3000000003", extra: { billedInitialPrice: "9.99" } },
+      // Blaze's one-time $89.99 form carrying the Studio Pass pair: paid more, but no recurring terms, so the pass would never end.
+      { itemKey: "plan_studio", sub: "3000000004", extra: { billedInitialPrice: "89.99", nextRenewalDate: "" } },
+      // No billed price at all.
+      { itemKey: "pack_small", sub: "3000000005", extra: { billedInitialPrice: "" } },
+    ];
+    for (const s of spliced) {
+      const res = await newSale(buyer.id, s.itemKey, s.sub, `txn_${s.sub}`, s.extra);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ outcome: "ignored" });
+    }
+    expect((await getBalance(buyer.id)).available).toBe(0);
+    expect(await getDb().select().from(subscriptions).where(eq(subscriptions.userId, buyer.id))).toHaveLength(0);
+    const flags = await flagsOf(buyer.id);
+    expect(flags.map((f) => f.kind)).toEqual(spliced.map(() => "manual_review"));
+    expect(flags[0]!.details).toMatchObject({ provider: "ccbill", itemKey: expect.any(String) });
   });
 
   it("Refund claws back by transaction id, Chargeback finds the sale by subscription id and flags", async () => {
