@@ -21,6 +21,7 @@ import {
 import { env } from "@/server/env";
 import { HttpError } from "@/server/http";
 import { purgeAssetsNow } from "@/server/media";
+import { rateLimit } from "@/server/redis";
 import { ADULT_AGE, ageOn } from "@/server/safety/policy";
 import { destroyAllSessions, hashPassword, verifyPassword } from "./session";
 
@@ -104,6 +105,15 @@ export async function registerUser(input: z.infer<typeof signupSchema>, opts: { 
 }
 
 let dummyHash: string | undefined;
+
+/**
+ * The password checks one account allows: ten per 15 minutes, whoever sends them. Sign-in and the re-check
+ * before deleting the account spend the same budget, so a stolen session gets no extra guesses and no
+ * account can drive unlimited bcrypt work. Keyed by the email as authenticate() matches it.
+ */
+export function passwordAttemptAllowed(email: string): Promise<boolean> {
+  return rateLimit(`login:email:${email.trim().toLowerCase()}`, 10, 900);
+}
 
 export async function authenticate(email: string, password: string) {
   const [user] = await getDb()

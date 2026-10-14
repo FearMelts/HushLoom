@@ -205,11 +205,11 @@ describe("R05 attack: the shipped default, no proxy in front", () => {
 });
 
 describe("R05 attack: other ways to the same behaviour", () => {
-  // HOLE: DELETE /api/me checks the password with bcrypt (cost 12) and has no attempt limit at all. A stolen
-  // session can guess the account password without limit (a right guess deletes the account but reveals a
-  // password people reuse), and any member can drive unlimited bcrypt work from one account, the CPU
-  // exhaustion R05 describes for sign-in. Sign-up hands out ten accounts an hour per address.
-  it.fails("the password re-check on account deletion is attempt-limited like sign-in", async () => {
+  // Was a hole (R05-H3, fixed): DELETE /api/me checked the password with bcrypt (cost 12) and had no attempt
+  // limit at all. A stolen session could guess the account password without limit (a right guess deletes the
+  // account but reveals a password people reuse), and any member could drive unlimited bcrypt work from one
+  // account, the CPU exhaustion R05 describes for sign-in. It now spends the sign-in per-account budget.
+  it("the password re-check on account deletion is attempt-limited like sign-in", async () => {
     const user = await member("kim@example.test", "kim");
     requestScope.token = (await createSession(user.id, null)).token;
     const statuses: number[] = [];
