@@ -10,17 +10,36 @@ export function redactQueryParams(text: string | undefined): string | undefined 
   return text?.replace(/\nparams: [\s\S]*?(?=\n\s+at |$)/, "\nparams: [redacted]");
 }
 
+/**
+ * Postgres data errors (SQLSTATE class 22) quote the value they rejected, such as a date of birth in
+ * `date/time field value out of range: "1990-02-31"`. Logs keep what failed and drop the value.
+ */
+function withoutRejectedValue(err: Error, text: string): string {
+  const code = (err as { code?: unknown }).code;
+  return typeof code === "string" && code.startsWith("22") ? text.replace(/"[\s\S]*"/, "[redacted]") : text;
+}
+
+/** An error's message as logs keep it: no query parameters and no rejected input. */
+export function redactedMessage(err: Error): string {
+  return withoutRejectedValue(err, redactQueryParams(err.message));
+}
+
+/** An error's stack as logs keep it; its first line repeats the message. */
+export function redactedStack(err: Error): string | undefined {
+  return redactQueryParams(err.stack?.replace(err.message, withoutRejectedValue(err, err.message)));
+}
+
 /** The direct cause's name and message (a wrapped query error's real reason, such as ECONNREFUSED). */
 export function causeOf(err: Error): { name: string; message: string } | undefined {
   const cause: unknown = err.cause;
-  return cause instanceof Error ? { name: cause.name, message: redactQueryParams(cause.message) } : undefined;
+  return cause instanceof Error ? { name: cause.name, message: redactedMessage(cause) } : undefined;
 }
 
 function serialize(meta: Record<string, unknown> | undefined) {
   if (!meta) return {};
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(meta)) {
-    out[k] = v instanceof Error ? { name: v.name, message: redactQueryParams(v.message), stack: redactQueryParams(v.stack), cause: causeOf(v) } : v;
+    out[k] = v instanceof Error ? { name: v.name, message: redactedMessage(v), stack: redactedStack(v), cause: causeOf(v) } : v;
   }
   return out;
 }

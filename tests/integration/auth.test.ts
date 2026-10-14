@@ -26,8 +26,10 @@ import { registerUser } from "@/server/auth/account";
 import { createSession } from "@/server/auth/session";
 import { closeDb, getDb } from "@/server/db";
 import { userProfiles, users } from "@/server/db/schema";
-import { HttpError } from "@/server/http";
+import { HttpError, route } from "@/server/http";
+import { setErrorSink } from "@/server/log";
 import { updateProfile } from "@/server/me";
+import { toErrorEvent, type ErrorEvent } from "@/server/observability";
 import { closeRedis } from "@/server/redis";
 import { resetDb } from "../helpers";
 
@@ -178,5 +180,33 @@ describe("R22 account deletion and handles", () => {
     const outcome = await mine;
     expect(outcome).toBeInstanceOf(HttpError);
     expect({ status: (outcome as HttpError).status, code: (outcome as HttpError).code }).toEqual({ status: 409, code: "handle_taken" });
+  });
+});
+
+describe("R28 unhandled-error logs", () => {
+  it("a failed query logs none of the values it carried, on stdout or to the error monitor", async () => {
+    const PRIVATE = ["private.person@example.test", "$2a$12$privatebcrypthashvalue", "1990-02-31"];
+    const lines: string[] = [];
+    const events: ErrorEvent[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => void lines.push(String(line)));
+    setErrorSink((msg, meta) => events.push(toErrorEvent(msg, meta, "web", new Date())));
+    try {
+      // Postgres rejects the impossible date (22008) and quotes it in its own message, which Drizzle wraps as the cause.
+      const handler = route(async () => {
+        await getDb().insert(users).values({ email: PRIVATE[0]!, passwordHash: PRIVATE[1]!, dateOfBirth: PRIVATE[2]! });
+        return new Response(null, { status: 204 });
+      });
+      expect((await call(handler as Handler, "POST", "/api/anything")).status).toBe(500);
+    } finally {
+      spy.mockRestore();
+      setErrorSink(null);
+    }
+    expect(lines).toHaveLength(1);
+    expect(events).toHaveLength(1);
+    const logged = [...lines, JSON.stringify(events)].join("\n");
+    for (const value of PRIVATE) expect(logged).not.toContain(value);
+    // What is useful for debugging stays: the statement and the kind of failure.
+    expect(logged).toContain('insert into \\"users\\"');
+    expect(logged).toContain("date/time field value out of range");
   });
 });
