@@ -293,7 +293,7 @@ export function LibraryView({
           ♥ Favorites
         </Chip>
         <span className="mx-1 w-px shrink-0 bg-[var(--line)]" aria-hidden />
-        <select aria-label="Status" value={query.status} onChange={(e) => go({ status: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline">
+        <select aria-label="Status" value={query.status} onChange={(e) => go({ status: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline max-sm:h-10">
           <option value="">Any status</option>
           <option value="completed">Ready</option>
           <option value="processing">Weaving</option>
@@ -301,7 +301,7 @@ export function LibraryView({
           <option value="failed">Failed</option>
           <option value="cancelled">Cancelled</option>
         </select>
-        <select aria-label="Model" value={query.model} onChange={(e) => go({ model: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline">
+        <select aria-label="Model" value={query.model} onChange={(e) => go({ model: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline max-sm:h-10">
           <option value="">Any model</option>
           {models.map((m) => (
             <option key={m.key} value={m.key}>
@@ -309,7 +309,7 @@ export function LibraryView({
             </option>
           ))}
         </select>
-        <select aria-label="Folder" value={query.folder} onChange={(e) => go({ folder: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline">
+        <select aria-label="Folder" value={query.folder} onChange={(e) => go({ folder: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline max-sm:h-10">
           <option value="">All folders</option>
           {folders.map((f) => (
             <option key={f.id} value={f.id}>
@@ -317,7 +317,7 @@ export function LibraryView({
             </option>
           ))}
         </select>
-        <select aria-label="Sort" value={query.sort} onChange={(e) => go({ sort: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline">
+        <select aria-label="Sort" value={query.sort} onChange={(e) => go({ sort: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline max-sm:h-10">
           <option value="">Newest first</option>
           <option value="oldest">Oldest first</option>
         </select>
