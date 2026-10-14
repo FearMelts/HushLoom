@@ -17,7 +17,7 @@ import { makeUser, resetDb } from "../helpers";
 /**
  * Attacks on the payments fixes for R01 (critical), R02 and R10 (high). Each test tries to get credits or a pass
  * that was not paid for, or to keep credits whose payment was reversed. Tests that pass are regression tests: the
- * fix held. Tests marked `it.fails` reproduce a hole that is still open; each says which one.
+ * fix held. Tests named "HOLE:" reproduced a hole that was open when they were written; each comment says what closed it.
  */
 
 // The race tests hold one webhook's transaction open at its audit row so another delivery can run to completion in
@@ -498,7 +498,8 @@ describe("attack R10: reversals that overtake their purchase", () => {
     expect((await eventsOf("ccbill")).filter((e) => e.type === "refund" && e.metadata.pending === true)).toHaveLength(0);
   });
 
-  it.fails("HOLE: a cancellation and its pass start processed at the same time leave the pass active", async () => {
+  // Closed: a cancellation takes the same lock on its subscription ref as the pass start, so the start waits and applies it.
+  it("HOLE: a cancellation and its pass start processed at the same time leave the pass active", async () => {
     const u = await makeUser();
     const { atHold, release } = holdAt("payment.subscription_cancelled", "ignored");
     const sendExpiration = () => ccbill("Expiration", { subscriptionId: "5100000001", timestamp: "2026-10-12 20:16:00" });
@@ -511,6 +512,8 @@ describe("attack R10: reversals that overtake their purchase", () => {
     await sendExpiration();
     await ccbillSale(u.id, "plan_member", "5100000001", { billedInitialPrice: "19.99" });
     expect(await activePlan(u.id)).toBeNull();
+    expect((await subsOf(u.id)).map((s) => s.status)).toEqual(["canceled"]);
+    expect((await eventsOf("ccbill")).filter((e) => e.type === "subscription_cancelled" && e.metadata.pending === true)).toHaveLength(0);
   });
 
   it("the same refund and sale delivered one after the other, either way round, end with the credits taken back", async () => {

@@ -58,8 +58,9 @@ export async function processPaymentEvent(provider: ProviderKey, event: PaymentE
  * Events that can meet in one payment run one at a time. A reversal looks for the payment it reverses and is kept
  * pending when that is not there yet; a payment looks for reversals kept pending for it. Under READ COMMITTED neither
  * sees the other's uncommitted row, so a refund and its sale delivered together each missed the other and the refund
- * stayed pending for good. Each event therefore takes a transaction-scoped lock on every ref it can be matched by
- * (its transaction ref and its subscription / purchase ref), in a fixed order, before it reads anything.
+ * stayed pending for good; a cancellation and its pass start did the same and left the pass active. Each event
+ * therefore takes a transaction-scoped lock on every ref it can be matched by (its transaction ref and its
+ * subscription / purchase ref), in a fixed order, before it reads anything.
  */
 async function lockRefs(tx: Tx, provider: ProviderKey, event: PaymentEvent) {
   const refs = new Set<string>();
@@ -77,6 +78,11 @@ async function lockRefs(tx: Tx, provider: ProviderKey, event: PaymentEvent) {
     case "chargeback":
       refs.add(event.transactionRef);
       if (event.subscriptionRef) refs.add(event.subscriptionRef);
+      break;
+    case "subscription_updated":
+    case "subscription_cancelled":
+      // A cancellation that overtakes its pass start is kept pending; the start looks for it under the same lock.
+      refs.add(event.providerSubscriptionId);
       break;
   }
   for (const ref of [...refs].filter(Boolean).sort()) {
