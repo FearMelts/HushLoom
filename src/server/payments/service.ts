@@ -109,6 +109,11 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
       const plan = sub && pricing.plans.find((p) => p.key === sub.planKey);
       // The start event may still be on its way; fail so the processor retries later.
       if (!sub || !plan) throw new Error(`subscription ${event.providerSubscriptionId} not known yet`);
+      // A pass the processor rebills after its account was deleted grants nothing: an operator cancels and refunds it.
+      const [owner] = await tx.select({ status: users.status, deletedAt: users.deletedAt }).from(users).where(eq(users.id, sub.userId));
+      if (!owner || owner.status === "deleted" || owner.deletedAt) {
+        return holdForReview(tx, provider, sub.userId, row, event, plan.key, "the pass was billed after its account was deleted; cancel it at the processor and refund this charge");
+      }
       const problem = notPaidInFull(event, { label: plan.label, priceCents: plan.priceCents, currency: pricing.currency });
       if (problem) return holdForReview(tx, provider, sub.userId, row, event, plan.key, problem);
       await grant(tx, sub.userId, plan.monthlyCredits, "subscription_grant", `${provider}:${event.providerEventId}`, row.id, `${plan.label} monthly credits`);

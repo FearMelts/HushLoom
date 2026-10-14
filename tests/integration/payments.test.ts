@@ -6,6 +6,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { POST as sandboxRoute } from "@/app/api/pricing/sandbox/route";
 import { POST as paymentsWebhook } from "@/app/api/webhooks/payments/[provider]/route";
 import { adjustCredits } from "@/server/admin";
+import { deleteAccount, registerUser } from "@/server/auth/account";
 import { createSession } from "@/server/auth/session";
 import { getBalance, listLedger } from "@/server/credits/ledger";
 import { closeDb, getDb } from "@/server/db";
@@ -621,6 +622,25 @@ describe("ccbill provider (digests computed locally from the documented formulas
     expect(await activePlan(u.id)).toBeNull();
     const [sub] = await getDb().select().from(subscriptions).where(eq(subscriptions.userId, u.id));
     expect(sub!.status).toBe("canceled");
+  });
+
+  it("R33: deleting an account with a live pass puts its cancellation in front of an operator, and a renewal billed after that grants nothing", async () => {
+    const reg = await registerUser({ email: "r33@example.test", password: "long-enough-pass", handle: "r33_leaver", displayName: "L", dateOfBirth: "1990-05-05", acceptTerms: true, confirmAdult: true });
+    await newSale(reg.id, "plan_member", "2000000033", "txn_plan_33");
+    expect((await getBalance(reg.id)).available).toBe(400);
+    await deleteAccount(reg.id, "long-enough-pass");
+    const [sub] = await getDb().select().from(subscriptions).where(eq(subscriptions.userId, reg.id));
+    expect(sub!.status).toBe("canceled");
+    const flags = await openFlags(reg.id);
+    expect(flags.map((f) => f.kind)).toEqual(["manual_review"]);
+    expect(flags[0]!.details).toMatchObject({ provider: "ccbill", subscriptionRef: "2000000033", planKey: "plan_member" });
+
+    const renewal = await post("RenewalSuccess", { subscriptionId: "2000000033", transactionId: "txn_plan_33b", billedAmount: "19.99", billedCurrencyCode: "840", timestamp: "2026-11-11 00:00:00" });
+    expect(await renewal.json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(reg.id)).available).toBe(400);
+    expect((await openFlags(reg.id)).map((f) => f.kind)).toEqual(["manual_review", "manual_review"]);
+    const [after] = await getDb().select().from(subscriptions).where(eq(subscriptions.userId, reg.id));
+    expect(after!.status).toBe("canceled");
   });
 
   it("starts a pass on NewSaleSuccess, grants each RenewalSuccess once, and ends it on Expiration", async () => {
