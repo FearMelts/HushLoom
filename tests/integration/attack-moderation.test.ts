@@ -386,9 +386,10 @@ describe("R11 attack: undoing a removal or suspension through a template edit", 
     expect((await templateRow(t.id)).status).toBe("unpublished");
   });
 
-  // HOLE (R11): the same check-then-act against the abuse suspension (a scanner match on one of the
-  // creator's private creations, which suspends and unpublishes through suspendForAbuse).
-  it.fails("publishing an unpublished template in flight while a scanner match suspends the creator leaves nothing live", async () => {
+  // Was a hole (R11): the same check-then-act against the abuse suspension (a scanner match on one of
+  // the creator's private creations, which suspends and unpublishes through suspendForAbuse). Closed
+  // by the same late, share-locked read of the account.
+  it("publishing an unpublished template in flight while a scanner match suspends the creator leaves nothing live", async () => {
     const { creator, t } = await setup();
     await updateTemplate(creator, t.id, { status: "unpublished" });
     const { asset } = await sourceOf((await finished(creator, { params: { aspectRatio: "1:1", seed: 31337 } })).id);
