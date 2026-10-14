@@ -456,12 +456,19 @@ export async function getOwnedJob(userId: string, jobId: string): Promise<Job> {
 
 /** Soft-deletes a creation and its media. Running jobs must be cancelled first. */
 export async function deleteJob(user: SessionUser, jobId: string) {
-  const job = await getOwnedJob(user.id, jobId);
-  if (job.status === "queued" || job.status === "processing") {
-    throw new HttpError(409, "job_active", "Cancel this creation before deleting it.");
-  }
   const now = new Date();
   await getDb().transaction(async (tx) => {
+    // Locked and checked here, not before the transaction: a confirm committing in between would
+    // otherwise leave a hidden job that still runs and charges.
+    const [job] = await tx
+      .select()
+      .from(generationJobs)
+      .where(and(eq(generationJobs.id, jobId), eq(generationJobs.userId, user.id), isNull(generationJobs.deletedAt)))
+      .for("update");
+    if (!job) throw notFound();
+    if (job.status === "queued" || job.status === "processing") {
+      throw new HttpError(409, "job_active", "Cancel this creation before deleting it.");
+    }
     const outs = await tx
       .select({ assetId: generationOutputs.assetId, posterAssetId: generationOutputs.posterAssetId })
       .from(generationOutputs)

@@ -1,15 +1,16 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { SessionUser } from "@/server/auth/session";
 import { getBalance } from "@/server/credits/ledger";
 import { closeDb, getDb, getSql } from "@/server/db";
-import { favorites, generationJobs, generationOutputs, mediaAssets, moderationEvents, templates, users } from "@/server/db/schema";
-import { confirmJob, createDraft } from "@/server/generation/service";
+import { favorites, generationJobs, generationOutputs, mediaAssets, moderationEvents, takedownRequests, templates, users } from "@/server/db/schema";
+import { confirmJob, createDraft, deleteJob } from "@/server/generation/service";
 import { processJob } from "@/server/generation/processor";
 import { getCreation } from "@/server/generation/views";
 import { assetUrl, purgeAssetsNow } from "@/server/media";
 import { closeRedis } from "@/server/redis";
 import { recordVerdict, scanAsset, setDevScanOverride } from "@/server/safety/scan";
+import { resolveTakedown } from "@/server/safety/takedowns";
 import { setFavorite } from "@/server/social";
 import { sha256, storage } from "@/server/storage";
 import { rateTemplate } from "@/server/templates/publish";
@@ -81,6 +82,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   setDevScanOverride(null);
   await clearFaults();
 });
@@ -252,5 +254,63 @@ describe("R46: template counters under concurrent changes", () => {
     const [a, b] = [await makeUser(), await makeUser()];
     const after = await concurrently(t.id, [() => rateTemplate(a.id, t.id, 4), () => rateTemplate(b.id, t.id, 5)]);
     expect(after).toMatchObject({ ratingCount: 2, ratingSum: 9 });
+  });
+});
+
+describe("R47: a soft-deleted job never runs or charges", () => {
+  const outputsOf = (jobId: string) => getDb().select().from(generationOutputs).where(eq(generationOutputs.jobId, jobId));
+
+  it("a delete racing a confirm in another tab refuses instead of hiding a job that then runs", async () => {
+    const user = await makeUser({ credits: 50 });
+    const draft = await createDraft(user, draftInput(), ctx);
+    let confirm: Promise<unknown> = Promise.resolve();
+    let del: Promise<unknown> = Promise.resolve();
+    // Hold the account so the confirm stops mid-transaction, with the draft locked, until the delete is in flight.
+    await getSql().begin(async (a) => {
+      await a`select 1 from credit_accounts where user_id = ${user.id} for update`;
+      confirm = confirmJob(user, draft.id, draft.costCredits);
+      await lockWaiters(1);
+      del = deleteJob(user, draft.id).then(
+        () => "deleted",
+        (err: { code?: string }) => err.code,
+      );
+      await lockWaiters(2);
+    });
+    await confirm;
+    expect(await del).toBe("job_active");
+    expect(await jobRow(draft.id)).toMatchObject({ status: "queued", deletedAt: null });
+  });
+
+  it("a queued job taken down by an admin is cancelled and refunded by the worker, not run", async () => {
+    const user = await makeUser({ credits: 50 });
+    const admin = await makeUser({ role: "admin" });
+    const draft = await queuedJob(user);
+    const [req] = await getDb().insert(takedownRequests).values({ requesterEmail: "me@example.test", targetType: "output", targetRef: draft.id, category: "ncii" }).returning();
+    await resolveTakedown(admin.id, req!.id, { action: "action", note: "Confirmed with requester" });
+    expect((await jobRow(draft.id)).deletedAt).not.toBeNull();
+
+    await processJob(draft.id);
+    expect((await jobRow(draft.id)).status).toBe("cancelled");
+    expect(await getBalance(user.id)).toEqual({ available: 50, reserved: 0 });
+    expect(await outputsOf(draft.id)).toHaveLength(0);
+    expect(await outputAssets(user.id)).toHaveLength(0);
+  });
+
+  it("a job deleted while it is processing is cancelled and refunded, and what it wrote is removed", async () => {
+    const user = await makeUser({ credits: 50 });
+    const draft = await queuedJob(user);
+    // The takedown lands while the output is being stored.
+    const original = storage().put.bind(storage());
+    vi.spyOn(storage(), "put").mockImplementation(async (k: string, body: Buffer, mime: string) => {
+      await original(k, body, mime);
+      await getDb().update(generationJobs).set({ deletedAt: new Date() }).where(eq(generationJobs.id, draft.id));
+    });
+    await processJob(draft.id);
+
+    expect((await jobRow(draft.id)).status).toBe("cancelled");
+    expect(await getBalance(user.id)).toEqual({ available: 50, reserved: 0 });
+    expect(await outputsOf(draft.id)).toHaveLength(0);
+    const assets = await outputAssets(user.id);
+    expect(assets.every((a) => a.deletedAt && a.storageKey.startsWith("purged/"))).toBe(true);
   });
 });

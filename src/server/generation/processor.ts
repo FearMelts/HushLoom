@@ -175,7 +175,8 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
   const claimed = await db.transaction(async (tx) => {
     const [job] = await tx.select().from(generationJobs).where(eq(generationJobs.id, jobId)).for("update");
     if (!job || job.status !== "queued") return null;
-    if (job.cancelRequested) {
+    // A job deleted while queued (a takedown, an account deletion) is cancelled like one the user stopped.
+    if (job.cancelRequested || job.deletedAt) {
       await releaseJob(tx, job.userId, job.id, job.costCredits, "cancelled before processing");
       await tx.update(generationJobs).set({ status: "cancelled", finishedAt: new Date(), updatedAt: new Date() }).where(eq(generationJobs.id, job.id));
       return null;
@@ -201,8 +202,8 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const cancelWatch = setInterval(async () => {
-    const [row] = await db.select({ c: generationJobs.cancelRequested }).from(generationJobs).where(eq(generationJobs.id, job.id));
-    if (row?.c) controller.abort();
+    const [row] = await db.select({ c: generationJobs.cancelRequested, d: generationJobs.deletedAt }).from(generationJobs).where(eq(generationJobs.id, job.id));
+    if (row?.c || row?.d) controller.abort();
   }, opts.cancelPollMs ?? 2000);
 
   let outputs: ProviderOutput[];
@@ -232,9 +233,9 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
   } catch (e) {
     clearTimeout(timer);
     clearInterval(cancelWatch);
-    const [row] = await db.select({ c: generationJobs.cancelRequested }).from(generationJobs).where(eq(generationJobs.id, job.id));
+    const [row] = await db.select({ c: generationJobs.cancelRequested, d: generationJobs.deletedAt }).from(generationJobs).where(eq(generationJobs.id, job.id));
     let err = e instanceof ProviderError ? e : new ProviderError("internal", (e as Error).message ?? String(e), false);
-    if (row?.c) err = new ProviderError("cancelled", "cancelled by user", false);
+    if (row?.c || row?.d) err = new ProviderError("cancelled", "cancelled by user", false);
     logger.warn("generation.provider_error", { ...log, code: err.code, retryable: err.retryable, message: err.message });
     await retryOrFail(job, err, opts);
     return;
@@ -355,7 +356,7 @@ async function storeAndSettle(job: ClaimedJob, outputs: ProviderOutput[], opts: 
       await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, storedIds));
       return false;
     }
-    if (current.cancelRequested) {
+    if (current.cancelRequested || current.deletedAt) {
       await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, storedIds));
       await releaseJob(tx, current.userId, current.id, current.costCredits, "cancelled during processing");
       await tx
