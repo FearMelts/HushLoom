@@ -117,11 +117,11 @@ afterAll(async () => {
 });
 
 describe("R08 attack: getting a taken-down creation back up", () => {
-  // HOLE (R08): publishTemplate never checks whether its output's SHA-256 belongs to a taken-down
-  // creation. takeDownCopies only reaches copies that exist when the takedown is actioned, so the
-  // creator regenerates the same prompt with the same seed (shown on their own creation) and gets
-  // byte-identical bytes, which publish straight back under a new slug after an NCII takedown.
-  it.fails("regenerating the same prompt and seed after an NCII takedown cannot be published again", async () => {
+  // Was a hole (R08): takeDownCopies only reaches copies that exist when the takedown is actioned,
+  // so the creator regenerated the same prompt with the same seed (shown on their own creation),
+  // got byte-identical bytes and published them straight back under a new slug after an NCII
+  // takedown. Closed: the takedown records the SHA-256 of what it removed and publishing refuses it.
+  it("regenerating the same prompt and seed after an NCII takedown cannot be published again", async () => {
     const admin = await makeUser({ role: "admin" });
     const creator = await makeUser({ credits: 50 });
     const params = { aspectRatio: "1:1", seed: 24680 };

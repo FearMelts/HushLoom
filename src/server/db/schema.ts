@@ -184,7 +184,13 @@ export const mediaAssets = pgTable(
     createdAt: createdAt(),
     deletedAt: deletedAt(),
   },
-  (t) => [uniqueIndex("media_storage_key_uq").on(t.storageKey), index("media_owner_idx").on(t.ownerId), index("media_scan_idx").on(t.scanStatus)],
+  (t) => [
+    uniqueIndex("media_storage_key_uq").on(t.storageKey),
+    index("media_owner_idx").on(t.ownerId),
+    index("media_scan_idx").on(t.scanStatus),
+    // Copies of one file (takedowns, the publish check) are found by their bytes.
+    index("media_sha256_idx").on(t.sha256),
+  ],
 );
 
 export const uploads = pgTable(
@@ -676,6 +682,17 @@ export const takedownRequests = pgTable(
   },
   (t) => [index("takedown_status_idx").on(t.status, t.createdAt)],
 );
+
+/**
+ * The SHA-256 of every file an actioned takedown removed (addendum §3). A byte-identical file is
+ * the same image whoever makes it and however (the same prompt and seed again, a retry, another
+ * account), so publishing one is refused. Kept after the files are purged.
+ */
+export const takenDownHashes = pgTable("taken_down_hashes", {
+  sha256: text("sha256").primaryKey(),
+  takedownId: uuid("takedown_id").references(() => takedownRequests.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+});
 
 /** Web Push subscriptions, one per browser/device; removed when that session signs out. */
 export const pushSubscriptions = pgTable(

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { audit } from "@/server/audit";
 import type { SessionUser } from "@/server/auth/session";
 import { getDb, type Tx } from "@/server/db";
-import { accountFlags, generationJobs, generationOutputs, mediaAssets, moderationEvents, takedownRequests, templates, userProfiles } from "@/server/db/schema";
+import { accountFlags, generationJobs, generationOutputs, mediaAssets, moderationEvents, takedownRequests, takenDownHashes, templates, userProfiles } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { HttpError, notFound } from "@/server/http";
 import { purgeAssetsNow } from "@/server/media";
@@ -207,6 +207,9 @@ export async function resolveTakedown(adminId: string, takedownId: string, input
     assetIds.push(...(await takeDownCopies(tx, assetIds, now)));
 
     if (assetIds.length) {
+      // The bytes stay down: publishing the same file again, however it is made, is refused (isTakenDownOrHeld).
+      const hashes = await tx.selectDistinct({ sha256: mediaAssets.sha256 }).from(mediaAssets).where(inArray(mediaAssets.id, assetIds));
+      await tx.insert(takenDownHashes).values(hashes.map((h) => ({ sha256: h.sha256, takedownId: t.id }))).onConflictDoNothing();
       if (t.category === "csam") {
         // Evidence: hidden at once, never purged, and sent to the review queue for the report.
         await tx.update(mediaAssets).set({ deletedAt: now, legalHold: true }).where(inArray(mediaAssets.id, assetIds));
@@ -280,6 +283,23 @@ async function takeDownCopies(tx: Tx, assetIds: string[], now: Date): Promise<st
   for (const o of outs) [o.assetId, o.posterAssetId].forEach((id) => id && same.add(id));
   for (const p of tpls) [p.posterAssetId, p.previewAssetId].forEach((id) => id && same.add(id));
   return [...same].filter((id) => !assetIds.includes(id));
+}
+
+/**
+ * Whether any of these files was taken down or is held as evidence, by its bytes: an actioned
+ * takedown records the SHA-256 of everything it removed, and a scanner match holds the file
+ * itself. A byte-identical copy is the same content, whoever made it and however.
+ */
+export async function isTakenDownOrHeld(db: Pick<Tx, "select">, sha256s: string[]): Promise<boolean> {
+  if (!sha256s.length) return false;
+  const [listed] = await db.select({ sha256: takenDownHashes.sha256 }).from(takenDownHashes).where(inArray(takenDownHashes.sha256, sha256s)).limit(1);
+  if (listed) return true;
+  const [held] = await db
+    .select({ id: mediaAssets.id })
+    .from(mediaAssets)
+    .where(and(inArray(mediaAssets.sha256, sha256s), eq(mediaAssets.legalHold, true)))
+    .limit(1);
+  return Boolean(held);
 }
 
 function unresolved() {

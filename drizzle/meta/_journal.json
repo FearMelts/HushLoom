@@ -29,6 +29,13 @@
       "when": 1791938170430,
       "tag": "0003_integrity_fks_and_dob",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791964462481,
+      "tag": "0004_taken_down_hashes",
+      "breakpoints": true
     }
   ]
 }

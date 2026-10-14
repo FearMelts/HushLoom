@@ -17,6 +17,7 @@ import {
 } from "@/server/db/schema";
 import { HttpError, notFound } from "@/server/http";
 import { checkPrompt, paramTexts } from "@/server/safety/policy";
+import { isTakenDownOrHeld } from "@/server/safety/takedowns";
 import { newStorageKey, storage } from "@/server/storage";
 
 export const publishSchema = z.object({
@@ -70,6 +71,12 @@ export async function publishTemplate(user: SessionUser, input: z.infer<typeof p
   const [poster] = out.posterAssetId ? await db.select().from(mediaAssets).where(eq(mediaAssets.id, out.posterAssetId)) : [];
   if (out.asset.scanStatus !== "clean" || out.asset.legalHold || (poster && (poster.scanStatus !== "clean" || poster.legalHold))) {
     throw new HttpError(409, "not_cleared", "This creation hasn't cleared our safety checks, so it can't be published.");
+  }
+  // A takedown reaches the copies that exist when it is actioned; the same file made again later
+  // (the same prompt and seed, a retry, another account) is refused here, by its bytes.
+  if (await isTakenDownOrHeld(db, [out.asset.sha256, ...(poster ? [poster.sha256] : [])])) {
+    await db.insert(moderationEvents).values({ subjectType: "template", subjectId: job.id, action: "auto_block", status: "resolved", reason: "taken_down", details: { assetId: out.asset.id }, resolvedAt: new Date() });
+    throw new HttpError(409, "taken_down", "This creation matches content that was removed after a takedown request, so it can't be published.");
   }
 
   const bytes = await storage().get(out.asset.storageKey);
