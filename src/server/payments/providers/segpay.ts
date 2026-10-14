@@ -205,7 +205,8 @@ export function segpayEventFromParams(c: Cfg, p: Record<string, string>, headers
     return { type: "chargeback", providerEventId: `chargeback:${tranId}`, transactionRef: relatedTranId ?? tranId!, subscriptionRef: purchaseId, amountCents, currency, metadata: meta };
   }
   if (action === "disable" || action === "cancel" || action === "cancellation") {
-    return { type: "subscription_cancelled", providerEventId: `${action}:${purchaseId ?? tranId}`, providerSubscriptionId: purchaseId ?? "", metadata: meta };
+    // Cancellation stops rebilling; the pass stays paid until its period ends, when Segpay sends Disable.
+    return { type: "subscription_cancelled", providerEventId: `${action}:${purchaseId ?? tranId}`, providerSubscriptionId: purchaseId ?? "", atPeriodEnd: action !== "disable", metadata: meta };
   }
   // Inquiry, Reactivation, CB Reversal, RDRreversal and anything new: recorded, not acted on. An operator re-grants after a reversal by hand.
   return { type: "ignored", providerEventId: `${action || trantype}:${tranId ?? purchaseId}`, raw: `segpay ${action || trantype}`, metadata: meta };

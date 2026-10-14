@@ -46,7 +46,14 @@ export type PaymentEvent = (
     }
   | { type: "subscription_renewed"; providerEventId: string; providerSubscriptionId: string; amountCents: number; currency: string; transactionRef: string; currentPeriodEnd?: Date }
   | { type: "subscription_updated"; providerEventId: string; providerSubscriptionId: string; status: string; currentPeriodEnd?: Date }
-  | { type: "subscription_cancelled"; providerEventId: string; providerSubscriptionId: string; currentPeriodEnd?: Date }
+  | {
+      type: "subscription_cancelled";
+      providerEventId: string;
+      providerSubscriptionId: string;
+      currentPeriodEnd?: Date;
+      /** True for "stop rebilling" (CCBill Cancellation, Segpay Cancellation): the paid pass lasts until its period ends. Otherwise access ends now (Expiration, Disable). */
+      atPeriodEnd?: boolean;
+    }
   | {
       type: "refund";
       providerEventId: string;

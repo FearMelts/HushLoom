@@ -187,7 +187,8 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
       };
     case "Cancellation":
     case "Expiration":
-      return { type: "subscription_cancelled", providerEventId, providerSubscriptionId: subscriptionId ?? "", metadata: meta };
+      // Cancellation stops rebilling; the pass stays paid until its period ends, when CCBill sends Expiration.
+      return { type: "subscription_cancelled", providerEventId, providerSubscriptionId: subscriptionId ?? "", atPeriodEnd: eventType === "Cancellation", metadata: meta };
     case "Refund":
     case "Void":
     case "Return":

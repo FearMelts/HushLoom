@@ -13,7 +13,7 @@ import { accountFlags, auditLogs, creditAccounts, paymentEvents, subscriptions }
 import { paymentsStatus, providerByKey, startCheckout } from "@/server/payments";
 import { compactUserId } from "@/server/payments/providers/segpay";
 import { readSandboxToken, SANDBOX_SIGNATURE_HEADER, signSandboxBody, type SandboxBody } from "@/server/payments/providers/sandbox";
-import { cancelJob, confirmJob, createDraft } from "@/server/generation/service";
+import { activePlan, cancelJob, confirmJob, createDraft } from "@/server/generation/service";
 import { clearFlag, listFlags, openFlags } from "@/server/payments/service";
 import { closeRedis } from "@/server/redis";
 import { key, makeUser, resetDb } from "../helpers";
@@ -607,6 +607,22 @@ describe("ccbill provider (digests computed locally from the documented formulas
     expect((await openFlags(u.id)).map((f) => f.kind)).toEqual(["chargeback"]);
   });
 
+  it("R32: a Cancellation stops rebilling but keeps the paid pass until its period ends; Expiration ends it", async () => {
+    const u = await makeUser();
+    const periodEnd = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10);
+    await newSale(u.id, "plan_member", "2000000032", "txn_plan_32", { nextRenewalDate: periodEnd });
+    expect((await activePlan(u.id))?.key).toBe("plan_member");
+    expect(await (await post("Cancellation", { subscriptionId: "2000000032", timestamp: "2026-10-13 10:00:00" })).json()).toMatchObject({ outcome: "processed" });
+    expect((await activePlan(u.id))?.key).toBe("plan_member");
+    await post("Expiration", { subscriptionId: "2000000032", timestamp: "2026-11-02 00:00:00" });
+    expect(await activePlan(u.id)).toBeNull();
+    // A stop-rebilling notice that arrives late never reopens an ended pass.
+    await post("Cancellation", { subscriptionId: "2000000032", timestamp: "2026-10-13 10:00:01" });
+    expect(await activePlan(u.id)).toBeNull();
+    const [sub] = await getDb().select().from(subscriptions).where(eq(subscriptions.userId, u.id));
+    expect(sub!.status).toBe("canceled");
+  });
+
   it("starts a pass on NewSaleSuccess, grants each RenewalSuccess once, and ends it on Expiration", async () => {
     const u = await makeUser();
     await newSale(u.id, "plan_member", "2000000001", "txn_plan_1");
@@ -727,6 +743,17 @@ describe("segpay provider (postbacks built from the documented parameters; never
       vi.unstubAllEnvs();
       vi.resetModules();
     }
+  });
+
+  it("R32: a Cancellation postback keeps the paid pass until its period ends; Disable ends it", async () => {
+    const u = await makeUser();
+    const nextbilldate = new Date(Date.now() + 20 * 86_400_000).toISOString();
+    await sale(u.id, "plan_member", "T60", "P60", { nextbilldate });
+    expect((await activePlan(u.id))?.key).toBe("plan_member");
+    expect((await post({ action: "Cancellation", purchaseid: "P60" })).headers.get("x-payment-outcome")).toBe("processed");
+    expect((await activePlan(u.id))?.key).toBe("plan_member");
+    await post({ action: "Disable", purchaseid: "P60" });
+    expect(await activePlan(u.id)).toBeNull();
   });
 
   it("a Credit reverses the related sale, a Charge flags the account, a rebill grants per period", async () => {

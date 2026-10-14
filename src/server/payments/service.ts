@@ -130,7 +130,13 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
     }
     case "subscription_updated":
     case "subscription_cancelled": {
-      const status = event.type === "subscription_cancelled" ? "canceled" : event.status;
+      // "Stop rebilling" keeps a paid pass until its period ends (activePlan); the processor's Expiration or Disable ends it,
+      // and a late stop-rebilling notice never reopens a pass that has already ended.
+      let status = event.type === "subscription_cancelled" ? (event.atPeriodEnd ? "non_renewing" : "canceled") : event.status;
+      if (status === "non_renewing") {
+        const [current] = await tx.select({ status: subscriptions.status }).from(subscriptions).where(eq(subscriptions.providerSubscriptionId, event.providerSubscriptionId)).for("update");
+        if (current?.status === "canceled") status = "canceled";
+      }
       const [sub] = await tx
         .update(subscriptions)
         .set({ status, ...(event.currentPeriodEnd ? { currentPeriodEnd: event.currentPeriodEnd } : {}), updatedAt: new Date() })
