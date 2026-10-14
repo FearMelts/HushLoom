@@ -24,10 +24,10 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 2 Merge fix track A, then fix track B | verified | merges 0d06957 (typecheck 0, lint 0, vitest 232/232) and b28583c (typecheck 0, lint 0, vitest 241/241); the two tracks changed no file in common |
 | 2 Merge infra | verified | merge a432052: typecheck 0, lint 0, vitest 258/258 (23 files) |
 | 2 Clean install and full verification | verified | fresh worktree at a432052 (notes/evidence/clean-verify-a432052.log): npm ci (462 packages), typecheck 0, lint 0, vitest 258/258 in 23 files, next build exit 0 |
-| 2 Launch browser journey (age verification, payments, scanning, web app, core flows) | not done | being written in a worktree on base 542af7a |
+| 2 Launch browser journey (age verification, payments, scanning, web app, core flows) | implemented but not verified | first pass: 28 passed, 1 fixme (not-found pages answer 200) in 3.3 min at b670f7f; a critic listed 13 gaps (notes/analysis/journey/); gap closing interrupted by the session limit and resumed 04:50 |
 | 3.1 Adversarial review: find | verified | seven finders on a frozen snapshot of f8d5ef3 returned 62 raw findings (notes/analysis/review/raw-findings.json) and a checked-and-fine list per area |
 | 3.2 Triage | verified | the triage agent's output was withheld by the platform, so the main session triaged by hand: 49 findings after merging duplicates: 1 critical, 12 high, 22 medium, 14 low (notes/analysis/review/triage.json) |
-| 3.3 Reproduce and fix | not done | |
+| 3.3 Reproduce and fix | not done | interrupted by the session limit at about 02:40; payments (R01 R02 R10 R18) and age (R03 R04 R14 R16) had fix commits with failing-then-passing tests; resumed 04:50 |
 | 4 Visual review | not done | |
 | 5 Deliverables: vision, information architecture | implemented but not verified | drafts in the session scratchpad; critiques returned "revise"; finishing in phase 5 against the merged build |
 | 5 Deliverables: design system, engineering, deployment, verification | not done | |
@@ -160,6 +160,16 @@ vitest suite before merging.
   findings. Next: one fix agent per area (payments, age, scan and media, auth, moderation,
   generation, plus an infra review), each reproducing every finding with a failing test before
   fixing it, then an independent agent trying to bypass each critical and high fix.
+- 2026-10-14 02:40 to 04:40 Session limit. All three running workflows stopped: the journey's gap
+  closing, the five doc critiques, and the fix agents. The container restarted. Nothing was lost: the
+  worktrees kept their commits, and their uncommitted edits were committed as "WIP:" on their own
+  branches at 04:47. The five doc drafts were written before the limit and are committed unreviewed
+  (5c6bc8d). Resumed at 04:50: fixes continue in their worktrees (payments, age) or start fresh (the
+  other areas), and the journey's gap closing continues in its worktree. Doc fact-checks wait until
+  those finish.
+- 2026-10-14 04:50 Journey first pass found two app defects: clock and locale text broke hydration
+  (fixed, 11ad512) and not-found pages answer HTTP 200 because loading.tsx on dynamic routes streams
+  first (being fixed in the gap-closing pass).
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 

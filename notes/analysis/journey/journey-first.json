@@ -1,0 +1,239 @@
+{
+ "worktree": "/home/claude/hushloom/.claude/worktrees/wf_5d342506-e09-1",
+ "branch": "worktree-wf_5d342506-e09-1",
+ "commits": [
+  "11ad5124de0acc899b56a584af41878b75939990 Fix: clock-relative text no longer breaks hydration",
+  "68386155b339b5ee7a8e949ed5925ba4b07b73c0 E2E stack: serve nested standalone output; service worker sees offline and geo emulation",
+  "585f45d073a83c7bcfeba4adf6838eebe6a72f1e E2E: launch-readiness journeys with screenshot and error evidence",
+  "b670f7f71efa24913c27dcaecd8836a2a3870622 E2E: fixme the another-member journey while not-found pages answer 200"
+ ],
+ "finalRun": "Command (from the worktree, 15-minute timeout): E2E_SHOTS_DIR=/mnt/project-files/playbox-2/evidence/journey npm run test:e2e\nOutput read from the log: \"Running 29 tests using 1 worker\" ... \"1 skipped\" / \"28 passed (3.3m)\", exit code 0.\nThe skipped test is journey.spec.ts:91 \"another member cannot see that creation or its media\". It is test.fixme for an unfixed app defect (see appBugs), so journey.spec.ts ran 7 passed and 1 fixme, and launch.spec.ts ran 21 passed.\nThe tree that ran is the tree that was committed. After committing, `npm run typecheck` exited 0 and `npm run lint` printed \"No ESLint warnings or errors\" (exit 0). Running `npx eslint --max-warnings 0 tests/e2e scripts/e2e-serve.mjs playwright.config.ts` also exited 0.\nAn earlier full run, before the fixes, printed \"1 failed / 6 did not run / 22 passed (3.3m)\". The failure was journey.spec.ts:93 \"Expected: 404 Received: 200\".",
+ "tests": [
+  {
+   "title": "journey \u203a an adult signs up, makes a demo image from a template, and finds it in the Library",
+   "status": "passed",
+   "notes": "Unchanged."
+  },
+  {
+   "title": "journey \u203a another member cannot see that creation or its media",
+   "status": "fixme",
+   "notes": "App defect, not fixed: not-found pages answer HTTP 200, so line 93 `detail.status()` toBe(404) gets 200. The assertions are unchanged; only test \u2192 test.fixme, with a comment naming the defect."
+  },
+  {
+   "title": "journey \u203a an under-18 date of birth is refused",
+   "status": "passed",
+   "notes": "Unchanged."
+  },
+  {
+   "title": "journey \u203a the assistant blocks a prohibited prompt before anything is charged",
+   "status": "passed",
+   "notes": "Unchanged."
+  },
+  {
+   "title": "journey \u203a layout holds on mobile",
+   "status": "passed",
+   "notes": "Unchanged."
+  },
+  {
+   "title": "journey \u203a layout holds on tablet",
+   "status": "passed",
+   "notes": "Unchanged."
+  },
+  {
+   "title": "journey \u203a layout holds on desktop",
+   "status": "passed",
+   "notes": "Unchanged."
+  },
+  {
+   "title": "journey \u203a keyboard users can skip to content and reach navigation",
+   "status": "passed",
+   "notes": "Unchanged."
+  },
+  {
+   "title": "launch \u203a age verification (GB) \u203a an anonymous GB visitor sees no template media on cards or the template page",
+   "status": "passed",
+   "notes": "Checks home, /explore and the template page: no /api/media in any attribute, not in the page HTML, and no media request made. Screenshots age-01, age-02."
+  },
+  {
+   "title": "launch \u203a age verification (GB) \u203a a new GB member is still withheld and cannot make or upload; nothing is charged",
+   "status": "passed",
+   "notes": "Make gets a 451 with the age alert and no confirm sheet. Upload goes through the real consent sheet and gets a 451 with the alert; the sheet closes. Pricing balance stays at 40, with no held or spent rows. Screenshots age-03 to age-05."
+  },
+  {
+   "title": "launch \u203a age verification (GB) \u203a Settings: the check is required and sandbox-labelled; a failed attempt, then verified",
+   "status": "passed",
+   "notes": "Badges show Not verified and Sandbox. Verify now goes to /verify/sandbox with 'It proves nothing about anyone's age.' Simulate failed shows Not passed; Verify again then Simulate verified shows Verified. Screenshots age-06 to age-09."
+  },
+  {
+   "title": "launch \u203a age verification (GB) \u203a after verification previews load and a demo image is made, charged and in the Library",
+   "status": "passed",
+   "notes": "The cover loads from a signed /api/media URL. Make it shows the 4-credit confirm; the Library item reaches Ready with the Demo label and its image loads. Balance goes 40 to 36. Screenshots age-10, age-11. This test caught the hydration defect in an earlier run."
+  },
+  {
+   "title": "launch \u203a age verification (GB) \u203a a visitor with no geo header is not covered and sees previews",
+   "status": "passed",
+   "notes": "Screenshot age-12."
+  },
+  {
+   "title": "launch \u203a payments \u203a pricing shows the sandbox label for the active processor",
+   "status": "passed",
+   "notes": "Screenshot pay-01."
+  },
+  {
+   "title": "launch \u203a payments \u203a a new member buys the smallest pack and gets exactly its credits",
+   "status": "passed",
+   "notes": "Smallest pack from src/config/pricing. Balance goes 0 to exactly pack.credits, with one 'Credit pack' history row showing +credits and an sbx_txn_ reference. Screenshots pay-02, pay-03."
+  },
+  {
+   "title": "launch \u203a payments \u203a a simulated failure on a second checkout leaves the balance unchanged",
+   "status": "passed",
+   "notes": "Screenshot pay-04."
+  },
+  {
+   "title": "launch \u203a payments \u203a a simulated refund claws the credits back and the history shows it",
+   "status": "passed",
+   "notes": "Balance returns to 0, with a Refund row of -credits. Screenshot pay-05."
+  },
+  {
+   "title": "launch \u203a payments \u203a a chargeback flags the account and pauses checkout until an admin clears it",
+   "status": "passed",
+   "notes": "The account-flagged notice shows and every Buy/Get button is disabled. An in-page POST /api/checkout returns 403 account_flagged. The admin clears the flag with a note, and Buy works again. Screenshots pay-06 to pay-09."
+  },
+  {
+   "title": "launch \u203a payments \u203a webhook replay protection: unsigned, forged or stale events are refused and a re-delivered event grants once",
+   "status": "passed",
+   "notes": "Unsigned, forged and 10-minute-old deliveries each return 400 (unsigned, bad_signature, replayed) and leave the balance unchanged. The same signed body posted twice returns processed, then duplicate; credits are granted once and the history row appears once. Screenshot pay-10."
+  },
+  {
+   "title": "launch \u203a scanning \u203a a scanner match gets a generic rejection and the uploader is suspended and signed out",
+   "status": "passed",
+   "notes": "Response is 403 with exactly {code: upload_rejected, message: 'This upload was rejected.'}, and no scan/match/suspend wording appears. After a reload the user is signed out, and signing in gets 'Email or password is incorrect.' Screenshots scan-01 to scan-04."
+  },
+  {
+   "title": "launch \u203a scanning \u203a a clean upload by another member still works and its preview loads",
+   "status": "passed",
+   "notes": "201 with no warnings; the 768\u00d7768 preview loads. Screenshot scan-05."
+  },
+  {
+   "title": "launch \u203a scanning \u203a the admin sees the escalation and the matched file is never served",
+   "status": "passed",
+   "notes": "The item has abuse match, upload, dev scanner drill, legal hold and suspended. There are no media elements and no /api/media in the DOM or HTML, and no media request. GET /api/media?k=<stored key>, with and without a forged signature, returns 403. Screenshot scan-06."
+  },
+  {
+   "title": "launch \u203a scanning \u203a the public takedown form works signed out and the admin dismisses it with a note",
+   "status": "passed",
+   "notes": "Category NCII is filed signed out. The admin queue shows it; the admin dismisses it with a note, and it appears under Recently closed as 'Takedown dismissed'. Screenshots scan-07 to scan-10."
+  },
+  {
+   "title": "launch \u203a installable web app \u203a the manifest is installable: name, standalone, start_url and real 192 and 512 icons",
+   "status": "passed",
+   "notes": "Icon PNG dimensions are read from the IHDR header."
+  },
+  {
+   "title": "launch \u203a installable web app \u203a the service worker script is served fresh and may control the whole origin",
+   "status": "passed",
+   "notes": "Cache-Control no-cache, Service-Worker-Allowed /, JavaScript content type."
+  },
+  {
+   "title": "launch \u203a installable web app \u203a the worker activates; offline, public pages show the offline page and private pages and the API are never cached",
+   "status": "passed",
+   "notes": "Scope / and /sw.js, activated, controlling. After visiting private pages and signed media, Cache Storage holds only shell and _next/static entries, with no /api. Offline, /explore shows \"You're offline\" with no balance. Offline /collection in a new tab fails with ERR_INTERNET_DISCONNECTED, or shows the offline page; it is never a cached copy. Screenshots pwa-01, pwa-02."
+  },
+  {
+   "title": "launch \u203a installable web app \u203a Settings shows the install card and says push is not configured without VAPID keys",
+   "status": "passed",
+   "notes": "/api/push/public-key returns enabled false; the switch is disabled and unchecked. Screenshot pwa-03."
+  },
+  {
+   "title": "launch \u203a installable web app \u203a at 390x844 offline: the banner shows on a loaded signed-in page and Make it is disabled",
+   "status": "passed",
+   "notes": "The banner and the disabled state both reverse when back online. Screenshot pwa-04."
+  },
+  {
+   "title": "launch \u203a core flows at 390x844: screenshots with no unexpected errors",
+   "status": "passed",
+   "notes": "Screenshots smoke-01 to smoke-10: /, /explore, template, /collection, /settings, /pricing, /policies, /policies/takedown, /admin, /admin/review."
+  }
+ ],
+ "screenshots": [
+  "/mnt/project-files/playbox-2/evidence/journey/age-01-home-withheld-gb.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-02-template-withheld-gb.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-03-member-withheld-gb.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-04-make-refused-gb.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-05-upload-refused-gb.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-06-settings-check-required.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-07-sandbox-proves-nothing.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-08-not-passed.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-09-verified.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-10-previews-visible.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-11-library-demo-made.png",
+  "/mnt/project-files/playbox-2/evidence/journey/age-12-no-geo-not-blocked.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pay-01-pricing-sandbox-label.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pay-02-sandbox-checkout.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pay-03-purchase-credited.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pay-04-failure-no-change.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pay-05-refund-clawed-back.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pay-06-chargeback-flagged.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pay-07-admin-sees-flag.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pay-08-admin-cleared-flag.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pay-09-checkout-works-again.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pay-10-replay-granted-once.png",
+  "/mnt/project-files/playbox-2/evidence/journey/scan-01-consent-sheet.png",
+  "/mnt/project-files/playbox-2/evidence/journey/scan-02-generic-rejection.png",
+  "/mnt/project-files/playbox-2/evidence/journey/scan-03-signed-out-after-reload.png",
+  "/mnt/project-files/playbox-2/evidence/journey/scan-04-sign-in-refused.png",
+  "/mnt/project-files/playbox-2/evidence/journey/scan-05-clean-upload-preview.png",
+  "/mnt/project-files/playbox-2/evidence/journey/scan-06-admin-escalation.png",
+  "/mnt/project-files/playbox-2/evidence/journey/scan-07-takedown-form-signed-out.png",
+  "/mnt/project-files/playbox-2/evidence/journey/scan-08-takedown-sent.png",
+  "/mnt/project-files/playbox-2/evidence/journey/scan-09-admin-takedown-queue.png",
+  "/mnt/project-files/playbox-2/evidence/journey/scan-10-takedown-dismissed.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pwa-01-offline-public-page.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pwa-02-offline-private-page.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pwa-03-settings-install-and-notifications.png",
+  "/mnt/project-files/playbox-2/evidence/journey/pwa-04-phone-offline-make-disabled.png",
+  "/mnt/project-files/playbox-2/evidence/journey/smoke-01-home.png",
+  "/mnt/project-files/playbox-2/evidence/journey/smoke-02-explore.png",
+  "/mnt/project-files/playbox-2/evidence/journey/smoke-03-template.png",
+  "/mnt/project-files/playbox-2/evidence/journey/smoke-04-library.png",
+  "/mnt/project-files/playbox-2/evidence/journey/smoke-05-settings.png",
+  "/mnt/project-files/playbox-2/evidence/journey/smoke-06-pricing.png",
+  "/mnt/project-files/playbox-2/evidence/journey/smoke-07-policies.png",
+  "/mnt/project-files/playbox-2/evidence/journey/smoke-08-takedown.png",
+  "/mnt/project-files/playbox-2/evidence/journey/smoke-09-admin.png",
+  "/mnt/project-files/playbox-2/evidence/journey/smoke-10-admin-review.png"
+ ],
+ "errorsLogged": "The final run wrote 21 JSON files to /mnt/project-files/playbox-2/evidence/journey, one per launch test, named by the test-title slug. journey.spec.ts does not use the fixture, so it has none. Every file has status passed and summary.assertedUnexpected 0. There were 0 unexpected entries of any kind: console, pageerror, requestfailed or response.\n\nExpected entries, each with the reason the test declared:\n- New GB member: 2 responses (451 POST /api/generations, 451 POST /api/uploads) and the 2 matching console \"Failed to load resource ... 451\" lines.\n- Scanner match: 403 POST /api/uploads and 401 POST /api/auth/login, plus their 2 console lines.\n- Chargeback: 403 POST /api/checkout plus its console line.\n- Service-worker offline test: 2 console lines (net::ERR_INTERNET_DISCONNECTED for an RSC prefetch, and Next's \"Failed to fetch RSC payload ... Falling back to browser navigation\").\n- Every page-driven test: 4 to 84 requestfailed net::ERR_ABORTED entries, labelled expected by the helper's built-in allowance (the browser cancelling prefetches or preloads on navigation). The service-worker test also has the declared net::ERR_INTERNET_DISCONNECTED for the offline /collection navigation.\n- The manifest and sw.js tests open no page, so their logs are empty.\n\nAPI calls made through request contexts are asserted directly in the tests and are not page events: the webhook 400s and the /api/media 403s.\n\nIn an earlier run of the same spec, the JSON for \"after verification previews load\u2026\" recorded an unexpected pageerror, \"Minified React error #418\", on /collection, and the fixture failed the test. That led to the hydration fix.",
+ "appBugs": [
+  {
+   "summary": "Text computed from the clock (relativeTime 'Xm ago', elapsed 'Ns', admin 'open Xh') and the device locale (toLocaleDateString) in server-rendered client components broke hydration (React #418) whenever server and device times differed: a second or minute boundary during hydration, or any device clock skew. React then discarded the server HTML.",
+   "evidence": "An earlier launch run failed. The evidence JSON for 'after verification previews load\u2026' has pageerror 'Minified React error #418; ...args[]=text' on /collection while the Library was being reloaded.\n\nDeterministic repro (scratchpad probe-clock-check.cjs, browser clock 10 minutes ahead): server HTML said '5m ago', the client rendered '15m ago', and #418 fired.\n\nAfter the fix: the same probe at 10 minutes ahead reported 0 page errors on /collection, /collection/<id>, /studio, /settings, /pricing, /projects, /train and /, with the server text kept. The final suite also logged 0 page errors.\n\nThe fix adds suppressHydrationWarning to 22 elements in 11 client components. Nothing else changes.",
+   "fixed": true,
+   "commit": "11ad5124de0acc899b56a584af41878b75939990"
+  },
+  {
+   "summary": "Every not-found page answers HTTP 200 instead of 404. The route loading skeletons from 64e1a48 (src/app/loading.tsx, collection/loading.tsx, collection/[id]/loading.tsx and the other [id] routes) wrap async pages in Suspense, so Next.js sends the shell with 200 before notFound() runs. The 404 UI ('A loose thread') and a noindex meta then stream in. The other member still sees none of the content; only the status code is wrong.",
+   "evidence": "The first full run failed journey.spec.ts:93 with 'Expected: 404 Received: 200'; the page snapshot showed the 404 UI.\n\ncurl as a signed-in member returned 200 plus name=\"robots\" content=\"noindex\" for /collection/00000000-0000-4000-8000-000000000000, /collection/not-a-uuid, /templates/no-such-template-xyz, /creators/no-such-creator and /projects/00000000-0000-4000-8000-000000000000.\n\nIt is not a small local fix: it needs those loading boundaries removed from routes that can 404, or existence decided before the boundary. So the journey test is test.fixme with its assertions unchanged.",
+   "fixed": false,
+   "commit": "b670f7f71efa24913c27dcaecd8836a2a3870622 (test.fixme only; no app change)"
+  }
+ ],
+ "variantsChosen": [
+  "Upload path: through the real create-panel UI (Image to image radio, setInputFiles on the upload-input testid, then the 'Before you upload' consent sheet), not page.request. This exercises the consent flow and the alert the user actually sees, for the GB 451, the scanner's 403 and the clean 201.",
+  "Replay check: both variants. (1) Deliveries the test cannot sign validly (no signature, a forged v1, a correct signature 10 minutes old) must each return 400 with codes unsigned, bad_signature and replayed, and leave the balance unchanged. (2) The test signs a sale event with the documented dev-only sandbox constant from src/server/payments/providers/sandbox.ts and posts the identical body and header twice: the first returns processed and the second duplicate, credits are granted once and one history row appears. Why: the signed body the app builds server-side in /api/pricing/sandbox never reaches the browser, so a captured real delivery cannot be replayed.",
+  "Service-worker emulation: playwright.config.ts sets PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS=1 so context.setOffline and the GB extraHTTPHeaders also apply to the worker's own fetches, as on a real device and edge. Without it Chromium's worker stayed online and the offline page never showed.",
+  "Private page offline check in a second tab: after a failed offline navigation, Chromium's emulated navigator.onLine flips back to true in new documents, and the offline page's online listener reloads the first tab. The check therefore reads a fresh tab right away. It accepts either the browser's ERR_INTERNET_DISCONNECTED or the offline page, and asserts no balance and no Library.",
+  "Server start: scripts/e2e-serve.mjs replaces the cp-based webServer command. It copies .next/static and public/ next to server.js and finds server.js when Next nests the standalone output (this worktree sits inside another checkout that has a lockfile).",
+  "Evidence capture is on pages only. Calls made through APIRequestContext (webhook posts, /api/media probes) are asserted directly in the tests. journey.spec.ts was not wrapped with the evidence fixture; that was optional, and its only change is the fixme."
+ ],
+ "notCovered": [
+  "The journey test 'another member cannot see that creation or its media' is fixme, so none of its assertions ran: the page 404, the API 404s for GET, derive and DELETE, the forged-media 403 and the cross-site POST 403.",
+  "Real push delivery and the push toggle with VAPID keys configured: the e2e stack has no keys, so only the 'not configured' state is covered.",
+  "The real install prompt (beforeinstallprompt) and an installed standalone launch: headless Chromium cannot show them. Only the manifest, icons, worker and Settings card are checked.",
+  "A validly signed media URL for the matched asset: the signing secret is random per run and the admin page exposes no URL. Only unsigned and forged requests are shown to be refused (403).",
+  "Real payment processors and real age-verification providers: the suite covers the labelled sandboxes only.",
+  "The pwa-02 screenshot is blank: headless Chromium renders its own network-error page blank. The test's evidence is the asserted navigation error (ERR_INTERNET_DISCONNECTED), plus no balance and no Library heading.",
+  "The hydration fix was verified with a clock-skew probe outside the suite (scratchpad probe-418-clock.cjs and probe-clock-check.cjs). No committed e2e test runs with a skewed browser clock.",
+  "Admin pages with long-open or old takedowns, which would exercise the 24h 'open Xh' styling, were not loaded under clock skew."
+ ]
+}

@@ -1,0 +1,89 @@
+{
+ "gaps": [
+  {
+   "item": "tests/e2e/journey.spec.ts:91 \u2013 test.fixme switches off the whole 'another member cannot see that creation or its media' test, not just the one assertion the defect breaks",
+   "why": "Only line 100 (`detail.status()` toBe 404) hits the not-found-returns-200 defect. Lines 101-110 are route-handler checks that loading.tsx does not affect: GET, derive and DELETE /api/generations/<id> returning 404, the forged-signature media URL returning 403, and the cross-site POST /api/folders returning 403. None of them ran in any passing run. final-run.log stopped at line 93 and final-run2.log skipped the test. So cross-member isolation and the CSRF guard have no e2e coverage, and nobody knows whether they pass. Splitting the test keeps every assertion. Fix: keep a `test.fixme(\"another member's detail page answers 404\")` containing lines 99-100. Move the rest into a live test that runs first in the serial file. That test should also assert the not-found UI ('A loose thread') and that no <img> uses `mediaUrl`, which the fixme comment claims but nothing checks.",
+   "severity": "must"
+  },
+  {
+   "item": "Brief 3c 'the matched file is never served' is covered only nominally (launch.spec.ts:567-573)",
+   "why": "Both probes (no signature, and `s=forged`) get 403 from verifyLocalSignature, which returns 403 for every key, including clean ones. The guard that actually blocks the file is never reached: src/app/api/media/route.ts returns 404 when `asset.scanStatus !== \"clean\"`, even with a valid signature. The test would still pass with that guard deleted. The reported reason, that the secret is 'random per run', is fixable in the config. playwright.config.ts:24 generates randomBytes separately in every process. Change it to `process.env.E2E_MEDIA_SIGNING_SECRET ??= randomBytes(32).toString('hex')` and pass that value, so workers inherit it the same way they already inherit PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS. Then in the test, sign `${stored}\\n${exp}\\n` with HMAC-SHA256 base64url (src/server/storage/index.ts:26) and expect 404 not_found. As a control, sign the clean upload's key from the scan-05 test and expect 200.",
+   "severity": "must"
+  },
+  {
+   "item": "Addendum \u00a72 Tests line 'provider callbacks are signature-checked' is not covered, although a browser can observe it",
+   "why": "src/app/verify/sandbox/page.tsx passes the pre-signed `sandboxCallback(ref, 'verified')` and `sandboxCallback(ref, 'failed')` bodies to the client component, which posts them to /api/webhooks/age-verification/sandbox with x-hushloom-sandbox-signature. The signed age callback therefore reaches the browser, unlike the payment one. In the Settings test (launch.spec.ts:194-233), capture the POST with page.waitForRequest when 'Simulate failed' is clicked, then check all of these: (a) re-posting it does not change status; (b) posting the 'verified' body already issued for that same, now failed, ref is refused; (c) unsigned and forged bodies return 400. After each step, Settings must still show 'Not passed'.",
+   "severity": "should"
+  },
+  {
+   "item": "US-state jurisdictions are untested: only `x-country-code: GB` is used (launch.spec.ts:21)",
+   "why": "The addendum says the rules are 'on by default for the UK and the US states with laws', and the run facts name x-region-code. Add one quick anonymous check with `{ 'x-country-code': 'US', 'x-region-code': 'TX' }`, which must be withheld like GB, and one with US/CA, which must not be withheld. Without these, the region-header path in src/config/jurisdictions.ts is never exercised end to end.",
+   "severity": "should"
+  },
+  {
+   "item": "The replay a browser can actually make is not tried: re-POSTing the page's own /api/pricing/sandbox {action:'complete', token}",
+   "why": "The webhook replay test (launch.spec.ts:426-469) signs its own body with a constant copied from the server, which is knowledge from inside the app. It is not replay 'seen from the outside'. From reading src/app/api/pricing/sandbox/route.ts, each 'complete' mints a new eventId and transactionRef, and readSandboxToken (src/server/payments/providers/sandbox.ts:45) has no single-use check. Re-sending the identical request the browser made would therefore probably grant the pack again until the token expires. I did not run this. Add: capture the request with page.waitForRequest, re-send it with page.request, and assert the balance does not rise twice. Also check that loading /pricing?checkout=success without paying grants nothing, since the server must not trust client-reported results. If the double grant reproduces, record it as a sandbox-only app bug.",
+   "severity": "should"
+  },
+  {
+   "item": "The shell credit pill is stale after a sandbox purchase; this is visible in the author's own evidence and not asserted or reported",
+   "why": "In pay-03-purchase-credited.png, Available shows 100 while the rail pill (data-testid credit-balance) shows 0 on the same screen. pricing-sandbox.tsx:24 uses router.push(res.next), and a client navigation does not re-render the root layout that holds the pill. The test checks only pricing-balance (launch.spec.ts:337, :379). Add `await expect(balance(page)).toHaveText(String(pack.credits))` after line 337 and the matching check after 379. If it fails, this is a small local app fix (router.refresh() after the push, or a full navigation) and belongs in appBugs.",
+   "severity": "should"
+  },
+  {
+   "item": "Installability is checked only through manifest fields (launch.spec.ts:645-663)",
+   "why": "The addendum \u00a74 Tests line says 'the installability checks pass'. Nothing checks that pages link the manifest, apple-touch-icon or theme-color (src/app/layout.tsx:16-31 sets them for iOS), and nothing runs Chromium's own check. Add: on '/', assert `link[rel=manifest][href='/manifest.webmanifest']` and `link[rel=apple-touch-icon]`. Then call CDP `Page.getInstallabilityErrors` through `page.context().newCDPSession(page)` after serviceWorker.ready and expect `installabilityErrors` to equal [].",
+   "severity": "should"
+  },
+  {
+   "item": "The core journey flows in journey.spec.ts (sign-up, make, Library, layouts, keyboard) record no console or network errors",
+   "why": "The run plan's phase 2 wants core flows recorded with console and network errors. Wrapping is trivial: import `test`/`expect` from './evidence' and call `evidence.watch(page)` (or use evidence.newPage), and the assertions stay unchanged. Right now 8 of the 29 tests leave no evidence JSON.",
+   "severity": "should"
+  },
+  {
+   "item": "No regression test for the 'Fix:' hydration commit 11ad512",
+   "why": "The fix was verified only with scratchpad probes, which the author lists in notCovered. Playwright can skew the clock in the suite: add a test that calls `await page.clock.install({ time: Date.now() + 10 * 60_000 })`, then loads /collection, /pricing/sandbox (with purchases), /settings#age-verification (verified) and /admin/review. The fixture's pageerror assertion then guards against React #418 coming back.",
+   "severity": "should"
+  },
+  {
+   "item": "GB withholding is not checked on creator pages, and on home and explore only through the DOM",
+   "why": "src/app/creators/[id]/page.tsx also gates posters (creatorAnalytics(\u2026, viewer.explicitAllowed)), and no test loads a creator page under GB. Add /creators/lunavelour to the anonymous GB test with the same mediaRefsInDom and page.content() checks. The page.content() check for the HTML and RSC payload is applied only to the template page (launch.spec.ts:138), not to home (:124) or explore (:130).",
+   "severity": "should"
+  },
+  {
+   "item": "Reversal edge cases are not covered",
+   "why": "pay-09-checkout-works-again.png shows 'Simulate refund' and 'Simulate chargeback' still offered on purchases already refunded or charged back. Nothing checks that a second reversal of the same transactionRef claws back nothing more. The shortfall path is also untested: a refund after the credits were spent should record a credit_debt flag in the admin flags (src/server/payments/service.ts:161-227). Add a check that clicks Simulate refund on the charged-back purchase and asserts no new negative row and an unchanged balance.",
+   "severity": "should"
+  },
+  {
+   "item": "Addendum \u00a74 'Offer install from settings, not a popup on first visit' is not asserted",
+   "why": "Add to the anonymous first-visit test: no dialog or banner offering install after the age gate on '/'. getByRole('dialog') should have count 0, and there should be no 'Install' text outside /settings.",
+   "severity": "should"
+  },
+  {
+   "item": "The report's notCovered list is incomplete",
+   "why": "It omits addendum Tests lines this suite does not exercise: age-callback signature and replay checks; US-state jurisdictions; 'a scanner outage holds content' (\u00a73); 'push subscriptions are stored per device and removed at logout' (\u00a74; only 'real push delivery' is listed); scanning of generated outputs; and the reversal and shortfall paths. The report should name them, so readers do not assume the e2e suite covers them.",
+   "severity": "should"
+  }
+ ],
+ "weakAssertions": [
+  "launch.spec.ts:567-573: the 403s for `?k=<stored>` and `&s=forged` come from the signature check and would be the same for any clean file. They pass even if the `scanStatus !== \"clean\"` guard in src/app/api/media/route.ts were removed. Sign a valid URL and expect 404 instead (see gaps).",
+  "launch.spec.ts:337, :353, :379 (and the balance checks in the refund and chargeback tests): only the pricing panel (`pricing-balance`) is asserted. The shell pill (`credit-balance`) is never checked on /pricing and was stale (0 vs 100) in pay-03. Also assert `balance(page)`.",
+  "launch.spec.ts:124 and :130: on home and explore, withholding is checked only through DOM attributes, and line 124 runs before settle() at :125, so later client renders are not inspected. The `page.content()` check (no /api/media in HTML or RSC payload) exists only on the template page (:138). Move :124 after settle and add the page.content() assertion on home and explore.",
+  "launch.spec.ts:509: the 'no mention of why' regex reads only `main`. Toasts and alerts rendered outside main (the toast region) are not checked. Use `page.locator('body').innerText()`, or also check the toast region.",
+  "launch.spec.ts:262: `toContainText(\"36\")` would also pass for 136 or 360. Use `toHaveText(\"36\")`, as the pricing checks do.",
+  "launch.spec.ts:774-787: smoke `visit()` asserts nothing about the page. With not-found pages currently answering 200, a wrong slug or a redirect to /auth would still pass with a screenshot of the wrong page. Add one heading assertion per visit; the brief only asked for screenshots, so this is low priority.",
+  "launch.spec.ts:413-416: the admin clears the flag through a prompt note, but the test never checks that the note was stored or shown (e.g. in Recently closed or an audit line), nor that an empty note is refused.",
+  "launch.spec.ts:662 and :666: `expect(evidence).toBeDefined()` is a no-op that exists only to instantiate the fixture. Those two tests assert nothing through evidence, and their JSON is empty."
+ ],
+ "evidenceProblems": [
+  "pay-03, pay-05, pay-06 and pay-10 are viewport-only (evidence.shot defaults to fullPage false; launch.spec.ts:343, :370, :403, :468). None of them shows the Payments history rows the tests assert: Credit pack +100 with sbx_txn_, Refund -100, Chargeback -100, and the single sbx_txn_e2e_ row. pay-06 also does not show the disabled pack Buy buttons, only the two passes. Scroll `history(page)` into view, or pass fullPage: true, before these shots.",
+  "pay-03-purchase-credited.png shows the rail pill at 0 next to Available 100 after the purchase. This is a visible inconsistency in the author's own evidence, and it is not in appBugs or notes.",
+  "pwa-02-offline-private-page.png is a blank white image (Chromium's error page), so it shows nothing. The only real evidence is the asserted error text and the JSON entry `document GET /collection net::ERR_INTERNET_DISCONNECTED`. Write tab.url() and the failure text into the evidence JSON (or attach them), or drop the screenshot.",
+  "pwa-01-offline-public-page.png was taken without settle() (launch.spec.ts:705) and looks dimmed, as if mid fade-in. Minor.",
+  "evidence.ts:45-47 BUILT_IN marks every net::ERR_ABORTED as expected, with a generic 'cancelled prefetch/preload' reason and no URL or type filter. Across the run that covers 706 entries no test declared. It includes `document GET /explore net::ERR_ABORTED` at 02:02:03.248Z in the service-worker offline JSON, which was the offline page reloading itself, not a cancelled prefetch. Since requestfailed is not asserted, label these 'not asserted' rather than 'expected', or narrow the rule to fetch ?_rsc= prefetches and images.",
+  "Checks made through API request contexts leave no trace in the evidence directory: the manifest and its icons, the sw.js headers, /api/push/public-key, the webhook 400s and duplicate, and the /api/media 403s. The manifest and sw.js JSONs have empty entries and no screenshots. Attach the manifest body and the response status and headers (testInfo.attach, or an evidence.note helper) so the directory shows what was verified.",
+  "journey.spec.ts writes no evidence JSON at all: 8 of 29 tests, including the core sign-up, make and Library flow and the three layout tests. So the run plan's 'console/network errors recorded' covers only launch.spec.ts.",
+  "Verified as reported, for the record: final-run2.log shows 'Running 29 tests using 1 worker' \u2026 '1 skipped' / '28 passed (3.3m)', then 'EXIT 0'. Its line numbers match the committed files (journey.spec.ts:91:6 fixme; launch.spec.ts:117\u2026771). The 21 JSONs all have status passed and assertedUnexpected 0; their only console entries are the declared 451, 403 and 401 lines and the 2 offline lines. `tsc --noEmit --incremental false` and the targeted eslint both exited 0. The worktree is clean apart from the node_modules symlink."
+ ]
+}
