@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
-import { Badge, Button, useToast } from "./ui";
+import { Badge, Button, ButtonLink, useToast } from "./ui";
 
 type Flag = {
   id: string;
@@ -67,9 +67,15 @@ export function AccountFlags() {
             <p className="mt-1 font-mono text-[11px] text-bone-500">shortfall {f.details.shortfall} credits · reversed {String(f.details.reversed ?? 0)}</p>
           ) : null}
           <div className="mt-2.5">
-            <Button size="sm" variant="ghost" busy={busy === f.id} onClick={() => void clear(f)}>
-              Clear flag
-            </Button>
+            {f.kind === "csam_match" ? (
+              <ButtonLink href="/admin/review" size="sm" variant="ghost">
+                Open abuse review
+              </ButtonLink>
+            ) : (
+              <Button size="sm" variant="ghost" busy={busy === f.id} onClick={() => void clear(f)}>
+                Clear flag
+              </Button>
+            )}
           </div>
         </li>
       ))}

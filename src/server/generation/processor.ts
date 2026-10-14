@@ -10,7 +10,7 @@ import { env } from "@/server/env";
 import { logger } from "@/server/log";
 import { purgeAssetsNow } from "@/server/media";
 import { newStorageKey, sha256, storage } from "@/server/storage";
-import { scanAsset } from "@/server/safety/scan";
+import { recordDerivedScan, scanAsset, scanFailClosed } from "@/server/safety/scan";
 import { notifyJobFinished } from "@/server/push/notify";
 import { videoPoster } from "./poster";
 import { enqueueGeneration } from "./queue";
@@ -63,6 +63,33 @@ async function finishFailed(jobId: string, err: ProviderError) {
 
 export type ProcessOptions = { timeoutMs?: number; cancelPollMs?: number; retryBaseDelayMs?: number };
 
+type ClaimedJob = typeof generationJobs.$inferSelect;
+
+/** A retryable error goes back to the queue with the reservation held, until attempts run out; then it fails and refunds. */
+async function retryOrFail(job: ClaimedJob, err: ProviderError, opts: ProcessOptions) {
+  if (err.retryable && job.attempts < job.maxAttempts) {
+    // Back to queued with the reservation held; credits move only on a terminal state.
+    await getDb()
+      .update(generationJobs)
+      .set({ status: "queued", failureCode: err.code, updatedAt: new Date() })
+      .where(and(eq(generationJobs.id, job.id), eq(generationJobs.status, "processing")));
+    const delay = (opts.retryBaseDelayMs ?? 5000) * 2 ** (job.attempts - 1);
+    await enqueueGeneration(job.id, delay, job.attempts + 1);
+    return;
+  }
+  await finishFailed(job.id, err);
+}
+
+/** Soft-deletes and purges files this attempt wrote. Held evidence is never touched. */
+async function discardStored(assetIds: string[]) {
+  if (!assetIds.length) return;
+  await getDb()
+    .update(mediaAssets)
+    .set({ deletedAt: new Date() })
+    .where(and(inArray(mediaAssets.id, assetIds), eq(mediaAssets.legalHold, false)));
+  await purgeAssetsNow(assetIds);
+}
+
 /**
  * Runs one attempt of a queued job. Idempotent: a job that is not in `queued`
  * is left alone, so duplicate queue deliveries do nothing.
@@ -106,10 +133,14 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
 
   let outputs: ProviderOutput[];
   try {
+    // Only inputs the abuse scanner cleared ever reach a provider (addendum §3).
     const assets = job.inputAssetIds.length
-      ? await db.select().from(mediaAssets).where(and(inArray(mediaAssets.id, job.inputAssetIds), isNull(mediaAssets.deletedAt)))
+      ? await db
+          .select()
+          .from(mediaAssets)
+          .where(and(inArray(mediaAssets.id, job.inputAssetIds), isNull(mediaAssets.deletedAt), eq(mediaAssets.scanStatus, "clean")))
       : [];
-    if (assets.length !== job.inputAssetIds.length) throw new ProviderError("invalid_input", "an input was deleted", false);
+    if (assets.length !== job.inputAssetIds.length) throw new ProviderError("invalid_input", "an input was deleted or is not cleared", false);
     const inputs: ProviderInput[] = await Promise.all(
       assets.map(async (a) => ({ kind: a.kind, mime: a.mime, bytes: await storage().get(a.storageKey), width: a.width, height: a.height })),
     );
@@ -130,17 +161,7 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
     let err = e instanceof ProviderError ? e : new ProviderError("internal", (e as Error).message ?? String(e), false);
     if (row?.c) err = new ProviderError("cancelled", "cancelled by user", false);
     logger.warn("generation.provider_error", { ...log, code: err.code, retryable: err.retryable, message: err.message });
-    if (err.retryable && job.attempts < job.maxAttempts) {
-      // Back to queued with the reservation held; credits move only on a terminal state.
-      await db
-        .update(generationJobs)
-        .set({ status: "queued", failureCode: err.code, updatedAt: new Date() })
-        .where(and(eq(generationJobs.id, job.id), eq(generationJobs.status, "processing")));
-      const delay = (opts.retryBaseDelayMs ?? 5000) * 2 ** (job.attempts - 1);
-      await enqueueGeneration(job.id, delay, job.attempts + 1);
-      return;
-    }
-    await finishFailed(job.id, err);
+    await retryOrFail(job, err, opts);
     return;
   }
   clearTimeout(timer);
@@ -148,9 +169,11 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
 
   // Store outputs before touching the job, then commit everything in one transaction.
   const stored: { assetId: string; posterAssetId: string | null; report: QualityReport }[] = [];
+  const storedSoFar = () => stored.flatMap((s) => (s.posterAssetId ? [s.assetId, s.posterAssetId] : [s.assetId]));
   for (const out of outputs) {
     const report = await qualityCheck(out);
     if (!report.ok) {
+      await discardStored(storedSoFar());
       await finishFailed(job.id, new ProviderError("internal", `output failed quality check: ${JSON.stringify(report.checks)}`, false));
       return;
     }
@@ -172,8 +195,22 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
         visibility: "private",
       })
       .returning({ id: mediaAssets.id });
-    // Abuse scan of every output before it can be shown (addendum §3); the scanning track owns the verdict handling.
-    await scanAsset({ assetId: asset!.id, bytes: out.bytes, mime: out.mime, kind, sha256: sha256(out.bytes), ownerId: job.userId, origin: "output" });
+    // Abuse scan of every output before it can be shown (addendum §3). The private file is never
+    // served while pending; a non-clean verdict means no output row is ever created for it.
+    const verdict = await scanAsset({ assetId: asset!.id, bytes: out.bytes, mime: out.mime, kind, sha256: sha256(out.bytes), ownerId: job.userId, origin: "output", jobId: job.id });
+    if (verdict === "matched") {
+      // The matched file stays under legal hold as evidence; anything else this attempt wrote goes.
+      await discardStored(storedSoFar());
+      logger.warn("generation.blocked", log);
+      await finishFailed(job.id, new ProviderError("content_blocked", "output matched the abuse scanner", false));
+      return;
+    }
+    if (verdict === "unavailable" && scanFailClosed()) {
+      // Fail closed: nothing unscanned is kept. Retry later with the reservation held; refund when attempts run out.
+      await discardStored([...storedSoFar(), asset!.id]);
+      await retryOrFail(job, new ProviderError("scan_unavailable", "abuse scanner unavailable", true), opts);
+      return;
+    }
     let posterAssetId: string | null = null;
     if (kind === "video") {
       const poster = await videoPoster(out.bytes);
@@ -185,6 +222,8 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
           .values({ ownerId: job.userId, kind: "image", storageKey: posterKey, mime: "image/webp", bytes: poster.bytes.length, width: poster.width, height: poster.height, sha256: sha256(poster.bytes), visibility: "private" })
           .returning({ id: mediaAssets.id });
         posterAssetId = p!.id;
+        // A frame of a clip whose keyframes were just checked: recorded with the clip's verdict, not scanned twice.
+        await recordDerivedScan(posterAssetId, asset!.id);
       }
     }
     stored.push({ assetId: asset!.id, posterAssetId, report });

@@ -8,6 +8,8 @@ import { storage, verifyLocalSignature } from "@/server/storage";
  * Serves local-driver media. Access is granted only by a valid, unexpired
  * signature, which the server issues after its own ownership check.
  * Supports Range requests so video can seek on mobile.
+ * Only assets the abuse scanner cleared are served; anything else is the same 404 as a deleted
+ * asset, even with a link signed before the verdict changed (addendum §3).
  */
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
@@ -18,7 +20,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: { code: "forbidden", message: "Link expired or invalid." } }, { status: 403 });
   }
   const [asset] = await getDb().select().from(mediaAssets).where(eq(mediaAssets.storageKey, key));
-  if (!asset || asset.deletedAt) return NextResponse.json({ error: { code: "not_found", message: "Not found." } }, { status: 404 });
+  if (!asset || asset.deletedAt || asset.scanStatus !== "clean") return NextResponse.json({ error: { code: "not_found", message: "Not found." } }, { status: 404 });
 
   const body = await storage().get(key);
   const headers: Record<string, string> = {

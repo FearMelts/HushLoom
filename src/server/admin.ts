@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { MODELS } from "@/server/ai/registry";
 import { listModelAvailability } from "@/server/ai/providers";
@@ -50,7 +50,8 @@ export async function adminStats() {
       .select({ cents: sql<number>`coalesce(sum(${paymentEvents.amountCents}), 0)::int`, credits: sql<number>`coalesce(sum(${paymentEvents.credits}), 0)::int` })
       .from(paymentEvents)
       .where(gt(paymentEvents.createdAt, sql`${month}`)),
-    db.select({ n: sql<number>`count(*)::int` }).from(moderationEvents).where(eq(moderationEvents.status, "open")),
+    // Abuse-scan escalations have their own queue at /admin/review.
+    db.select({ n: sql<number>`count(*)::int` }).from(moderationEvents).where(and(eq(moderationEvents.status, "open"), ne(moderationEvents.action, "escalate"))),
   ]);
   const byStatus = (s: string) => jobs.filter((j) => j.status === s).reduce((a, j) => a + j.n, 0);
   const finished = byStatus("completed") + byStatus("failed");
@@ -78,7 +79,7 @@ export async function moderationQueue() {
     .select({ e: moderationEvents, reporter: userProfiles.handle })
     .from(moderationEvents)
     .leftJoin(userProfiles, eq(userProfiles.userId, moderationEvents.reporterId))
-    .where(eq(moderationEvents.status, "open"))
+    .where(and(eq(moderationEvents.status, "open"), ne(moderationEvents.action, "escalate")))
     .orderBy(desc(moderationEvents.createdAt))
     .limit(100);
   const templateIds = rows.filter((r) => r.e.subjectType === "template").map((r) => r.e.subjectId);
@@ -111,6 +112,7 @@ export async function resolveReport(adminId: string, eventId: string, input: z.i
     const [e] = await tx.select().from(moderationEvents).where(eq(moderationEvents.id, eventId)).for("update");
     if (!e) throw notFound();
     if (e.status !== "open") throw new HttpError(409, "already_resolved", "Someone already resolved this.");
+    if (e.action === "escalate") throw new HttpError(409, "use_review_queue", "Abuse-scan matches are resolved in Admin › Abuse review.");
     const now = new Date();
     if (input.action === "remove") {
       if (e.subjectType === "template") {

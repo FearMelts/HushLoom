@@ -1,6 +1,7 @@
 "use client";
 
 import { Flag, Pause, Play, Star } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
@@ -181,6 +182,13 @@ export function ReportButton({ templateId }: { templateId: string }) {
           <Field label="Details (optional)" htmlFor="report-note">
             <textarea id="report-note" rows={3} className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} />
           </Field>
+          <p className="text-[12.5px] text-bone-400">
+            Is it you, without your consent?{" "}
+            <Link href={`/policies/takedown?target=${encodeURIComponent(`/templates/${templateId}`)}`} className="text-ember-400 underline-offset-2 hover:underline">
+              Request a takedown
+            </Link>
+            .
+          </p>
           <div className="flex justify-end">
             <Button type="submit" variant="ember" busy={busy}>
               Send report

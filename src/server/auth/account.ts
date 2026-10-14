@@ -143,7 +143,8 @@ export async function withdrawConsent(userId: string, consentId: string) {
         await tx.update(generationJobs).set({ deletedAt: now, cancelRequested: true }).where(inArray(generationJobs.id, jobIds));
       }
     }
-    if (assetIds.length) await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, assetIds));
+    // Assets under legal hold (abuse-scan evidence) are never deleted here; purge skips them too.
+    if (assetIds.length) await tx.update(mediaAssets).set({ deletedAt: now }).where(and(inArray(mediaAssets.id, assetIds), eq(mediaAssets.legalHold, false)));
     await audit(userId, "consent.withdraw", "consent_record", consentId, { removedAssets: assetIds.length }, tx);
     return assetIds;
   });
@@ -162,7 +163,8 @@ export async function deleteAccount(userId: string, password: string) {
       .set({ status: "deleted", deletedAt: now, email: `deleted-${randomUUID()}@invalid`, passwordHash: "!" })
       .where(eq(users.id, userId));
     await tx.update(userProfiles).set({ handle: `deleted_${userId.slice(0, 8)}`, displayName: "Deleted account", bio: "" }).where(eq(userProfiles.userId, userId));
-    await tx.update(mediaAssets).set({ deletedAt: now }).where(and(eq(mediaAssets.ownerId, userId), isNull(mediaAssets.deletedAt)));
+    // Held evidence (abuse-scan matches) survives account deletion; it is never served and never purged.
+    await tx.update(mediaAssets).set({ deletedAt: now }).where(and(eq(mediaAssets.ownerId, userId), isNull(mediaAssets.deletedAt), eq(mediaAssets.legalHold, false)));
     await tx.update(generationOutputs).set({ deletedAt: now }).where(eq(generationOutputs.userId, userId));
     await tx.update(generationJobs).set({ deletedAt: now, cancelRequested: true }).where(eq(generationJobs.userId, userId));
     await tx.update(templates).set({ status: "removed", deletedAt: now }).where(eq(templates.creatorId, userId));
