@@ -401,3 +401,35 @@ describe("settings", () => {
     expect(((await (await meRoute(elsewhere, undefined as never)).json()) as { ageVerification: Record<string, unknown> }).ageVerification).toMatchObject({ jurisdiction: "DE", required: false });
   });
 });
+
+describe("R03: the current request's location counts as well as the stored one", () => {
+  it("requires verification from GB or US-TX although the account stored an uncovered place, and keeps the stored value", async () => {
+    const t = await publishedTemplate();
+    // Stored at signup or the last sign-in over a VPN that exits in the Netherlands.
+    const nl = await userIn("NL");
+    await expect(createDraft(nl, draftInput(), { country: "GB" })).rejects.toMatchObject({ status: 451, details: { jurisdiction: "GB" } });
+    await expect(createDraft(nl, draftInput(), { country: "US", region: "TX" })).rejects.toMatchObject({ status: 451, details: { jurisdiction: "US-TX" } });
+    expect(await viewerAccessFor(nl, { country: "GB" })).toMatchObject({ required: true, explicitAllowed: false });
+
+    // The request-scoped paths: template media and the upload route.
+    await signIn(nl, { "x-country-code": "GB" });
+    expect((await viewerAccess()).explicitAllowed).toBe(false);
+    const list = (await (await templatesRoute(new NextRequest("http://localhost/api/templates?sort=new"), undefined as never)).json()) as { items: { id: string; posterUrl: string | null; mediaWithheld: boolean }[] };
+    expect(list.items.find((c) => c.id === t.id)).toMatchObject({ posterUrl: null, mediaWithheld: true });
+    const form = new FormData();
+    form.set("file", new File([await png()], "a.png", { type: "image/png" }));
+    form.set("consent", "true");
+    const upload = await uploadsRoute(new NextRequest("http://localhost/api/uploads", { method: "POST", body: form, headers: { "x-country-code": "GB" } }), undefined as never);
+    expect(upload.status).toBe(451);
+
+    // From an uncovered place, or with no location on the request, the account still works, and the stored value is unchanged.
+    await expect(createDraft(nl, draftInput(), { country: "DE" })).resolves.toMatchObject({ status: "awaiting_confirmation" });
+    await expect(createDraft(nl, draftInput(), ctx)).resolves.toMatchObject({ status: "awaiting_confirmation" });
+    expect((await userRow(nl.id)).jurisdiction).toBe("NL");
+
+    // Verifying unlocks the covered request.
+    await verifyThroughSandbox(nl);
+    await expect(createDraft(nl, draftInput(), { country: "GB" })).resolves.toMatchObject({ status: "awaiting_confirmation" });
+    expect((await viewerAccess()).explicitAllowed).toBe(true);
+  });
+});

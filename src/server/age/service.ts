@@ -58,16 +58,22 @@ async function ageFields(user: AgeSubject): Promise<AgeFields> {
 }
 
 /**
- * The verification requirement for a user in the context of one request. The jurisdiction is
- * the one stored on the account (signup, refreshed at sign-in), else the request's geo headers.
+ * The verification requirement for a user in the context of one request. Verification is required
+ * when either the jurisdiction stored on the account (signup, refreshed at sign-in) or the current
+ * request's geo headers require it, so a stored uncovered place never unlocks a request from a
+ * covered one. With no location on the request, the stored value decides alone. The jurisdiction
+ * reported is the one that requires the check, else the stored one, else the request's.
  * A verified status past its expiry reads as expired and must be redone.
  */
 export async function requirementFor(user: AgeSubject, ctx: AgeContext): Promise<AgeRequirement> {
   const f = await ageFields(user);
-  const jurisdiction = f.jurisdiction ?? contextJurisdiction(ctx);
+  const current = contextJurisdiction(ctx);
+  const codes = current ? [f.jurisdiction, current].filter((c) => c !== null) : [f.jurisdiction];
+  const required = codes.some((c) => jurisdictionRequired(c));
+  const jurisdiction = codes.find((c) => jurisdictionRequired(c)) ?? f.jurisdiction ?? current;
   const expiresAt = f.ageVerificationStatus === "verified" ? expiryFor(f.ageVerifiedAt) : null;
   const status: AgeStatus = f.ageVerificationStatus === "verified" && (!expiresAt || expiresAt.getTime() <= Date.now()) ? "expired" : f.ageVerificationStatus;
-  return { jurisdiction, required: jurisdictionRequired(jurisdiction), status, verifiedAt: f.ageVerifiedAt, expiresAt, provider: f.ageVerificationProvider };
+  return { jurisdiction, required, status, verifiedAt: f.ageVerifiedAt, expiresAt, provider: f.ageVerificationProvider };
 }
 
 export function satisfied(req: AgeRequirement): boolean {
