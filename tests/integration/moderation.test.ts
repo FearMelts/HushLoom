@@ -39,6 +39,7 @@ import { resolveEscalation } from "@/server/safety/review";
 import { recordVerdict } from "@/server/safety/scan";
 import { countTakedowns, listTakedowns, resolveTakedown, type TakedownCategory } from "@/server/safety/takedowns";
 import { publishTemplate, updateTemplate } from "@/server/templates/publish";
+import { templateForViewer } from "@/server/templates/queries";
 import { key, makeUser, resetDb } from "../helpers";
 
 const ctx = { country: null };
@@ -408,5 +409,23 @@ describe("R35 a locked VIP template sends its recipe only to viewers who can mak
     const own = (await render(creator, t.slug)).panel.props.template as CreateTemplate;
     expect(own).toMatchObject({ locked: false, prompt: RECIPE, negativePrompt: NEGATIVE });
     expect(own.defaults).toMatchObject({ aspectRatio: "4:5", lighting: "candlelit" });
+  });
+});
+
+describe("R49 'Remix of' names only a source that is still published", () => {
+  it("drops the source's title and link once it is unpublished, removed or deleted", async () => {
+    const x = await makeUser({ credits: 50 });
+    const y = await makeUser({ credits: 50 });
+    const source = await publish(x, (await finished(x)).id, "Source With A Name");
+    const remix = await publish(y, (await finished(y)).id, "The Remix");
+    await getDb().update(templates).set({ remixedFromId: source.id }).where(eq(templates.id, remix.id));
+    const remixedFrom = async () => (await templateForViewer(remix.slug, null))!.remixedFrom;
+    expect(await remixedFrom()).toEqual({ slug: source.slug, title: "Source With A Name" });
+
+    for (const change of [{ status: "unpublished" as const }, { status: "removed" as const }, { deletedAt: new Date() }]) {
+      await getDb().update(templates).set(change).where(eq(templates.id, source.id));
+      expect(await remixedFrom()).toBeNull();
+      await getDb().update(templates).set({ status: "published", deletedAt: null }).where(eq(templates.id, source.id));
+    }
   });
 });
