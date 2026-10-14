@@ -3,14 +3,16 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import type { SessionUser } from "@/server/auth/session";
 import { getBalance } from "@/server/credits/ledger";
 import { closeDb, getDb, getSql } from "@/server/db";
-import { generationJobs, generationOutputs, mediaAssets, moderationEvents, users } from "@/server/db/schema";
+import { favorites, generationJobs, generationOutputs, mediaAssets, moderationEvents, templates, users } from "@/server/db/schema";
 import { confirmJob, createDraft } from "@/server/generation/service";
 import { processJob } from "@/server/generation/processor";
 import { getCreation } from "@/server/generation/views";
 import { assetUrl, purgeAssetsNow } from "@/server/media";
 import { closeRedis } from "@/server/redis";
 import { recordVerdict, scanAsset, setDevScanOverride } from "@/server/safety/scan";
+import { setFavorite } from "@/server/social";
 import { sha256, storage } from "@/server/storage";
+import { rateTemplate } from "@/server/templates/publish";
 import { key, makeUser, resetDb } from "../helpers";
 
 const ctx = { country: null };
@@ -211,5 +213,44 @@ describe("R31: the active-jobs cap under parallel confirms", () => {
     expect(refused.map((r) => (r.reason as { code?: string }).code)).toEqual(["too_many_active", "too_many_active", "too_many_active"]);
     const active = await getDb().select().from(generationJobs).where(and(eq(generationJobs.userId, user.id), inArray(generationJobs.status, ["queued", "processing"])));
     expect(active).toHaveLength(3);
+  });
+});
+
+describe("R46: template counters under concurrent changes", () => {
+  async function publishedTemplate() {
+    const creator = await makeUser();
+    const [t] = await getDb()
+      .insert(templates)
+      .values({ slug: key(), creatorId: creator.id, title: "Candle Hour", mediaType: "image", mode: "text_to_image", status: "published", publishedAt: new Date() })
+      .returning();
+    return t!;
+  }
+
+  /** Runs the changes while another transaction holds the template row, so they all reach the recount before any commits. */
+  async function concurrently(templateId: string, changes: (() => Promise<unknown>)[]) {
+    let all: Promise<unknown> = Promise.resolve();
+    await getSql().begin(async (a) => {
+      await a`select 1 from templates where id = ${templateId} for update`;
+      all = Promise.all(changes.map((c) => c()));
+      await lockWaiters(changes.length);
+    });
+    await all;
+    const [t] = await getDb().select().from(templates).where(eq(templates.id, templateId));
+    return t!;
+  }
+
+  it("favorite_count matches the favorites after two users favorite at once", async () => {
+    const t = await publishedTemplate();
+    const [a, b] = [await makeUser(), await makeUser()];
+    const after = await concurrently(t.id, [() => setFavorite(a.id, "template", t.id, true), () => setFavorite(b.id, "template", t.id, true)]);
+    expect(await getDb().select().from(favorites).where(eq(favorites.targetId, t.id))).toHaveLength(2);
+    expect(after.favoriteCount).toBe(2);
+  });
+
+  it("rating totals match the ratings after two users rate at once", async () => {
+    const t = await publishedTemplate();
+    const [a, b] = [await makeUser(), await makeUser()];
+    const after = await concurrently(t.id, [() => rateTemplate(a.id, t.id, 4), () => rateTemplate(b.id, t.id, 5)]);
+    expect(after).toMatchObject({ ratingCount: 2, ratingSum: 9 });
   });
 });

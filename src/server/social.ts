@@ -13,6 +13,8 @@ export async function setFavorite(userId: string, targetType: "template" | "crea
     if (!j) throw notFound();
   }
   await db.transaction(async (tx) => {
+    // Lock the template first, so concurrent favorites run one at a time and each recount sees the others' rows.
+    if (targetType === "template") await tx.select({ id: templates.id }).from(templates).where(eq(templates.id, targetId)).for("update");
     if (on) await tx.insert(favorites).values({ userId, targetType, targetId }).onConflictDoNothing();
     else await tx.delete(favorites).where(and(eq(favorites.userId, userId), eq(favorites.targetType, targetType), eq(favorites.targetId, targetId)));
     if (targetType === "template") {
