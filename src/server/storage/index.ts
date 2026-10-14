@@ -47,9 +47,11 @@ export function verifyLocalSignature(key: string, exp: number, download: string,
  * and nothing could revoke it.
  */
 export function mediaUrl(key: string, ttlSeconds: number, opts?: { download?: string }): string {
-  // Round expiry up to a window boundary so URLs stay stable (and cacheable) within a window.
+  // Round expiry up to a boundary a tenth of the TTL long, so URLs stay stable (and cacheable) for that
+  // long while a link never lives more than 1.1 x its TTL (rounding to the whole TTL allowed almost 2x).
   const now = Math.floor(Date.now() / 1000);
-  const exp = Math.ceil((now + ttlSeconds) / ttlSeconds) * ttlSeconds;
+  const window = Math.max(1, Math.floor(ttlSeconds / 10));
+  const exp = Math.ceil((now + ttlSeconds) / window) * window;
   const download = opts?.download ?? "";
   const q = new URLSearchParams({ k: key, e: String(exp), s: signLocal(key, exp, download) });
   if (download) q.set("d", download);
