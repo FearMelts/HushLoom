@@ -1,8 +1,9 @@
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-// Checks on the deployment files themselves (docker-compose.yml), which no other test runs.
+// Checks on the repository and deployment files themselves (.gitignore, docker-compose.yml).
 const root = path.resolve(__dirname, "../..");
 const read = (file: string) => readFileSync(path.join(root, file), "utf8");
 
@@ -30,6 +31,18 @@ function publishedPorts(): Map<string, string[]> {
   }
   return ports;
 }
+
+describe(".gitignore", () => {
+  /** Whether git would ignore this path (by the ignore rules alone, tracked or not). */
+  const ignored = (file: string) => spawnSync("git", ["check-ignore", "-q", "--no-index", file], { cwd: root }).status === 0;
+
+  // Next.js reads .env.production, .env.*.local and friends on its own, so they hold real keys too.
+  it("keeps every local environment file out of git, but not the template (I06)", () => {
+    const files = [".env", ".env.local", ".env.production", ".env.production.local", ".env.development.local", ".env.staging", ".env.test.local"];
+    expect(files.filter((file) => !ignored(file))).toEqual([]);
+    expect(ignored(".env.example")).toBe(false);
+  });
+});
 
 describe("docker-compose.yml", () => {
   const ports = publishedPorts();
