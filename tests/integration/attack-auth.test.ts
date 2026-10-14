@@ -218,16 +218,36 @@ describe("R05 attack: other ways to the same behaviour", () => {
     expect(statuses).toContain(429);
   }, 60_000);
 
-  // HOLE (low; limiter atomicity, widened by R30): rateLimit() sends INCR and then, only when the count is 1,
-  // EXPIRE as a separate command. R30's request client gives up on a command after one reconnect attempt or
-  // 2 s, so a connection drop between the two leaves the counter with no TTL. That bucket then never resets:
-  // once it passes the limit (a member's login:email bucket, an address's signup bucket) it answers 429 forever.
-  it.fails("a failure between INCR and EXPIRE does not leave a bucket that never expires", async () => {
+  // Was a hole (R05-H4, fixed; limiter atomicity, widened by R30): rateLimit() sent INCR and then, only when
+  // the count was 1, EXPIRE as a separate command. R30's request client gives up on a command after one
+  // reconnect attempt or 2 s, so a connection drop between the two left the counter with no TTL. That bucket
+  // then never reset: once past the limit (a member's login:email bucket, an address's signup bucket) it
+  // answered 429 forever. The count and its expiry now go to Redis in one MULTI, so the connection is made to
+  // drop wherever the limiter's work is in flight: on a separate EXPIRE (the old code), or after Redis has
+  // applied the transaction but before its reply arrives (the new code).
+  it("a failure between INCR and EXPIRE does not leave a bucket that never expires", async () => {
     const client = requestRedis();
     vi.spyOn(client, "expire").mockRejectedValueOnce(new Error("Connection is closed."));
+    const multi = client.multi.bind(client) as () => ReturnType<typeof client.multi>;
+    vi.spyOn(client, "multi").mockImplementationOnce(() => {
+      const tx = multi();
+      const exec = tx.exec.bind(tx);
+      tx.exec = async () => {
+        await exec();
+        throw new Error("Connection is closed.");
+      };
+      return tx;
+    });
     const first = await call(signupRoute, "POST", "/api/auth/signup", {}, viaProxy("203.0.113.41"));
     expect(first.status).toBe(503);
     expect(await client.ttl("rl:signup:203.0.113.41")).toBeGreaterThan(0);
+  });
+
+  it("a counter an earlier version left without a TTL gets one on its next hit", async () => {
+    const client = requestRedis();
+    await client.set("rl:signup:203.0.113.44", 50);
+    expect((await call(signupRoute, "POST", "/api/auth/signup", {}, viaProxy("203.0.113.44"))).status).toBe(429);
+    expect(await client.ttl("rl:signup:203.0.113.44")).toBeGreaterThan(0);
   });
 });
 

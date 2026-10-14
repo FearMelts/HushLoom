@@ -34,13 +34,17 @@ export async function closeRedis() {
 /**
  * Fixed-window limiter. Returns false once `limit` hits occur within `windowS`. Fails closed: while
  * Redis is unreachable it answers 503 rather than letting attempts through unlimited.
+ *
+ * The count and its expiry go in one transaction (EXPIRE NX, Redis 7), so no failure between two commands
+ * can leave a counter without a TTL, which would answer 429 for good once past the limit. NX keeps the
+ * running window's TTL, and gives one to any counter an earlier version of this function left without.
  */
 export async function rateLimit(bucket: string, limit: number, windowS: number): Promise<boolean> {
   const key = `rl:${bucket}`;
   try {
-    const count = await requestRedis().incr(key);
-    if (count === 1) await requestRedis().expire(key, windowS);
-    return count <= limit;
+    const [incr] = (await requestRedis().multi().incr(key).expire(key, windowS, "NX").exec()) ?? [];
+    if (!incr || incr[0]) throw incr?.[0] ?? new Error("rate limit transaction discarded");
+    return (incr[1] as number) <= limit;
   } catch (err) {
     // The bucket is not logged: it can hold an email address.
     logger.error("rate limiter unavailable", { err });
