@@ -33,7 +33,7 @@ export function PresetList({ presets, kind }: { presets: { id: string; name: str
             {(video ? "video" : "image") !== kind ? <Badge>switches</Badge> : null}
             <button
               type="button"
-              className="grid size-9 shrink-0 place-items-center rounded-full text-bone-500 hover:bg-ink-800 hover:text-danger-400"
+              className="grid size-9 shrink-0 place-items-center max-sm:size-10 rounded-full text-bone-500 hover:bg-ink-800 hover:text-danger-400"
               aria-label={`Delete preset ${p.name}`}
               onClick={async () => {
                 try {

@@ -263,10 +263,10 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
                 <div className="mt-1.5 flex items-center justify-between gap-1">
                   <p className="truncate text-[13px] text-bone-200">{s.title}</p>
                   <span className="flex shrink-0">
-                    <button type="button" onClick={() => move(i, -1)} disabled={i === 0 || busy === "order"} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30" aria-label={`Move ${s.title} earlier`}>
+                    <button type="button" onClick={() => move(i, -1)} disabled={i === 0 || busy === "order"} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30 max-sm:size-10" aria-label={`Move ${s.title} earlier`}>
                       <ArrowLeft size={13} aria-hidden />
                     </button>
-                    <button type="button" onClick={() => move(i, 1)} disabled={i === data.scenes.length - 1 || busy === "order"} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30" aria-label={`Move ${s.title} later`}>
+                    <button type="button" onClick={() => move(i, 1)} disabled={i === data.scenes.length - 1 || busy === "order"} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30 max-sm:size-10" aria-label={`Move ${s.title} later`}>
                       <ArrowRight size={13} aria-hidden />
                     </button>
                   </span>

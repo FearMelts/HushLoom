@@ -28,8 +28,8 @@ const variants: Record<Variant, string> = {
   danger: "hairline text-danger-400 hover:bg-danger-400/10",
 };
 const sizes: Record<Size, string> = {
-  // Compact on desktop; 40 px tall on phones so every small control is an easy tap.
-  sm: "h-8 max-sm:h-10 px-3 text-[13px] gap-1.5 rounded-full",
+  // Compact on desktop; at least 40x40 on phones so every small control, icon-only ones too, is an easy tap.
+  sm: "h-8 min-w-8 max-sm:h-10 max-sm:min-w-10 px-3 text-[13px] gap-1.5 rounded-full",
   md: "h-10 px-4 text-sm gap-2 rounded-full",
   lg: "h-12 px-6 text-[15px] gap-2 rounded-full",
 };

@@ -437,7 +437,7 @@ export function CreatePanel({
                   setUpload(null);
                   forgetDraftKey();
                 }}
-                className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800" aria-label="Remove upload">
+                className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 max-sm:size-10" aria-label="Remove upload">
                 <X size={16} />
               </button>
             </div>
