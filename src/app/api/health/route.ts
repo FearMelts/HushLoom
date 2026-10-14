@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
 import { getDb } from "@/server/db";
-import { redis } from "@/server/redis";
+import { requestRedis } from "@/server/redis";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,7 @@ export async function GET() {
     checks.database = "down";
   }
   try {
-    checks.redis = (await redis().ping()) === "PONG" ? "ok" : "down";
+    checks.redis = (await requestRedis().ping()) === "PONG" ? "ok" : "down";
   } catch {
     checks.redis = "down";
   }
