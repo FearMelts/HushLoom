@@ -5,6 +5,11 @@ import { defineConfig, devices } from "@playwright/test";
 const PORT = Number(process.env.E2E_PORT ?? 3100);
 export const BASE_URL = `http://localhost:${PORT}`;
 
+// Requests the service worker makes (network-first public pages, precaching) get the context's
+// offline state and extra headers too, as a real device and a real edge would apply them. Without it
+// Chromium's service worker stays online under context.setOffline(true) and the offline page never shows.
+process.env.PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS ??= "1";
+
 // Everything the e2e stack needs, isolated from the dev database, Redis db and storage.
 const env = {
   NODE_ENV: "production",
@@ -33,8 +38,9 @@ export default defineConfig({
   webServer: [
     {
       // Fresh database, production build, then the standalone server exactly as the Dockerfile runs it.
-      // Standalone output copies neither .next/static nor public/ (sw.js, manifest, icons); both are copied in.
-      command: `npx tsx scripts/e2e-prepare.ts && npx next build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public && PORT=${PORT} node .next/standalone/server.js`,
+      // Standalone output copies neither .next/static nor public/ (sw.js, manifest, icons); e2e-serve copies
+      // both in, and also finds server.js when Next nests the app (a worktree inside another checkout).
+      command: `npx tsx scripts/e2e-prepare.ts && npx next build && PORT=${PORT} node scripts/e2e-serve.mjs`,
       url: `${BASE_URL}/api/health`,
       env,
       timeout: 600_000,
