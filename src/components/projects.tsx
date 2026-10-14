@@ -14,6 +14,7 @@ import { STATUS_LABEL, relativeTime } from "@/lib/format";
 import { JOB_STARTED_EVENT, useJobEvents } from "./job-tray";
 import { CreationThumb } from "./library";
 import { OfflineGuard } from "./offline";
+import { WithheldMedia } from "./template-card";
 import { BackLink, Badge, Button, ButtonLink, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
 
 type ProjectSummary = {
@@ -23,10 +24,22 @@ type ProjectSummary = {
   updatedAt: string;
   scenes: number;
   clips: number;
-  cover: { kind: "image" | "video"; url: string | null; posterUrl: string | null; isDemo: boolean } | null;
+  cover: { kind: "image" | "video"; url: string | null; posterUrl: string | null; mediaWithheld: boolean; isDemo: boolean } | null;
 };
 
-function Media({ output, className }: { output: { kind: "image" | "video"; url: string | null; posterUrl?: string | null } | null; className?: string }) {
+function Media({ output, className }: { output: { kind: "image" | "video"; url: string | null; posterUrl?: string | null; mediaWithheld?: boolean } | null; className?: string }) {
+  if (output?.mediaWithheld) {
+    // The server sent no media URL: the age rules here need a verification first, as on a Library thumbnail.
+    // Every use sits in a link or a button (or a pane too small for one), so no link of its own. The inner box
+    // fills the grid and holds the cover, so the caller's rounded corners clip it.
+    return (
+      <div className={cn("grid overflow-hidden", className)}>
+        <div className="relative">
+          <WithheldMedia signedIn compact link={false} label="Verify your age to see this" />
+        </div>
+      </div>
+    );
+  }
   if (!output?.url) return <div className={cn("grid place-items-center bg-ink-850 text-bone-500", className)}><Clapperboard size={22} aria-hidden /></div>;
   return output.kind === "video" ? (
     <video src={output.url} poster={output.posterUrl ?? undefined} muted playsInline preload={output.posterUrl ? "none" : "metadata"} className={cn("object-cover", className)} />

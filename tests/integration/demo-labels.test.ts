@@ -13,7 +13,7 @@ vi.mock("next/navigation", () => ({
 
 import { CreationDetail } from "@/components/creation-detail";
 import { CreatorManage } from "@/components/creator-manage";
-import { ProjectWorkspace } from "@/components/projects";
+import { ProjectsIndex, ProjectWorkspace } from "@/components/projects";
 import { MODELS, type ModelSpec } from "@/server/ai/registry";
 import { registerAdapter } from "@/server/ai/providers";
 import type { ProviderAdapter } from "@/server/ai/providers/types";
@@ -24,11 +24,13 @@ import { generationJobs } from "@/server/db/schema";
 import { processJob } from "@/server/generation/processor";
 import { confirmJob, createDraft } from "@/server/generation/service";
 import type { CreationListItem } from "@/server/generation/views";
+import { createProject, getProjectDetail, listProjects } from "@/server/projects";
 import { closeRedis } from "@/server/redis";
 import { publishTemplate } from "@/server/templates/publish";
 import { key, makeUser, resetDb } from "../helpers";
 
-// Every place that shows demo media says Demo, and nothing else does (D2).
+// Every place that shows demo media says Demo, and nothing else does (D2); media withheld for an age check
+// says so instead of looking like an empty project (D3).
 
 // A model that is not a demo, so a non-demo creation exists to compare against.
 const realAdapter: ProviderAdapter = {
@@ -81,6 +83,8 @@ const labelled = (html: string, label: string) => element(html, new RegExp(`<[a-
 
 const DEMO_BADGE = /bg-iris-400 text-ink-950">Demo<\/span>/g;
 const demoBadges = (html: string) => html.match(DEMO_BADGE)?.length ?? 0;
+const WITHHELD = "Verify your age to see this";
+const CLAPPERBOARD = "lucide-clapperboard";
 
 const at = new Date().toISOString();
 function creation(id: string, isDemo: boolean, over: Partial<CreationListItem> = {}): CreationListItem {
@@ -193,5 +197,46 @@ describe("creator Manage tab (D2d)", () => {
       expect(demoBadges(demoRow)).toBe(1);
       expect(demoBadges(realRow)).toBe(0);
     }
+  });
+});
+
+describe("withheld project media (D3)", () => {
+  it("shows the age-check cover, not the empty-project icon, on the index and the scene tiles", async () => {
+    const user = await makeUser({ credits: 50 });
+    const withMedia = await createProject(user.id, { title: "Golden hour", description: "" });
+    const empty = await createProject(user.id, { title: "Not started", description: "" });
+    const detail = await getProjectDetail(user.id, withMedia.id, { explicitAllowed: true });
+    await finished(user, { projectId: withMedia.id, sceneId: detail.scenes[0]!.id });
+
+    const projects = await listProjects(user.id, { explicitAllowed: false });
+    expect(projects.find((p) => p.id === withMedia.id)!.cover).toMatchObject({ url: null, mediaWithheld: true });
+    const index = render(createElement(ProjectsIndex, { projects }));
+    const tile = element(index, `<a class="group block" href="/projects/${withMedia.id}"`);
+    expect(tile).toContain(WITHHELD);
+    expect(tile).not.toContain(CLAPPERBOARD);
+    // A project with nothing in it yet keeps its own placeholder.
+    const emptyTile = element(index, `<a class="group block" href="/projects/${empty.id}"`);
+    expect(emptyTile).toContain(CLAPPERBOARD);
+    expect(emptyTile).not.toContain(WITHHELD);
+
+    const data = await getProjectDetail(user.id, withMedia.id, { explicitAllowed: false });
+    const workspace = render(createElement(ProjectWorkspace, { data, characters: [] }));
+    const sceneTile = labelled(workspace, "01 ");
+    expect(sceneTile).toContain(WITHHELD);
+    expect(sceneTile).not.toContain(CLAPPERBOARD);
+    // The withheld cover carries no link: the tile is already a button.
+    expect(sceneTile).not.toContain("<a ");
+  });
+
+  it("still shows the media itself to a viewer who may see it", async () => {
+    const user = await makeUser({ credits: 50 });
+    const project = await createProject(user.id, { title: "Golden hour", description: "" });
+    const detail = await getProjectDetail(user.id, project.id, { explicitAllowed: true });
+    await finished(user, { projectId: project.id, sceneId: detail.scenes[0]!.id });
+    const index = render(createElement(ProjectsIndex, { projects: await listProjects(user.id, { explicitAllowed: true }) }));
+    const tile = element(index, `<a class="group block" href="/projects/${project.id}"`);
+    expect(tile).toContain("<img ");
+    expect(tile).not.toContain(WITHHELD);
+    expect(demoBadges(tile)).toBe(1);
   });
 });
