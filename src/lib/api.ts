@@ -4,6 +4,8 @@ export class ApiError extends Error {
     public readonly code: string,
     message: string,
     public readonly details?: unknown,
+    /** The server's own message, without the hint a 451 adds for callers that render only the message. */
+    public readonly serverMessage: string = message,
   ) {
     super(message);
   }
@@ -39,10 +41,11 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   const data = text ? (JSON.parse(text) as unknown) : null;
   if (!res.ok) {
     const err = (data as { error?: { code: string; message: string; details?: unknown } } | null)?.error;
-    let message = err?.message ?? `Request failed (${res.status})`;
-    // Callers that only render the message still get a way forward on an age-check refusal.
-    if (res.status === 451 && err?.code === "age_verification_required") message = `${message} Open Settings › Age verification to do it.`;
-    throw new ApiError(res.status, err?.code ?? "error", message, err?.details);
+    const serverMessage = err?.message ?? `Request failed (${res.status})`;
+    // Callers that only render the message still get a way forward on an age-check refusal; callers that can
+    // link to the check (verifyPath) show serverMessage with a link instead.
+    const message = res.status === 451 && err?.code === "age_verification_required" ? `${serverMessage} Open Settings › Age verification to do it.` : serverMessage;
+    throw new ApiError(res.status, err?.code ?? "error", message, err?.details, serverMessage);
   }
   return data as T;
 }

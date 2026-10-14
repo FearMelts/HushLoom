@@ -14,7 +14,7 @@ import { draftKeyFor, type DraftKey } from "@/lib/draft-key";
 import { useOnline } from "@/lib/use-online";
 import { JOB_STARTED_EVENT } from "./job-tray";
 import { OFFLINE_MESSAGE, OfflineGuard } from "./offline";
-import { Badge, Button, Chip, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
+import { Badge, Button, ButtonLink, Chip, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
 
 export type CreateTemplate = {
   id: string;
@@ -131,7 +131,10 @@ export function CreatePanel({
   const [dismissed, setDismissed] = useState<string[]>([]);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // An age-check refusal carries where to verify, so the alert can link there instead of describing the way.
+  const [error, setError] = useState<{ message: string; verifyPath: string | null } | null>(null);
+  const failed = (e: unknown, fallback: string) =>
+    setError(e instanceof ApiError ? (e.verifyPath ? { message: e.serverMessage, verifyPath: e.verifyPath } : { message: e.message, verifyPath: null }) : { message: fallback, verifyPath: null });
   const [presets, setPresets] = useState<Preset[]>([]);
   const [presetOpen, setPresetOpen] = useState(false);
   const [presetName, setPresetName] = useState("");
@@ -277,7 +280,7 @@ export function CreatePanel({
       setUpload({ ...res, previewUrl: URL.createObjectURL(file) });
       forgetDraftKey();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Upload failed.");
+      failed(e, "Upload failed.");
     } finally {
       setUploading(false);
       setPendingFile(null);
@@ -319,7 +322,7 @@ export function CreatePanel({
       }
       setDraft(job);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Something went wrong.");
+      failed(e, "Something went wrong.");
     } finally {
       setBusy(false);
     }
@@ -336,7 +339,7 @@ export function CreatePanel({
       toast({ message: draft.isDemo ? "Weaving a demo placeholder." : "Weaving your creation.", action: { label: "Library", href: "/collection" } });
       router.refresh();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Could not start.");
+      failed(e, "Could not start.");
       setDraft(null);
       forgetDraftKey();
     } finally {
@@ -857,9 +860,14 @@ export function CreatePanel({
       </div>
 
       {error ? (
-        <p className="rounded-xl bg-danger-400/10 px-3.5 py-2.5 text-[13px] text-danger-400" role="alert">
-          {error}
-        </p>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-danger-400/10 px-3.5 py-2.5 text-[13px] text-danger-400" role="alert">
+          <p>{error.message}</p>
+          {error.verifyPath ? (
+            <ButtonLink href={error.verifyPath} size="sm" variant="ember" className="shrink-0">
+              Verify your age
+            </ButtonLink>
+          ) : null}
+        </div>
       ) : null}
 
       <OfflineGuard>
