@@ -10,6 +10,11 @@ export const BASE_URL = `http://localhost:${PORT}`;
 // Chromium's service worker stays online under context.setOffline(true) and the offline page never shows.
 process.env.PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS ??= "1";
 
+// One media signing secret per run, set here so the test workers (which inherit this process's env)
+// can sign a valid /api/media URL themselves: the scan test proves a held file is refused even with a
+// good signature, and that the same signature on a clean file is served.
+const MEDIA_SIGNING_SECRET = (process.env.E2E_MEDIA_SIGNING_SECRET ??= randomBytes(32).toString("hex"));
+
 // Everything the e2e stack needs, isolated from the dev database, Redis db and storage.
 const env = {
   NODE_ENV: "production",
@@ -20,7 +25,7 @@ const env = {
   DATABASE_URL: process.env.E2E_DATABASE_URL ?? "postgres://playbox@localhost:5432/playbox_e2e",
   REDIS_URL: process.env.E2E_REDIS_URL ?? "redis://localhost:6379/2",
   STORAGE_LOCAL_DIR: path.resolve(".storage-e2e"),
-  MEDIA_SIGNING_SECRET: process.env.E2E_MEDIA_SIGNING_SECRET ?? randomBytes(32).toString("hex"),
+  MEDIA_SIGNING_SECRET,
   SEED_PASSWORD: "e2e-password-123",
   ENABLE_DEMO_PROVIDER: "true",
   WORKER_HEALTH_PORT: "3901",

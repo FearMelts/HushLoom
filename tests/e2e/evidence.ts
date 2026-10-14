@@ -4,9 +4,11 @@ import { test as base, expect, type Browser, type BrowserContext, type BrowserCo
 
 /**
  * Evidence capture for the e2e journeys (run plan): named screenshots, and a JSON record per test of
- * every console error, page error, failed request and 4xx/5xx response seen by the pages it watches.
- * Each test declares what it expects (the 451 of an age check, the generic 403 of a rejected upload);
- * at the end the fixture asserts that no unexpected console error, page error or 5xx response happened.
+ * every console error, page error, failed request and 4xx/5xx response seen by the pages it watches,
+ * plus notes for checks made outside a page (API calls through a request context, manifest and
+ * header checks). Each test declares what it expects (the 451 of an age check, the generic 403 of a
+ * rejected upload); at the end the fixture asserts that no undeclared console error, page error or 5xx
+ * response happened. Failed requests and 4xx responses are recorded but not asserted: the JSON says so.
  *
  * Files go to E2E_SHOTS_DIR (default test-results/journey): "<name>.png" for screenshots and
  * "<test title slug>.json" for the log.
@@ -23,10 +25,15 @@ export type Allowance = {
   url?: string | RegExp;
   status?: number | number[];
   method?: string;
+  /** The request's resource type ("document", "fetch", "image", ...), for failed requests and responses. */
+  resourceType?: string | string[];
   /** Pattern for the console text, page error message or request failure text. */
   text?: string | RegExp;
   why: string;
 };
+
+/** A check made outside a watched page (an API response, a header, a manifest), written into the JSON. */
+type Note = { at: string; label: string; data: unknown };
 
 type Entry = {
   kind: Kind;
@@ -41,9 +48,23 @@ type Entry = {
   why?: string;
 };
 
-// Not asserted (only console errors, page errors and 5xx are), but labelled so the JSON reads honestly.
+// Failed requests are not asserted (only console errors, page errors and 5xx are). These two kinds of
+// cancellation are labelled as expected because they are what a navigation does to in-flight work; any
+// other failed request stays undeclared in the JSON, so a reader sees it rather than a blanket "expected".
 const BUILT_IN: Allowance[] = [
-  { kind: "requestfailed", text: "net::ERR_ABORTED", why: "the browser cancelled an in-flight request (navigation away, media preload or prefetch); not an application error" },
+  {
+    kind: "requestfailed",
+    resourceType: "fetch",
+    url: /[?&]_rsc=/,
+    text: "net::ERR_ABORTED",
+    why: "a Next.js link prefetch (?_rsc=) cancelled because the page navigated away",
+  },
+  {
+    kind: "requestfailed",
+    resourceType: ["image", "media", "script", "font", "stylesheet"],
+    text: "net::ERR_ABORTED",
+    why: "an image, media, script or font load cancelled because the page navigated away",
+  },
 ];
 
 const asList = <T,>(v: T | T[] | undefined): T[] => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
@@ -62,6 +83,7 @@ export class Evidence {
   private readonly entries: Entry[] = [];
   private readonly allowances: Allowance[] = [...BUILT_IN];
   private readonly shots: string[] = [];
+  private readonly notes: Note[] = [];
   private readonly contexts: BrowserContext[] = [];
   private readonly watched = new WeakSet<Page>();
   private pageCount = 0;
@@ -74,6 +96,14 @@ export class Evidence {
   /** Declares responses, console errors or failures this test expects. */
   allow(...allowances: Allowance[]) {
     this.allowances.push(...allowances);
+  }
+
+  /**
+   * Records a check made outside a watched page (an API response, headers, a manifest body) in the JSON
+   * and the report, so the evidence directory shows what was verified, not only what pages saw.
+   */
+  note(label: string, data: unknown) {
+    this.notes.push({ at: new Date().toISOString(), label, data });
   }
 
   /** Attaches the listeners to a page. Safe to call twice. */
@@ -133,6 +163,8 @@ export class Evidence {
         return { expected: true, why: a.why };
       }
       if (kinds.length && !kinds.includes(e.kind)) continue;
+      const types = asList(a.resourceType);
+      if (types.length && !types.includes(e.resourceType ?? "")) continue;
       if (statuses.length && (e.status === undefined || !statuses.includes(e.status))) continue;
       if (a.method && a.method.toUpperCase() !== e.method?.toUpperCase()) continue;
       if (!matches(a.url, e.url)) continue;
@@ -148,7 +180,8 @@ export class Evidence {
     for (const e of this.entries) Object.assign(e, this.classify(e));
     const unexpected = this.entries.filter((e) => !e.expected && (e.kind === "console" || e.kind === "pageerror" || (e.kind === "response" && (e.status ?? 0) >= 500)));
     const file = path.join(SHOTS_DIR, `${slug(this.info.titlePath.slice(1).join(" "))}.json`);
-    const count = (kind: Kind, expected: boolean) => this.entries.filter((e) => e.kind === kind && e.expected === expected).length;
+    const count = (kind: Kind, expected: boolean, test: (e: Entry) => boolean = () => true) => this.entries.filter((e) => e.kind === kind && e.expected === expected && test(e)).length;
+    const is5xx = (e: Entry) => (e.status ?? 0) >= 500;
     writeFileSync(
       file,
       JSON.stringify(
@@ -159,13 +192,21 @@ export class Evidence {
           finishedAt: new Date().toISOString(),
           declared: this.allowances.map((a) => ({ ...a, url: a.url?.toString(), text: a.text?.toString() })),
           summary: {
-            console: { expected: count("console", true), unexpected: count("console", false) },
-            pageerror: { expected: count("pageerror", true), unexpected: count("pageerror", false) },
-            requestfailed: { expected: count("requestfailed", true), unexpected: count("requestfailed", false) },
-            response: { expected: count("response", true), unexpected: count("response", false) },
+            // Asserted: any undeclared entry here fails the test.
+            asserted: {
+              console: { declared: count("console", true), undeclared: count("console", false) },
+              pageerror: { declared: count("pageerror", true), undeclared: count("pageerror", false) },
+              response5xx: { declared: count("response", true, is5xx), undeclared: count("response", false, is5xx) },
+            },
+            // Recorded for the reader, not asserted.
+            notAsserted: {
+              requestfailed: { declared: count("requestfailed", true), undeclared: count("requestfailed", false) },
+              response4xx: { declared: count("response", true, (e) => !is5xx(e)), undeclared: count("response", false, (e) => !is5xx(e)) },
+            },
             assertedUnexpected: unexpected.length,
           },
           screenshots: this.shots.map((s) => path.basename(s)),
+          notes: this.notes,
           entries: this.entries,
         },
         null,
