@@ -129,7 +129,7 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
           onClick={toggleFavorite}
           aria-pressed={fav}
           aria-label={fav ? `Remove ${card.title} from favorites` : `Save ${card.title} to favorites`}
-          className="absolute right-2 top-2 grid size-9 place-items-center rounded-full bg-ink-950/55 backdrop-blur transition-colors hover:bg-ink-950/80"
+          className="absolute right-2 top-2 grid size-10 place-items-center rounded-full bg-ink-950/55 backdrop-blur transition-colors hover:bg-ink-950/80"
         >
           <Heart
             size={17}
@@ -140,14 +140,14 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
 
         <div className="absolute inset-x-2.5 bottom-2.5 flex items-center justify-between gap-2">
           {card.mediaWithheld ? (
-            <Link href={verifyHref(signedIn)} className="pointer-events-auto inline-flex h-9 items-center gap-1 rounded-full bg-ink-950/60 px-2.5 text-[12px] text-ember-300 backdrop-blur hover:text-ember-200">
+            <Link href={verifyHref(signedIn)} className="pointer-events-auto inline-flex h-10 items-center gap-1 rounded-full bg-ink-950/60 px-2.5 text-[12px] text-ember-300 backdrop-blur hover:text-ember-200">
               <ShieldCheck size={12} aria-hidden /> {signedIn ? "Verify now" : "Sign in"}
             </Link>
           ) : card.mediaType === "video" ? (
             <button
               type="button"
               onClick={() => (previewing ? stop() : play())}
-              className="pointer-events-auto inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-full bg-ink-950/60 px-3 text-[12px] text-bone-50 backdrop-blur"
+              className="pointer-events-auto inline-flex h-10 min-w-10 items-center justify-center gap-1 rounded-full bg-ink-950/60 px-3 text-[12px] text-bone-50 backdrop-blur"
               aria-label={previewing ? "Pause preview" : `Preview ${card.title}`}
               disabled={!card.previewUrl}
             >
@@ -158,7 +158,7 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
           )}
           <Link
             href={`/templates/${card.slug}#make`}
-            className="inline-flex h-9 translate-y-1 items-center gap-1.5 rounded-full bg-ember-500 px-3.5 text-[13px] font-semibold text-ink-950 opacity-0 transition-all duration-[var(--duration-base)] ease-[var(--ease-weave)] group-hover:translate-y-0 group-hover:opacity-100 focus:translate-y-0 focus:opacity-100 max-lg:translate-y-0 max-lg:opacity-100"
+            className="inline-flex h-10 translate-y-1 items-center gap-1.5 rounded-full bg-ember-500 px-3.5 text-[13px] font-semibold text-ink-950 opacity-0 transition-all duration-[var(--duration-base)] ease-[var(--ease-weave)] group-hover:translate-y-0 group-hover:opacity-100 focus:translate-y-0 focus:opacity-100 max-lg:translate-y-0 max-lg:opacity-100"
           >
             <Wand2 size={14} aria-hidden /> Make
           </Link>
@@ -173,7 +173,14 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
               {card.title}
             </Link>
           </h3>
-          <Link href={`/creators/${card.creator.handle}`} className="block truncate font-mono text-[11.5px] text-bone-400 hover:text-bone-200">
+          {/*
+            A 40 px tap target that keeps the caption compact: the box reaches 4 px above the handle's line and 19 px
+            below it (into the gap under the card), and the negative margins give that room back.
+          */}
+          <Link
+            href={`/creators/${card.creator.handle}`}
+            className="-mb-[19px] -mt-1 block min-h-10 truncate pt-1 font-mono text-[11.5px] leading-[17px] text-bone-400 hover:text-bone-200"
+          >
             @{card.creator.handle}
           </Link>
         </div>
@@ -237,7 +244,8 @@ export function TemplateRail({ cards, signedIn }: { cards: Card[]; signedIn: boo
   return (
     // Scroll padding equal to the gutter: snap-start aligns cards to the snapport, which ignores the rail's own
     // padding, so without it the first card snaps flush to the screen edge instead of the content edge.
-    <div className="scrollbar-none -mx-4 flex scroll-px-4 snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:scroll-px-6 sm:px-6" role="list">
+    // pb-5 holds the creator link's tap area, which reaches 19 px below each card's caption.
+    <div className="scrollbar-none -mx-4 flex scroll-px-4 snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-5 sm:-mx-6 sm:scroll-px-6 sm:px-6" role="list">
       {cards.map((c) => (
         <div key={c.id} role="listitem" className="w-[42vw] max-w-[220px] shrink-0 snap-start sm:w-[200px]">
           <TemplateCard card={c} signedIn={signedIn} />
