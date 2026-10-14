@@ -37,8 +37,10 @@ export async function assetUrlById(assetId: string | null, viewerId: string | nu
   return a ? assetUrl(a, viewerId) : null;
 }
 
-const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+export const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+/** Room for the multipart framing and the small form fields around the file. */
+export const FORM_OVERHEAD_BYTES = 1024 * 1024;
 
 export type UploadResult = { assetId: string; kind: "image" | "video"; width: number | null; height: number | null; warnings: string[] };
 

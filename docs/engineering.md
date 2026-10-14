@@ -216,7 +216,7 @@ Every route except `/api/health` and `/api/media` is wrapped in `route()`. Error
 | 400 | `invalid_json` | Body is not JSON (`parseJson`). |
 | 401 | `unauthorized` | No valid session ("Sign in to continue."). |
 | 402 | `insufficient_credits` | Ledger refused a movement; `details: { needed, available }`. |
-| 403 | `bad_origin` | Middleware: a write to `/api/*` (not `/api/webhooks/*`) carries an `Origin` that matches neither the request origin nor `APP_URL`. |
+| 403 | `bad_origin` | Middleware (or the upload routes themselves): a write to `/api/*` (not `/api/webhooks/*`) carries an `Origin` that matches neither the request origin nor `APP_URL`. |
 | 404 | `not_found` | Missing, deleted, or not yours. The two cases look identical by design. A malformed UUID (Postgres `22P02` anywhere in the error's cause chain) also returns 404. |
 | 422 | `invalid_input` | A zod schema failed; `details` is `err.flatten()`. Message: "Some fields need attention." |
 | 429 | `rate_limited` | A fixed-window limit in Redis was hit. |
@@ -774,6 +774,8 @@ The other bodies are "A creation didn't finish" and "A creation was cancelled". 
 ### CSRF and Origin
 
 Session cookies are `SameSite=Lax`, so other sites cannot send them on cross-site POSTs. The middleware also refuses writes (POST, PUT, PATCH, DELETE) to `/api/*` whose `Origin` header names a different origin (403 `bad_origin`). Requests without an `Origin` header are allowed. Webhooks are exempt because they authenticate with signatures.
+
+The middleware does not run on `POST /api/uploads` and `POST /api/characters`: Next.js hands a route only the first 10 MB of a body that middleware has seen, which would cut off any larger upload. Those two routes make the same Origin check themselves (`assertSameOrigin`) and read the form through `readForm`, which answers 413 `too_large` as soon as the declared or streamed size passes the limit (the file limit plus 1 MB) and 400 `invalid_form` for a body that is not a complete form.
 
 ### Roles
 

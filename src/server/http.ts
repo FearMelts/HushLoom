@@ -3,6 +3,7 @@ import { ZodError, type ZodTypeAny, type output } from "zod";
 import { getCurrentUser, type SessionUser } from "@/server/auth/session";
 import { InsufficientCreditsError } from "@/server/credits/ledger";
 import { logger } from "@/server/log";
+import { isCrossSiteWrite } from "@/server/origin";
 
 export class HttpError extends Error {
   constructor(
@@ -40,6 +41,45 @@ export async function parseJson<S extends ZodTypeAny>(req: Request, schema: S): 
     throw new HttpError(400, "invalid_json", "Request body must be JSON.");
   }
   return schema.parse(body);
+}
+
+/** The middleware's cross-site write check, for the routes it does not run on (src/middleware.ts). */
+export function assertSameOrigin(req: NextRequest) {
+  if (isCrossSiteWrite(req)) throw new HttpError(403, "bad_origin", "Cross-site request refused.");
+}
+
+/**
+ * Reads a multipart body of at most maxBytes. A declared or streamed size over the limit is a 413
+ * as soon as it is seen, without reading the rest; a body that is not a complete form is a 400.
+ */
+export async function readForm(req: Request, maxBytes: number, tooLarge: string): Promise<FormData> {
+  const tooBig = () => new HttpError(413, "too_large", tooLarge);
+  const invalid = () => new HttpError(400, "invalid_form", "Send the file as a form upload.");
+  if (Number(req.headers.get("content-length") ?? 0) > maxBytes) {
+    await req.body?.cancel().catch(() => undefined);
+    throw tooBig();
+  }
+  if (!req.body) throw invalid();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  const reader = req.body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      throw tooBig();
+    }
+    chunks.push(value);
+  }
+  const body = Buffer.concat(chunks);
+  chunks.length = 0;
+  try {
+    return await new Response(body, { headers: { "content-type": req.headers.get("content-type") ?? "" } }).formData();
+  } catch {
+    throw invalid();
+  }
 }
 
 /** Wraps a route handler with uniform error shapes and logging. */
