@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
+import { assertAgeVerified } from "@/server/age/gate";
 import { createCharacter, listCharacters } from "@/server/characters";
 import { HttpError, requireUser, route } from "@/server/http";
 import { rateLimit } from "@/server/redis";
+import { requestCountry, requestRegion } from "@/server/request";
 
 export const GET = route(async () => {
   const user = await requireUser();
@@ -10,6 +12,8 @@ export const GET = route(async () => {
 
 export const POST = route(async (req) => {
   const user = await requireUser();
+  // A character photo is an upload: the same age-verification gate as /api/uploads (addendum §2).
+  await assertAgeVerified(user, { country: requestCountry(req), region: requestRegion(req) });
   if (!(await rateLimit(`character:${user.id}`, 10, 3600))) throw new HttpError(429, "rate_limited", "Character limit reached for this hour.");
   const form = await req.formData();
   const file = form.get("file");

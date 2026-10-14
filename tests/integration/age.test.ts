@@ -15,6 +15,7 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers(requestScope.headers),
 }));
 
+import { POST as charactersRoute } from "@/app/api/characters/route";
 import { GET as meRoute } from "@/app/api/me/route";
 import { GET as templatesRoute } from "@/app/api/templates/route";
 import { POST as uploadsRoute } from "@/app/api/uploads/route";
@@ -27,7 +28,7 @@ import { configuredRegions, jurisdictionRequired } from "@/server/age/rules";
 import { applyResult, handleCallback, requirementFor, startVerification, viewerAccessFor } from "@/server/age/service";
 import { createSession, type SessionUser } from "@/server/auth/session";
 import { closeDb, getDb } from "@/server/db";
-import { ageVerifications, auditLogs, generationJobs, users } from "@/server/db/schema";
+import { ageVerifications, auditLogs, characterReferences, generationJobs, uploads, users } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { browseTemplates } from "@/server/discovery/templates";
 import { confirmJob, createDraft } from "@/server/generation/service";
@@ -431,5 +432,36 @@ describe("R03: the current request's location counts as well as the stored one",
     await verifyThroughSandbox(nl);
     await expect(createDraft(nl, draftInput(), { country: "GB" })).resolves.toMatchObject({ status: "awaiting_confirmation" });
     expect((await viewerAccess()).explicitAllowed).toBe(true);
+  });
+});
+
+describe("R04: character photos go through the same gate as uploads", () => {
+  const characterForm = async () => {
+    const form = new FormData();
+    form.set("file", new File([await png()], "me.png", { type: "image/png" }));
+    form.set("name", "Mara");
+    form.set("consentAdult", "true");
+    form.set("consentLikeness", "true");
+    return form;
+  };
+  const postCharacter = async (headers: Record<string, string> = {}) =>
+    charactersRoute(new NextRequest("http://localhost/api/characters", { method: "POST", body: await characterForm(), headers }), undefined as never);
+
+  it("returns 451 to an unverified user in a covered place and stores nothing until verified", async () => {
+    const gb = await userIn("GB");
+    await signIn(gb);
+    const blocked = await postCharacter();
+    expect(blocked.status).toBe(451);
+    expect(await blocked.json()).toMatchObject({ error: { code: "age_verification_required", details: { verifyPath: "/settings#age-verification" } } });
+    const tx = await userIn(null);
+    await signIn(tx);
+    expect((await postCharacter({ "x-country-code": "US", "x-region-code": "TX" })).status).toBe(451);
+    expect(await getDb().select().from(characterReferences)).toHaveLength(0);
+    expect(await getDb().select().from(uploads)).toHaveLength(0);
+
+    await signIn(gb);
+    await verifyThroughSandbox(gb);
+    expect((await postCharacter()).status).toBe(201);
+    expect(await getDb().select().from(characterReferences).where(eq(characterReferences.userId, gb.id))).toHaveLength(1);
   });
 });
