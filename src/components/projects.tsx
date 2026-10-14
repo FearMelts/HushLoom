@@ -2,7 +2,7 @@
 
 import { ArrowLeft, ArrowRight, Check, Clapperboard, GitBranch, ImagePlus, Layers, Play, Plus, SplitSquareHorizontal, Trash2, Video } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import type { ContinuityGuide } from "@/server/db/schema";
 import type { CreationListItem } from "@/server/generation/views";
@@ -11,8 +11,9 @@ import { FRAMINGS, LIGHTINGS } from "@/server/ai/registry";
 import { api, ApiError, newIdempotencyKey } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { STATUS_LABEL, relativeTime } from "@/lib/format";
-import { JOB_STARTED_EVENT } from "./job-tray";
+import { JOB_STARTED_EVENT, useJobEvents } from "./job-tray";
 import { CreationThumb } from "./library";
+import { OfflineGuard } from "./offline";
 import { Badge, Button, ButtonLink, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
 
 type ProjectSummary = {
@@ -123,24 +124,32 @@ type Workspace = {
 
 const takeOf = (s: SceneDetail) => s.versions.find((v) => v.isSelected) ?? [...s.versions].reverse().find((v) => v.creation.status === "completed");
 
+type PendingDerive = { id: string; costCredits: number; isDemo: boolean; relation: "variation" | "continuation" };
+
 export function ProjectWorkspace({ data, characters }: { data: Workspace; characters: { id: string; name: string }[] }) {
   const router = useRouter();
   const toast = useToast();
-  const [activeId, setActiveId] = useState(data.scenes[0]?.id ?? "");
+  // ?scene= opens a given scene, so a link or a reload lands where you were.
+  const sceneParam = useSearchParams().get("scene");
+  const [activeId, setActiveId] = useState(data.scenes.find((s) => s.id === sceneParam)?.id ?? data.scenes[0]?.id ?? "");
   const active = data.scenes.find((s) => s.id === activeId) ?? data.scenes[0];
   const [compare, setCompare] = useState<string[]>([]);
   const [playing, setPlaying] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [pending, setPending] = useState<PendingDerive | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Running jobs change state on the server; refresh while any are in flight.
-  const running = data.scenes.some((s) => s.versions.some((v) => v.creation.status === "queued" || v.creation.status === "processing"));
-  useEffect(() => {
-    if (!running) return;
-    const t = setInterval(() => router.refresh(), 4000);
-    return () => clearInterval(t);
-  }, [running, router]);
+  // The job tray is the one poller; it says when a take moves on, and this page refreshes then.
+  useJobEvents(() => router.refresh());
+
+  const selectScene = (id: string) => {
+    setActiveId(id);
+    setCompare([]);
+    const url = new URL(window.location.href);
+    url.searchParams.set("scene", id);
+    window.history.replaceState(null, "", url);
+  };
 
   async function act(label: string, fn: () => Promise<unknown>, success?: string) {
     setBusy(label);
@@ -166,20 +175,30 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
   const addScene = () =>
     act("add", async () => {
       const { scene } = await api<{ scene: { id: string } }>(`/api/projects/${data.project.id}/scenes`, { body: { title: `Scene ${data.scenes.length + 1}` } });
-      setActiveId(scene.id);
+      selectScene(scene.id);
     });
 
+  // Step one prices a draft; nothing is charged until you confirm it in the sheet.
   async function derive(jobId: string, relation: "variation" | "continuation") {
     setBusy(`${relation}:${jobId}`);
     try {
       const { job } = await api<{ job: { id: string; costCredits: number; isDemo: boolean } }>(`/api/generations/${jobId}/derive`, {
         body: { relation, idempotencyKey: newIdempotencyKey() },
       });
-      if (!window.confirm(`${relation === "variation" ? "Make a variation" : "Continue this clip"} for ${job.costCredits} credits?${job.isDemo ? " (Demo model: the output is a labeled placeholder.)" : ""}`)) {
-        await api(`/api/generations/${job.id}/cancel`, { body: {} });
-        return;
-      }
-      await api(`/api/generations/${job.id}/confirm`, { body: { expectedCost: job.costCredits } });
+      setPending({ ...job, relation });
+    } catch (e) {
+      toast({ message: e instanceof ApiError ? e.message : "Could not start.", tone: "error" });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function confirmPending() {
+    if (!pending) return;
+    setBusy("confirm");
+    try {
+      await api(`/api/generations/${pending.id}/confirm`, { body: { expectedCost: pending.costCredits } });
+      setPending(null);
       window.dispatchEvent(new Event(JOB_STARTED_EVENT));
       toast({ message: "Started. It will appear in this scene.", tone: "success" });
       router.refresh();
@@ -188,6 +207,15 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
     } finally {
       setBusy(null);
     }
+  }
+
+  // Not now: the priced draft is cancelled, so nothing waits half-made.
+  function dismissPending() {
+    // Escape during a confirm in flight must not cancel the take that is being started.
+    if (busy === "confirm") return;
+    const draft = pending;
+    setPending(null);
+    if (draft) void api(`/api/generations/${draft.id}/cancel`, { body: {} }).catch(() => undefined);
   }
 
   const sequence = data.scenes.map(takeOf).filter((v) => v?.creation.output?.kind === "video" && v.creation.output.url);
@@ -224,10 +252,8 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
               <li key={s.id} className="w-44 shrink-0">
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveId(s.id);
-                    setCompare([]);
-                  }}
+                  onClick={() => selectScene(s.id)}
+                  aria-label={`${String(i + 1).padStart(2, "0")} ${s.title}`}
                   aria-current={s.id === active?.id ? "step" : undefined}
                   className={cn("petal relative block aspect-video w-full overflow-hidden hairline text-left", s.id === active?.id && "ring-2 ring-ember-500")}
                 >
@@ -237,10 +263,10 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
                 <div className="mt-1.5 flex items-center justify-between gap-1">
                   <p className="truncate text-[13px] text-bone-200">{s.title}</p>
                   <span className="flex shrink-0">
-                    <button type="button" onClick={() => move(i, -1)} disabled={i === 0 || busy === "order"} className="grid size-7 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30" aria-label={`Move ${s.title} earlier`}>
+                    <button type="button" onClick={() => move(i, -1)} disabled={i === 0 || busy === "order"} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30" aria-label={`Move ${s.title} earlier`}>
                       <ArrowLeft size={13} aria-hidden />
                     </button>
-                    <button type="button" onClick={() => move(i, 1)} disabled={i === data.scenes.length - 1 || busy === "order"} className="grid size-7 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30" aria-label={`Move ${s.title} later`}>
+                    <button type="button" onClick={() => move(i, 1)} disabled={i === data.scenes.length - 1 || busy === "order"} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800 hover:text-bone-50 disabled:opacity-30" aria-label={`Move ${s.title} later`}>
                       <ArrowRight size={13} aria-hidden />
                     </button>
                   </span>
@@ -315,14 +341,17 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
                           </Button>
                         ) : null}
                         {done ? (
-                          <Button size="sm" variant="quiet" busy={busy === `variation:${v.creation.id}`} onClick={() => derive(v.creation.id, "variation")}>
-                            <GitBranch size={13} aria-hidden /> Branch
-                          </Button>
-                        ) : null}
-                        {done && v.creation.output?.kind === "video" ? (
-                          <Button size="sm" variant="quiet" busy={busy === `continuation:${v.creation.id}`} onClick={() => derive(v.creation.id, "continuation")}>
-                            <ArrowRight size={13} aria-hidden /> Continue
-                          </Button>
+                          // Branch and Continue price a new take: disabled while offline, like every chargeable control.
+                          <OfflineGuard note={false} className="contents">
+                            <Button size="sm" variant="quiet" busy={busy === `variation:${v.creation.id}`} onClick={() => derive(v.creation.id, "variation")}>
+                              <GitBranch size={13} aria-hidden /> Branch
+                            </Button>
+                            {v.creation.output?.kind === "video" ? (
+                              <Button size="sm" variant="quiet" busy={busy === `continuation:${v.creation.id}`} onClick={() => derive(v.creation.id, "continuation")}>
+                                <ArrowRight size={13} aria-hidden /> Continue
+                              </Button>
+                            ) : null}
+                          </OfflineGuard>
                         ) : null}
                         {done ? (
                           <Button
@@ -364,6 +393,26 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
 
       <SequencePlayer open={playing} onClose={() => setPlaying(false)} clips={sequence.map((v) => ({ id: v!.id, url: v!.creation.output!.url! }))} />
       <RenameSheet open={renaming} onClose={() => setRenaming(false)} project={data.project} />
+      <Sheet open={Boolean(pending)} onClose={dismissPending} title={pending?.relation === "continuation" ? "Continue this clip?" : "Make a variation?"}>
+        {pending ? (
+          <div className="space-y-4 text-sm">
+            <p className="text-bone-300">
+              This costs <strong className="font-mono text-bone-50">{pending.costCredits}</strong> credits. The new take lands in this scene.
+            </p>
+            {pending.isDemo ? <p className="rounded-xl bg-iris-400/10 px-3.5 py-2.5 text-[13px] text-iris-300">Demo model: the result is a labeled placeholder, not AI output.</p> : null}
+            <div className="flex justify-end gap-2">
+              <Button variant="quiet" onClick={dismissPending} disabled={busy === "confirm"}>
+                Not now
+              </Button>
+              <OfflineGuard note={false} className="contents">
+                <Button variant="ember" onClick={confirmPending} busy={busy === "confirm"}>
+                  Confirm · {pending.costCredits} credits
+                </Button>
+              </OfflineGuard>
+            </div>
+          </div>
+        ) : null}
+      </Sheet>
       <Sheet open={confirmDelete} onClose={() => setConfirmDelete(false)} title="Delete this project?">
         <p className="text-sm text-bone-300">The project and its scenes go away. Every creation stays in your Library.</p>
         <div className="mt-5 flex justify-end gap-2">
@@ -397,6 +446,8 @@ function SceneGuide({ scene, characters, onSaved, canDelete }: { scene: SceneDet
   const [title, setTitle] = useState(scene.title);
   const [c, setC] = useState<ContinuityGuide>(scene.continuity);
   const [busy, setBusy] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
   const dirty = title !== scene.title || JSON.stringify(c) !== JSON.stringify(scene.continuity);
   const set = (k: keyof ContinuityGuide, v: string) => setC((prev) => {
     const next = { ...prev };
@@ -420,17 +471,20 @@ function SceneGuide({ scene, characters, onSaved, canDelete }: { scene: SceneDet
   }
 
   async function remove() {
-    if (!window.confirm(`Remove “${scene.title}”? Its takes stay in your Library.`)) return;
+    setRemoving(true);
     try {
       await api(`/api/scenes/${scene.id}`, { method: "DELETE" });
+      setConfirmRemove(false);
       onSaved();
     } catch (err) {
       toast({ message: err instanceof ApiError ? err.message : "Could not remove.", tone: "error" });
+    } finally {
+      setRemoving(false);
     }
   }
 
   return (
-    <form onSubmit={save} className="h-fit space-y-4 rounded-[24px_8px_24px_8px] bg-ink-900/70 p-5 hairline lg:sticky lg:top-20" aria-label="Continuity guide">
+    <form onSubmit={save} className="panel h-fit space-y-4 bg-ink-900/70 p-5 hairline lg:sticky lg:top-20" aria-label="Continuity guide">
       <div>
         <p className="tag text-ember-400">Continuity guide</p>
         <p className="mt-1 text-[12.5px] text-bone-400">Every take made from this scene starts with these settings. New scenes copy the guide of the scene before them.</p>
@@ -472,7 +526,7 @@ function SceneGuide({ scene, characters, onSaved, canDelete }: { scene: SceneDet
       </Field>
       <div className="flex items-center justify-between gap-2">
         {canDelete ? (
-          <Button type="button" size="sm" variant="quiet" onClick={remove}>
+          <Button type="button" size="sm" variant="quiet" onClick={() => setConfirmRemove(true)}>
             Remove scene
           </Button>
         ) : (
@@ -482,6 +536,17 @@ function SceneGuide({ scene, characters, onSaved, canDelete }: { scene: SceneDet
           Save guide
         </Button>
       </div>
+      <Sheet open={confirmRemove} onClose={() => setConfirmRemove(false)} title={`Remove “${scene.title}”?`}>
+        <p className="text-sm text-bone-300">The scene leaves this project. Its takes stay in your Library.</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="quiet" onClick={() => setConfirmRemove(false)}>
+            Keep it
+          </Button>
+          <Button type="button" variant="danger" busy={removing} onClick={remove}>
+            Remove scene
+          </Button>
+        </div>
+      </Sheet>
     </form>
   );
 }

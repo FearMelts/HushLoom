@@ -1,12 +1,13 @@
 "use client";
 
-import { Search } from "lucide-react";
+import { Crown, Search } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { TemplateCard as Card } from "@/server/discovery/templates";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
+import { cn } from "@/lib/cn";
 import { GridSkeleton, TemplateGrid } from "./template-card";
-import { Chip, EmptyState, buttonClass } from "./ui";
+import { Chip, EmptyState, buttonClass, radioGroupKeys, useToast } from "./ui";
 
 const SORT_LABELS = [
   ["trending", "Trending"],
@@ -14,9 +15,14 @@ const SORT_LABELS = [
   ["top_rated", "Top rated"],
   ["most_favorited", "Most loved"],
 ] as const;
+const SORT_KEYS = SORT_LABELS.map(([key]) => key);
 
-type Query = { q: string; category: string; media: string; sort: string };
+export type ExploreQuery = { q: string; category: string; media: string; sort: string; vipOnly: string };
 
+/**
+ * Explore: search, sort and filters stay mounted while the results below change, so keyboard
+ * focus stays on the control you just used. Every filter lives in the URL.
+ */
 export function ExploreFeed({
   initial,
   categories,
@@ -25,47 +31,20 @@ export function ExploreFeed({
 }: {
   initial: { items: Card[]; hasMore: boolean };
   categories: { slug: string; name: string }[];
-  query: Query;
+  query: ExploreQuery;
   signedIn: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [items, setItems] = useState(initial.items);
-  const [hasMore, setHasMore] = useState(initial.hasMore);
-  const [loading, setLoading] = useState(false);
   const [q, setQ] = useState(query.q);
-  const sentinel = useRef<HTMLDivElement>(null);
+  useEffect(() => setQ(query.q), [query.q]);
 
-  const go = (patch: Partial<Query>) => {
+  const go = (patch: Partial<ExploreQuery>) => {
     const next = { ...query, ...patch };
     const sp = new URLSearchParams();
     for (const [k, v] of Object.entries(next)) if (v && !(k === "sort" && v === "trending")) sp.set(k, v);
-    router.push(`${pathname}${sp.size ? `?${sp}` : ""}`);
+    router.push(`${pathname}${sp.size ? `?${sp}` : ""}`, { scroll: false });
   };
-
-  async function loadMore() {
-    if (loading || !hasMore) return;
-    setLoading(true);
-    const sp = new URLSearchParams({ offset: String(items.length), limit: "24", sort: query.sort });
-    if (query.q) sp.set("q", query.q);
-    if (query.category) sp.set("category", query.category);
-    if (query.media) sp.set("media", query.media);
-    try {
-      const page = await api<{ items: Card[]; hasMore: boolean }>(`/api/templates?${sp}`);
-      setItems((prev) => [...prev, ...page.items.filter((c) => !prev.some((p) => p.id === c.id))]);
-      setHasMore(page.hasMore);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    const el = sentinel.current;
-    if (!el) return;
-    const io = new IntersectionObserver((entries) => entries[0]?.isIntersecting && void loadMore(), { rootMargin: "600px" });
-    io.observe(el);
-    return () => io.disconnect();
-  });
 
   return (
     <div>
@@ -91,22 +70,32 @@ export function ExploreFeed({
             />
           </form>
         </div>
-        <div role="tablist" aria-label="Sort" className="flex gap-5 border-b border-[var(--line)]">
-          {SORT_LABELS.map(([key, label]) => (
-            <button
-              key={key}
-              role="tab"
-              aria-selected={query.sort === key}
-              onClick={() => go({ sort: key })}
-              className={
-                query.sort === key
-                  ? "-mb-px border-b-2 border-ember-500 pb-2.5 text-[14.5px] font-semibold text-bone-50"
-                  : "-mb-px border-b-2 border-transparent pb-2.5 text-[14.5px] text-bone-400 hover:text-bone-50"
-              }
-            >
-              {label}
-            </button>
-          ))}
+        {/* Sort is one choice of four: a radio group, arrow keys move between options. */}
+        <div
+          role="radiogroup"
+          aria-label="Sort"
+          className="flex gap-5 border-b border-[var(--line)]"
+          onKeyDown={radioGroupKeys(SORT_KEYS, query.sort, (sort) => go({ sort }))}
+        >
+          {SORT_LABELS.map(([key, label]) => {
+            const checked = query.sort === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                role="radio"
+                aria-checked={checked}
+                tabIndex={checked ? 0 : -1}
+                onClick={() => go({ sort: key })}
+                className={cn(
+                  "-mb-px border-b-2 pb-2.5 pt-1 text-[14.5px]",
+                  checked ? "border-ember-500 font-semibold text-bone-50" : "border-transparent text-bone-400 hover:text-bone-50",
+                )}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
         <div className="scrollbar-none -mx-1 flex gap-2 overflow-x-auto px-1">
           <Chip active={!query.media} onClick={() => go({ media: "" })}>
@@ -118,6 +107,9 @@ export function ExploreFeed({
           <Chip active={query.media === "video"} onClick={() => go({ media: "video" })}>
             Videos
           </Chip>
+          <Chip active={query.vipOnly === "1"} onClick={() => go({ vipOnly: query.vipOnly === "1" ? "" : "1" })} className="inline-flex items-center gap-1.5">
+            <Crown size={13} className={query.vipOnly === "1" ? "text-ink-950" : "text-brass-400"} aria-hidden /> VIP
+          </Chip>
           <span className="mx-1 w-px shrink-0 bg-[var(--line)]" aria-hidden />
           {categories.map((c) => (
             <Chip key={c.slug} active={query.category === c.slug} onClick={() => go({ category: query.category === c.slug ? "" : c.slug })}>
@@ -127,6 +119,52 @@ export function ExploreFeed({
         </div>
       </div>
 
+      <ExploreResults key={JSON.stringify([query.q, query.category, query.media, query.sort, query.vipOnly])} initial={initial} query={query} signedIn={signedIn} />
+    </div>
+  );
+}
+
+/** The grid for one query, with infinite scroll and a visible "Load more" fallback. */
+function ExploreResults({ initial, query, signedIn }: { initial: { items: Card[]; hasMore: boolean }; query: ExploreQuery; signedIn: boolean }) {
+  const router = useRouter();
+  const toast = useToast();
+  const [items, setItems] = useState(initial.items);
+  const [hasMore, setHasMore] = useState(initial.hasMore);
+  const [loading, setLoading] = useState(false);
+  const busy = useRef(false);
+  const sentinel = useRef<HTMLDivElement>(null);
+
+  const loadMore = useCallback(async () => {
+    if (busy.current || !hasMore) return;
+    busy.current = true;
+    setLoading(true);
+    const sp = new URLSearchParams({ offset: String(items.length), limit: "24", sort: query.sort });
+    if (query.q) sp.set("q", query.q);
+    if (query.category) sp.set("category", query.category);
+    if (query.media) sp.set("media", query.media);
+    if (query.vipOnly) sp.set("vipOnly", query.vipOnly);
+    try {
+      const page = await api<{ items: Card[]; hasMore: boolean }>(`/api/templates?${sp}`);
+      setItems((prev) => [...prev, ...page.items.filter((c) => !prev.some((p) => p.id === c.id))]);
+      setHasMore(page.hasMore);
+    } catch (e) {
+      toast({ message: e instanceof ApiError ? e.message : "Couldn't load more. Check your connection and try again.", tone: "error" });
+    } finally {
+      busy.current = false;
+      setLoading(false);
+    }
+  }, [hasMore, items.length, query, toast]);
+
+  useEffect(() => {
+    const el = sentinel.current;
+    if (!el || !hasMore) return;
+    const io = new IntersectionObserver((entries) => entries[0]?.isIntersecting && void loadMore(), { rootMargin: "600px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, loadMore]);
+
+  return (
+    <>
       {items.length === 0 ? (
         <EmptyState
           title="Nothing matches yet"
@@ -153,6 +191,6 @@ export function ExploreFeed({
           </button>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }

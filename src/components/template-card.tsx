@@ -3,7 +3,7 @@
 import { Heart, Play, ShieldCheck, Wand2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import type { TemplateCard as Card } from "@/server/discovery/templates";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -83,7 +83,12 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
       onBlur={stop}
     >
       <div className="petal relative overflow-hidden bg-ink-850 hairline transition-transform duration-[var(--duration-base)] ease-[var(--ease-weave)] group-hover:-translate-y-1">
-        <Link href={`/templates/${card.slug}`} className="block" aria-label={`${card.title} by ${card.creator.displayName}`}>
+        <Link
+          href={`/templates/${card.slug}`}
+          data-card-link
+          className="block"
+          aria-label={`${card.title} by ${card.creator.displayName}${card.isDemo ? ", demo media" : ""}`}
+        >
           <div className={cn("relative", feature ? "aspect-[4/5] sm:aspect-[4/5]" : "aspect-[4/5]")}>
             {card.mediaWithheld ? (
               // The card itself is a link, so the call to action lives in the bottom bar instead of nesting here.
@@ -115,6 +120,8 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
           {card.isVip ? <Badge tone="vip">VIP</Badge> : null}
           {card.isNew ? <Badge tone="new">New</Badge> : null}
           {card.quality === "4k" ? <Badge>4K</Badge> : null}
+          {/* The current version runs on a sandbox model: the result is a placeholder, never a real render. */}
+          {card.isDemo ? <Badge tone="demo">Demo</Badge> : null}
         </div>
 
         <button
@@ -133,14 +140,14 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
 
         <div className="absolute inset-x-2.5 bottom-2.5 flex items-center justify-between gap-2">
           {card.mediaWithheld ? (
-            <Link href={verifyHref(signedIn)} className="pointer-events-auto inline-flex h-7 items-center gap-1 rounded-full bg-ink-950/60 px-2.5 text-[12px] text-ember-300 backdrop-blur hover:text-ember-200">
+            <Link href={verifyHref(signedIn)} className="pointer-events-auto inline-flex h-9 items-center gap-1 rounded-full bg-ink-950/60 px-2.5 text-[12px] text-ember-300 backdrop-blur hover:text-ember-200">
               <ShieldCheck size={12} aria-hidden /> {signedIn ? "Verify now" : "Sign in"}
             </Link>
           ) : card.mediaType === "video" ? (
             <button
               type="button"
               onClick={() => (previewing ? stop() : play())}
-              className="pointer-events-auto inline-flex h-7 items-center gap-1 rounded-full bg-ink-950/60 px-2.5 text-[12px] text-bone-50 backdrop-blur"
+              className="pointer-events-auto inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-full bg-ink-950/60 px-3 text-[12px] text-bone-50 backdrop-blur"
               aria-label={previewing ? "Pause preview" : `Preview ${card.title}`}
               disabled={!card.previewUrl}
             >
@@ -151,7 +158,7 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
           )}
           <Link
             href={`/templates/${card.slug}#make`}
-            className="inline-flex h-8 translate-y-1 items-center gap-1.5 rounded-full bg-ember-500 px-3.5 text-[13px] font-semibold text-ink-950 opacity-0 transition-all duration-[var(--duration-base)] ease-[var(--ease-weave)] group-hover:translate-y-0 group-hover:opacity-100 focus:translate-y-0 focus:opacity-100 max-lg:translate-y-0 max-lg:opacity-100"
+            className="inline-flex h-9 translate-y-1 items-center gap-1.5 rounded-full bg-ember-500 px-3.5 text-[13px] font-semibold text-ink-950 opacity-0 transition-all duration-[var(--duration-base)] ease-[var(--ease-weave)] group-hover:translate-y-0 group-hover:opacity-100 focus:translate-y-0 focus:opacity-100 max-lg:translate-y-0 max-lg:opacity-100"
           >
             <Wand2 size={14} aria-hidden /> Make
           </Link>
@@ -161,7 +168,8 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
       <div className="mt-2.5 flex items-start justify-between gap-2 px-0.5">
         <div className="min-w-0">
           <h3 className="truncate font-display text-[17px] leading-snug">
-            <Link href={`/templates/${card.slug}`} className="hover:text-ember-300">
+            {/* Same destination as the media link above: one tab stop per card, still clickable. */}
+            <Link href={`/templates/${card.slug}`} tabIndex={-1} className="hover:text-ember-300">
               {card.title}
             </Link>
           </h3>
@@ -177,9 +185,47 @@ export function TemplateCard({ card, feature, signedIn, autoplay }: { card: Card
   );
 }
 
+/**
+ * Arrow keys between cards in a grid. Left and Right step through reading order; Up and Down
+ * jump to the nearest card in the row above or below, measured on screen so the dense layout
+ * and its featured tiles do not confuse it. Tab still walks every control as before.
+ */
+function onGridKeys(e: KeyboardEvent<HTMLDivElement>) {
+  if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+  const current = (e.target as HTMLElement).closest<HTMLElement>("[data-card-link]");
+  if (!current) return;
+  const links = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-card-link]"));
+  const index = links.indexOf(current);
+  let next: HTMLElement | undefined;
+  if (e.key === "ArrowLeft") next = links[index - 1];
+  else if (e.key === "ArrowRight") next = links[index + 1];
+  else {
+    const from = current.getBoundingClientRect();
+    const down = e.key === "ArrowDown";
+    let best = Infinity;
+    for (const link of links) {
+      const r = link.getBoundingClientRect();
+      const dy = down ? r.top - from.bottom : from.top - r.bottom;
+      if (dy < -1) continue;
+      const score = dy * 4 + Math.abs(r.left - from.left);
+      if (link !== current && score < best) {
+        best = score;
+        next = link;
+      }
+    }
+  }
+  if (!next) return;
+  e.preventDefault();
+  next.focus();
+  next.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
 export function TemplateGrid({ cards, signedIn, autoplay, editorial }: { cards: Card[]; signedIn: boolean; autoplay?: boolean; editorial?: boolean }) {
   return (
-    <div className="grid grid-flow-row-dense grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+    <div
+      onKeyDown={onGridKeys}
+      className="grid grid-flow-row-dense grid-cols-2 gap-x-3 gap-y-6 sm:grid-cols-3 sm:gap-x-4 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
       {cards.map((c, i) => (
         <TemplateCard key={c.id} card={c} signedIn={signedIn} autoplay={autoplay} feature={editorial && i % 11 === 0} />
       ))}

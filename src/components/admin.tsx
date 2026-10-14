@@ -103,23 +103,24 @@ export function ModelTable({ models }: { models: Model[] }) {
   return (
     <ul className="divide-y divide-bone-50/5">
       {models.map((m) => (
-        <li key={m.key} className="flex flex-wrap items-center gap-4 py-3">
-          <div className="min-w-48 flex-1">
+        <li key={m.key} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
+          {/* At phone width the name takes its own line and the controls wrap under it. */}
+          <div className="min-w-0 flex-1 basis-full sm:min-w-48 sm:basis-0">
             <p className="text-sm text-bone-100">
               {m.name} {m.isDemo ? <Badge tone="demo">demo</Badge> : null}
             </p>
-            <p className="font-mono text-[11px] text-bone-500">
+            <p className="break-words font-mono text-[11px] text-bone-500">
               {m.key} · {m.provider} · {m.output} · {m.available ? "live" : m.reason}
             </p>
           </div>
           <form
-            className="flex items-center gap-2"
+            className="flex shrink-0 items-center gap-2"
             onSubmit={(e) => {
               e.preventDefault();
               void act(`mult:${m.key}`, () => api(`/api/admin/models/${m.key}`, { method: "PATCH", body: { priceMultiplierPct: mult[m.key] } }), "Price updated.");
             }}
           >
-            <label htmlFor={`m-${m.key}`} className="text-[12px] text-bone-400">
+            <label htmlFor={`m-${m.key}`} className="whitespace-nowrap text-[12px] text-bone-400">
               Price %
             </label>
             <input id={`m-${m.key}`} type="number" min={10} max={1000} className={`${inputClass} w-20 py-1.5`} value={mult[m.key] ?? 100} onChange={(e) => setMult({ ...mult, [m.key]: Number(e.target.value) })} />
@@ -127,7 +128,7 @@ export function ModelTable({ models }: { models: Model[] }) {
               Set
             </Button>
           </form>
-          <div className="w-36">
+          <div className="w-28 shrink-0">
             <Toggle label="Enabled" checked={m.enabled} onChange={(v) => act(`en:${m.key}`, () => api(`/api/admin/models/${m.key}`, { method: "PATCH", body: { enabled: v } }), v ? "Enabled." : "Disabled.")} />
           </div>
         </li>

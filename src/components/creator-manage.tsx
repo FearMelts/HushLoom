@@ -24,6 +24,8 @@ type Row = {
   ratingCount: number;
   views30: number;
   generations30: number;
+  /** The current version's prompt; editing it publishes the next version. */
+  prompt: string;
 };
 
 export function CreatorManage({ rows }: { rows: Row[] }) {
@@ -113,39 +115,58 @@ export function CreatorManage({ rows }: { rows: Row[] }) {
           </tbody>
         </table>
       </div>
-      {editing ? <EditSheet row={editing} onClose={() => setEditing(null)} onSave={(body) => patch(editing.id, body, "Saved.")} busy={busy === editing.id} /> : null}
+      {/* The sheet stays mounted so it can animate closed; the form inside starts fresh per template. */}
+      <Sheet open={Boolean(editing)} onClose={() => setEditing(null)} title="Edit template">
+        {editing ? (
+          <EditForm
+            key={editing.id}
+            row={editing}
+            busy={busy === editing.id}
+            onSave={(body) => patch(editing.id, body, body.prompt ? `Saved as version ${editing.version + 1}.` : "Saved.")}
+          />
+        ) : null}
+      </Sheet>
     </>
   );
 }
 
-function EditSheet({ row, onClose, onSave, busy }: { row: Row; onClose: () => void; onSave: (b: Record<string, unknown>) => void; busy: boolean }) {
+function EditForm({ row, onSave, busy }: { row: Row; onSave: (b: Record<string, unknown>) => void; busy: boolean }) {
   const [title, setTitle] = useState(row.title);
   const [description, setDescription] = useState(row.description);
   const [isVip, setIsVip] = useState(row.isVip);
+  const [prompt, setPrompt] = useState(row.prompt);
+  const [changelog, setChangelog] = useState("");
+  const promptChanged = prompt.trim() !== row.prompt.trim();
   return (
-    <Sheet open onClose={onClose} title="Edit template">
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          onSave({ title, description, isVip });
-        }}
-      >
-        <Field label="Title" htmlFor="et">
-          <input id="et" className={inputClass} value={title} onChange={(e) => setTitle(e.target.value)} minLength={2} maxLength={60} required />
+    <form
+      className="space-y-4"
+      onSubmit={(e) => {
+        e.preventDefault();
+        // Only a changed prompt is sent: the server then publishes the next version with it.
+        onSave(promptChanged ? { title, description, isVip, prompt, changelog: changelog.trim() } : { title, description, isVip });
+      }}
+    >
+      <Field label="Title" htmlFor="et">
+        <input id="et" className={inputClass} value={title} onChange={(e) => setTitle(e.target.value)} minLength={2} maxLength={60} required />
+      </Field>
+      <Field label="Description" htmlFor="ed">
+        <textarea id="ed" className={inputClass} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} />
+      </Field>
+      <label className="flex items-center gap-2.5 text-sm text-bone-200">
+        <input type="checkbox" checked={isVip} onChange={(e) => setIsVip(e.target.checked)} className="accent-[var(--color-ember-500)]" />
+        VIP only (pass holders can use it)
+      </label>
+      <Field label="Prompt" htmlFor="ep" hint={`This is version ${row.version}. Change the prompt and you publish version ${row.version + 1}; what people already made keeps the version they used.`}>
+        <textarea id="ep" className={inputClass} rows={5} value={prompt} onChange={(e) => setPrompt(e.target.value)} minLength={1} maxLength={2000} required />
+      </Field>
+      {promptChanged ? (
+        <Field label="What changed" htmlFor="ec" hint="Optional. Shown in the version history on the template page.">
+          <input id="ec" className={inputClass} value={changelog} onChange={(e) => setChangelog(e.target.value)} maxLength={200} placeholder="Warmer light, slower pacing" />
         </Field>
-        <Field label="Description" htmlFor="ed">
-          <textarea id="ed" className={inputClass} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} />
-        </Field>
-        <label className="flex items-center gap-2.5 text-sm text-bone-200">
-          <input type="checkbox" checked={isVip} onChange={(e) => setIsVip(e.target.checked)} className="accent-[var(--color-ember-500)]" />
-          VIP only (pass holders can use it)
-        </label>
-        <p className="text-[12.5px] text-bone-500">To change the prompt, publish a new version from a creation. Existing remixes keep the version they used.</p>
-        <Button type="submit" variant="ember" className="w-full" busy={busy}>
-          Save
-        </Button>
-      </form>
-    </Sheet>
+      ) : null}
+      <Button type="submit" variant="ember" className="w-full" busy={busy}>
+        {promptChanged ? `Publish version ${row.version + 1}` : "Save"}
+      </Button>
+    </form>
   );
 }

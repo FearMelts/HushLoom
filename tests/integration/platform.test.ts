@@ -20,12 +20,15 @@ import {
   mediaAssets,
   moderationEvents,
   subscriptions,
+  templateCategories,
   templates,
+  templateVersions,
   uploads,
   userPreferences,
 } from "@/server/db/schema";
-import { forYou } from "@/server/discovery/templates";
+import { browseTemplates, forYou, isDemoModelKey, savedTemplates } from "@/server/discovery/templates";
 import { confirmJob, createDraft } from "@/server/generation/service";
+import { libraryFacets, listCreations, utcDay, type CreationFilters } from "@/server/generation/views";
 import { processJob } from "@/server/generation/processor";
 import { assetUrl, acceptUpload } from "@/server/media";
 import { createPreset } from "@/server/presets";
@@ -361,5 +364,182 @@ describe("presets", () => {
     expect(preset.params).toEqual({ aspectRatio: "4:5", quality: "4k" });
     const other = await makeUser();
     await expect(createPreset(other.id, { name: "Steal", fromJobId: job.id })).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+/** A published template inserted directly, with its current version on the given model. */
+async function seedTemplate(creator: SessionUser, o: Partial<typeof templates.$inferInsert> & { modelKey?: string } = {}) {
+  const { modelKey = "demo-still", ...values } = o;
+  const [t] = await getDb()
+    .insert(templates)
+    .values({ slug: key(), creatorId: creator.id, title: "Untitled", mediaType: "image", mode: "text_to_image", status: "published", publishedAt: new Date(), ...values })
+    .returning();
+  await getDb().insert(templateVersions).values({ templateId: t!.id, version: t!.currentVersion, prompt: "two adults dancing slowly", modelKey, defaults: {} });
+  return t!;
+}
+
+describe("browse templates", () => {
+  const viewer = { id: null, explicitAllowed: true };
+  const titles = (r: { items: { title: string }[] }) => r.items.map((c) => c.title);
+
+  it("searches, filters by category, media, VIP and tag, and sorts", async () => {
+    const fox = await makeUser({ handle: "velvetfox" });
+    const owl = await makeUser({ handle: "nightowl" });
+    const [noir] = await getDb().insert(templateCategories).values({ slug: "noir", name: "Noir" }).returning();
+    const [glow] = await getDb().insert(templateCategories).values({ slug: "glow", name: "Glow" }).returning();
+    const day = 86_400_000;
+    await seedTemplate(fox, { title: "Candle Hour", categoryId: noir!.id, tags: ["candle", "warm"], favoriteCount: 9, publishedAt: new Date(Date.now() - 3 * day) });
+    await seedTemplate(fox, {
+      title: "Neon Slow Dance",
+      categoryId: glow!.id,
+      mediaType: "video",
+      mode: "text_to_video",
+      modelKey: "demo-motion",
+      tags: ["neon"],
+      isVip: true,
+      favoriteCount: 2,
+      publishedAt: new Date(Date.now() - day),
+    });
+    await seedTemplate(owl, {
+      title: "Silk Morning",
+      categoryId: glow!.id,
+      description: "soft candle light",
+      tags: ["warm"],
+      ratingSum: 25,
+      ratingCount: 5,
+      favoriteCount: 5,
+      publishedAt: new Date(Date.now() - 2 * day),
+    });
+    await seedTemplate(owl, { title: "Hidden Draft", status: "draft", tags: ["warm"] });
+
+    // q matches title, description, creator handle and tags; drafts never show.
+    expect(titles(await browseTemplates({ q: "candle", sort: "new" }, viewer))).toEqual(["Silk Morning", "Candle Hour"]);
+    expect(titles(await browseTemplates({ q: "velvetfox", sort: "new" }, viewer))).toEqual(["Neon Slow Dance", "Candle Hour"]);
+    expect(titles(await browseTemplates({ q: "neon" }, viewer))).toEqual(["Neon Slow Dance"]);
+    // A LIKE wildcard in the query is matched literally.
+    expect((await browseTemplates({ q: "%" }, viewer)).items).toEqual([]);
+
+    expect(titles(await browseTemplates({ category: "glow", sort: "new" }, viewer))).toEqual(["Neon Slow Dance", "Silk Morning"]);
+    expect(titles(await browseTemplates({ media: "video" }, viewer))).toEqual(["Neon Slow Dance"]);
+    expect(titles(await browseTemplates({ media: "image", sort: "new" }, viewer))).toEqual(["Silk Morning", "Candle Hour"]);
+    expect(titles(await browseTemplates({ vipOnly: true }, viewer))).toEqual(["Neon Slow Dance"]);
+    expect(titles(await browseTemplates({ vipOnly: true, media: "image" }, viewer))).toEqual([]);
+
+    expect(titles(await browseTemplates({ sort: "new" }, viewer))).toEqual(["Neon Slow Dance", "Silk Morning", "Candle Hour"]);
+    expect(titles(await browseTemplates({ sort: "most_favorited" }, viewer))).toEqual(["Candle Hour", "Silk Morning", "Neon Slow Dance"]);
+    expect(titles(await browseTemplates({ sort: "top_rated" }, viewer))[0]).toBe("Silk Morning");
+    expect(titles(await browseTemplates({ sort: "trending" }, viewer))).toEqual(["Candle Hour", "Silk Morning", "Neon Slow Dance"]);
+
+    // "More in #tag": an exact tag, minus what the page already shows.
+    const warm = await browseTemplates({ tag: "warm", sort: "new" }, viewer);
+    expect(titles(warm)).toEqual(["Silk Morning", "Candle Hour"]);
+    expect(titles(await browseTemplates({ tag: "WARM", excludeIds: [warm.items[0]!.id] }, viewer))).toEqual(["Candle Hour"]);
+    expect((await browseTemplates({ tag: "war" }, viewer)).items).toEqual([]);
+
+    // Paging: hasMore and offset agree.
+    const first = await browseTemplates({ sort: "new", limit: 2 }, viewer);
+    expect(first.hasMore).toBe(true);
+    const rest = await browseTemplates({ sort: "new", limit: 2, offset: 2 }, viewer);
+    expect([...titles(first), ...titles(rest)]).toEqual(["Neon Slow Dance", "Silk Morning", "Candle Hour"]);
+    expect(rest.hasMore).toBe(false);
+  });
+
+  it("labels demo media from the current version's model, and withholds media until the age check", async () => {
+    const creator = await makeUser();
+    const demo = await seedTemplate(creator, { title: "Demo Still" });
+    await seedTemplate(creator, { title: "Real Model", modelKey: "replicate-flux-schnell" });
+    expect(isDemoModelKey("demo-still")).toBe(true);
+    expect(isDemoModelKey("demo-motion")).toBe(true);
+    expect(isDemoModelKey("replicate-flux-schnell")).toBe(false);
+    expect(isDemoModelKey("no-such-model")).toBe(false);
+    expect(isDemoModelKey(null)).toBe(false);
+
+    const byTitle = async () => Object.fromEntries((await browseTemplates({}, viewer)).items.map((c) => [c.title, c]));
+    let cards = await byTitle();
+    expect(cards["Demo Still"]!.isDemo).toBe(true);
+    expect(cards["Real Model"]!.isDemo).toBe(false);
+
+    // A new version on a real model drops the label; the label follows the current version.
+    await getDb().insert(templateVersions).values({ templateId: demo.id, version: 2, prompt: "two adults, a new take", modelKey: "replicate-flux-schnell", defaults: {} });
+    await getDb().update(templates).set({ currentVersion: 2 }).where(eq(templates.id, demo.id));
+    cards = await byTitle();
+    expect(cards["Demo Still"]!.isDemo).toBe(false);
+
+    const withheld = await browseTemplates({}, { id: null, explicitAllowed: false });
+    expect(withheld.items.length).toBe(2);
+    expect(withheld.items.every((c) => c.mediaWithheld && c.posterUrl === null && c.previewUrl === null)).toBe(true);
+  });
+
+  it("Saved inspirations lists only your own favorited templates, newest save first", async () => {
+    const creator = await makeUser();
+    const me = await makeUser();
+    const other = await makeUser();
+    const a = await seedTemplate(creator, { title: "First Saved" });
+    const b = await seedTemplate(creator, { title: "Second Saved" });
+    await seedTemplate(creator, { title: "Never Saved" });
+    const gone = await seedTemplate(creator, { title: "Unpublished Later" });
+    await getDb()
+      .insert(favorites)
+      .values([
+        { userId: me.id, targetType: "template", targetId: a.id, createdAt: new Date(Date.now() - 60_000) },
+        { userId: me.id, targetType: "template", targetId: b.id },
+        { userId: me.id, targetType: "template", targetId: gone.id },
+        { userId: other.id, targetType: "template", targetId: a.id },
+      ]);
+    await getDb().update(templates).set({ status: "unpublished" }).where(eq(templates.id, gone.id));
+    const saved = await savedTemplates({ id: me.id, explicitAllowed: true });
+    expect(saved.map((c) => c.title)).toEqual(["Second Saved", "First Saved"]);
+    expect(saved.every((c) => c.isFavorited)).toBe(true);
+    expect(await savedTemplates({ id: creator.id, explicitAllowed: true })).toEqual([]);
+  });
+});
+
+describe("library filters", () => {
+  it("narrows by quality, UTC day range, project, template and the template's creator", async () => {
+    const u = await makeUser({ credits: 200 });
+    const creatorA = await makeUser();
+    const creatorB = await makeUser();
+    const tA = await seedTemplate(creatorA, { title: "Alpha" });
+    const tB = await seedTemplate(creatorB, { title: "Beta" });
+    const p = await createProject(u.id, { title: "Night shoot", description: "" });
+    const hd = (await makeCreation(u)).job;
+    const fourK = (await makeCreation(u, { params: { aspectRatio: "1:1", quality: "4k" } })).job;
+    const plain = (await makeCreation(u)).job;
+    const db = getDb();
+    await db.update(generationJobs).set({ createdAt: new Date("2026-03-01T23:30:00Z"), templateId: tA.id, projectId: p.id }).where(eq(generationJobs.id, hd.id));
+    await db.update(generationJobs).set({ createdAt: new Date("2026-03-02T00:30:00Z"), templateId: tB.id }).where(eq(generationJobs.id, fourK.id));
+    await db.update(generationJobs).set({ createdAt: new Date("2026-03-05T12:00:00Z") }).where(eq(generationJobs.id, plain.id));
+
+    const ids = async (f: CreationFilters) => (await listCreations(u.id, f)).map((i) => i.id).sort();
+    const sorted = (...xs: string[]) => [...xs].sort();
+    expect(await ids({})).toEqual(sorted(hd.id, fourK.id, plain.id));
+    // A creation made without a quality setting counts as HD.
+    expect(await ids({ quality: "4k" })).toEqual([fourK.id]);
+    expect(await ids({ quality: "hd" })).toEqual(sorted(hd.id, plain.id));
+    // Days are whole UTC days and both ends are inclusive.
+    expect(await ids({ from: "2026-03-02", to: "2026-03-02" })).toEqual([fourK.id]);
+    expect(await ids({ from: "2026-03-01", to: "2026-03-02" })).toEqual(sorted(hd.id, fourK.id));
+    expect(await ids({ from: "2026-03-03" })).toEqual([plain.id]);
+    expect(await ids({ to: "2026-03-01" })).toEqual([hd.id]);
+    // A malformed or impossible date is ignored rather than guessed at.
+    expect(await ids({ to: "2026-02-31" })).toHaveLength(3);
+    expect(await ids({ from: "March 2" })).toHaveLength(3);
+    expect(utcDay("2026-02-31")).toBeUndefined();
+    expect(utcDay("2026-03-02")?.toISOString()).toBe("2026-03-02T00:00:00.000Z");
+
+    expect(await ids({ projectId: p.id })).toEqual([hd.id]);
+    expect(await ids({ templateId: tB.id })).toEqual([fourK.id]);
+    expect(await ids({ templateCreatorId: creatorA.id })).toEqual([hd.id]);
+    expect(await ids({ templateCreatorId: creatorA.id, quality: "4k" })).toEqual([]);
+
+    const facets = await libraryFacets(u.id);
+    expect(facets.projects).toEqual([{ id: p.id, title: "Night shoot" }]);
+    expect(facets.templates.map((t) => t.title)).toEqual(["Alpha", "Beta"]);
+    expect(facets.creators.map((c) => c.id).sort()).toEqual(sorted(creatorA.id, creatorB.id));
+
+    // Filters only ever narrow your own Library.
+    const other = await makeUser();
+    expect(await listCreations(other.id, { templateCreatorId: creatorA.id })).toEqual([]);
+    expect(await libraryFacets(other.id)).toEqual({ projects: [], templates: [], creators: [] });
   });
 });
