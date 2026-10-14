@@ -6,7 +6,7 @@ import { CreatePanel } from "@/components/create-panel";
 import { Avatar } from "@/components/shell";
 import { FollowButton, MakeBar, RateStars, ReportButton, TemplateMedia } from "@/components/template-detail";
 import { TemplateRail } from "@/components/template-card";
-import { Badge, SectionHeading } from "@/components/ui";
+import { Badge, SectionHeading, SectionLink } from "@/components/ui";
 import { viewerAccess } from "@/server/age/access";
 import { createContext } from "@/server/create-context";
 import { getDb } from "@/server/db";
@@ -186,9 +186,9 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
             kicker="Same tag"
             title={`More in #${tag}`}
             action={
-              <Link href={`/explore?q=${encodeURIComponent(tag)}`} className="inline-flex items-center gap-1 text-[13px] text-bone-300 hover:text-bone-50">
+              <SectionLink href={`/explore?q=${encodeURIComponent(tag)}`}>
                 See all <ArrowRight size={14} aria-hidden />
-              </Link>
+              </SectionLink>
             }
           />
           <TemplateRail cards={cards} signedIn={Boolean(user)} />

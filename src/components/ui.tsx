@@ -283,6 +283,19 @@ export function EmptyState({ title, body, action }: { title: string; body: strin
   );
 }
 
+/**
+ * A section heading's action link ("See all", "Tune"): a 40 px tap target. The negative margins keep its text
+ * where a bare link would sit, aligned with the heading's bottom and the content's right edge.
+ */
+export function SectionLink({ className, ...rest }: ComponentProps<typeof Link>) {
+  return (
+    <Link
+      className={cn("-mr-2 -mb-2.5 inline-flex min-h-10 shrink-0 items-center gap-1 px-2 text-[13px] text-bone-300 hover:text-bone-50", className)}
+      {...rest}
+    />
+  );
+}
+
 export function SectionHeading({ title, kicker, action }: { title: string; kicker?: string; action?: ReactNode }) {
   return (
     <div className="mb-4 flex items-end justify-between gap-4">
