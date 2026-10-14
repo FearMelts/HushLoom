@@ -214,6 +214,8 @@ export function CreationDetail({
 
         <div className="min-w-0 space-y-6">
           <div>
+            {/* The page title for heading navigation; the prompt below is what the person reads. */}
+            <h1 className="sr-only">{details.template ? `Creation from ${details.template.title}` : "Creation"}</h1>
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge tone={item.status === "failed" ? "danger" : item.status === "completed" ? "new" : "plain"}>{STATUS_LABEL[item.status]}</Badge>
               {item.isDemo ? <Badge tone="demo">Demo</Badge> : null}
