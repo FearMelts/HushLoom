@@ -1,6 +1,8 @@
 /**
  * Seeds a development database with categories, creators and templates.
- * All cover art is original abstract artwork generated here; no third-party media.
+ * All cover art is original abstract artwork generated here; no third-party media. Every seeded
+ * template is tagged "sample" and says its cover is an illustration, and starts with zero
+ * generations: counts only ever come from real runs.
  * Refuses to run against a database that already has templates.
  */
 import { spawnSync } from "node:child_process";
@@ -238,10 +240,11 @@ for (const [i, s] of T.entries()) {
       creatorId: creator.id,
       categoryId: cats.find((c) => c.slug === s.cat)!.id,
       title: s.title,
-      description: s.prompt.charAt(0).toUpperCase() + s.prompt.slice(1) + ".",
+      // Seeded templates are samples: the cover is generated abstract art, not an output of the recipe.
+      description: s.prompt.charAt(0).toUpperCase() + s.prompt.slice(1) + ". Sample template: the cover is an illustration, not a result of this recipe.",
       mediaType: s.media,
       mode: s.mode,
-      tags: s.tags,
+      tags: [...s.tags, "sample"],
       status: "published",
       isVip: s.vip ?? false,
       quality: s.q ?? "hd",
@@ -274,8 +277,7 @@ await db.execute(sql`
   update templates t set
     favorite_count = (select count(*) from favorites f where f.target_type = 'template' and f.target_id = t.id),
     rating_sum = coalesce((select sum(score) from template_ratings r where r.template_id = t.id), 0),
-    rating_count = (select count(*) from template_ratings r where r.template_id = t.id),
-    generation_count = (abs(hashtext(t.slug)) % 400)
+    rating_count = (select count(*) from template_ratings r where r.template_id = t.id)
 `);
 await db.insert(follows).values({ followerId: member.id, creatorId: creators[0]!.id });
 const [coll] = await db.insert(templateCollections).values({ creatorId: creators[0]!.id, title: "After-dark essentials" }).returning();

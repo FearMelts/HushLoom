@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "@/server/env";
+import { promptWithSettings } from "./prompt";
 import { ProviderError, type ExecuteContext, type ProviderAdapter, type ProviderInput, type ProviderOutput, type ProviderRequest } from "./types";
 
 /**
@@ -29,10 +30,10 @@ type InputBuilder = {
 
 /** Per-model input mapping. Each provider model has its own schema; add one entry per enabled model. */
 const INPUT_BUILDERS: Record<string, InputBuilder> = {
-  // Text-to-image only: its schema has no image or reference input.
+  // Text-to-image only: its schema has no image or reference input, and no lighting or framing fields.
   "black-forest-labs/flux-schnell": {
     build: (req) => ({
-      prompt: req.prompt,
+      prompt: promptWithSettings(req.prompt, req.params, req.model.output),
       aspect_ratio: req.params.aspectRatio ?? "1:1",
       num_outputs: 1,
       output_format: "webp",

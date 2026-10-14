@@ -748,7 +748,7 @@ export function CreatePanel({
             ) : null}
             <div className="grid gap-4 sm:grid-cols-3">
               {model.output === "video" ? (
-                <Field label="Pacing" htmlFor="pacing" hint="How quickly the action unfolds.">
+                <Field label="Pacing" htmlFor="pacing" hint="How quickly the action unfolds. Added to your prompt.">
                   <select id="pacing" className={inputClass} value={params.pacing ?? ""} onChange={(e) => setParam("pacing", e.target.value || undefined)}>
                     <option value="">Natural</option>
                     {PACINGS.map((p) => (
@@ -757,7 +757,7 @@ export function CreatePanel({
                   </select>
                 </Field>
               ) : null}
-              <Field label="Lighting" htmlFor="lighting" hint="From prompt follows your words.">
+              <Field label="Lighting" htmlFor="lighting" hint="Added to your prompt. From prompt leaves it to your words.">
                 <select id="lighting" className={inputClass} value={params.lighting ?? ""} onChange={(e) => setParam("lighting", e.target.value || undefined)}>
                   <option value="">From prompt</option>
                   {LIGHTINGS.map((p) => (
@@ -765,7 +765,7 @@ export function CreatePanel({
                   ))}
                 </select>
               </Field>
-              <Field label="Framing" htmlFor="framing" hint="How close the camera is. From prompt follows your words.">
+              <Field label="Framing" htmlFor="framing" hint="How close the camera is. Added to your prompt.">
                 <select id="framing" className={inputClass} value={params.framing ?? ""} onChange={(e) => setParam("framing", e.target.value || undefined)}>
                   <option value="">From prompt</option>
                   {FRAMINGS.map((p) => (
@@ -774,7 +774,7 @@ export function CreatePanel({
                 </select>
               </Field>
             </div>
-            <Field label="Atmosphere" htmlFor="atmosphere" hint="A few words of mood.">
+            <Field label="Atmosphere" htmlFor="atmosphere" hint="A few words of mood, added to your prompt.">
               <input id="atmosphere" className={inputClass} value={params.atmosphere ?? ""} maxLength={80} onChange={(e) => setParam("atmosphere", e.target.value || undefined)} placeholder="e.g. hazy, intimate, playful" />
             </Field>
             {studio ? (
@@ -971,7 +971,7 @@ export function CreatePanel({
             void savePreset();
           }}
         >
-          <p className="text-bone-300">Keeps this model, mode, prompt and settings so you can start from them again. The seed isn't kept, so each run is fresh.</p>
+          <p className="text-bone-300">Keeps this model, mode, prompt and settings so you can start from them again. The seed isn&apos;t kept, so each run is fresh.</p>
           <Field label="Name" htmlFor="preset-name" error={presetError ?? undefined}>
             <input id="preset-name" className={inputClass} value={presetName} maxLength={40} onChange={(e) => setPresetName(e.target.value)} placeholder="e.g. Soft window portraits" />
           </Field>
