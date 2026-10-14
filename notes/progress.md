@@ -14,13 +14,14 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 1.2 Age verification track | verified | branch worktree-wf_1b2f5203-519-2, commits b1fe1e4 2fb7c18; agent run: typecheck 0, lint 0, vitest 100/100 |
 | 1.3 Scanning track | verified | branch worktree-wf_a044751c-de7-1 (c63e72a 1821c5a fe8e6bc ca1309e 0fd6820) on base e0ae32c; agent run: typecheck 0, lint 0, vitest 140/140, mutation check, dev-server and 390/1440 px checks; report notes/analysis/track-reports/scan.json |
 | 1.4 Web app track | verified | branch worktree-wf_a044751c-de7-2 (8 commits f31e530..e29a196) on base e0ae32c; agent run: typecheck 0, lint 0, vitest 169/169, real-Chromium service worker and offline checks; report notes/analysis/track-reports/pwa.json |
-| 1.5 Fix track A (fixes-core) | not done | |
-| 1.6 Fix track B (fixes-ui) | not done | |
+| 1.5 Fix track A (fixes-core) | verified | branch worktree-wf_44ccc76c-0c7-1 (2c0068b a84f632 4498243 e12bacd a30f7ea) on base d6c48b6; agent run: typecheck 0, lint 0, vitest 232/232, migration chain 0000-0003 applied to a copy of the dev database, seed on a fresh database; UI changes not seen in a browser (report notes/analysis/track-reports/fixes-core.json) |
+| 1.6 Fix track B (fixes-ui) | implemented but not verified | branch worktree-wf_44ccc76c-0c7-2 (7 commits b0e0e0a..7f7afb0) on base d6c48b6; agent run: typecheck 0, lint 0, vitest 202/202; no browser was run, so layout and interaction changes are unseen until the phase 2 journey and phase 4 visual review (report notes/analysis/track-reports/fixes-ui.json) |
 | 1.7 Infra track | not done | |
 | 2 Merge payments, then age, into the integration branch | verified | merges c1ef260, bcf9113; after each: typecheck 0, lint 0; after both: vitest 121/121 (9 files) |
 | 2 Merge scanning, then web app | verified | merges feafeb4 (then typecheck 0, lint 0, vitest 140/140) and 96923a7 (npm install, then typecheck 0, lint 0, vitest 188/188) |
 | 2 APP_ENV: sandboxes allowed on a production build only when it is not a live site | verified | 0686f87; tests/unit/env.test.ts 5/5; full suite 193/193 |
 | 2 Production build and existing e2e after four tracks | verified | `npm run test:e2e` at 0686f87 (APP_ENV=test): next build ok, Playwright 8/8 in 2.3 min, exit 0 |
+| 2 Merge fix track A, then fix track B | verified | merges 0d06957 (typecheck 0, lint 0, vitest 232/232) and b28583c (typecheck 0, lint 0, vitest 241/241); the two tracks changed no file in common |
 | 2 Merge remaining tracks, full verification, browser journey | not done | |
 | 3 Adversarial review | not done | |
 | 4 Visual review | not done | |
@@ -101,6 +102,12 @@ vitest suite before merging.
   "for legal review".
 - Web app: a user-initiated cancel also sends a push ("A creation was cancelled"); demo outputs get the
   same "Your creation is ready" line. Left as briefed; noted for review.
+- Fix track A: lighting, framing, pacing and atmosphere now reach Replicate as prompt words only; the
+  suspend route still returns {ok:true} without the unpublished count; Library retry's cost sheet
+  cannot show the balance; expired drafts are hidden rather than shown as "Expired".
+- Fix track B: Library's extra filters render as a row above the Library heading rather than inside its
+  filter bar; every seeded template shows Demo (all seeds use demo models); admin suspend reason and
+  flag clearing still use window.prompt.
 
 ## Log (newest last)
 
@@ -126,6 +133,9 @@ vitest suite before merging.
   public/ into the image and documents APP_ENV.
 - 2026-10-14 00:35 `npm run test:e2e` at 0686f87: production build, 8/8 passed. Fix tracks A and B started
   on base d6c48b6.
+- 2026-10-14 01:12 Fix tracks A and B finished green and merged in slot order (232/232, then 241/241).
+  Track A also edited two files outside its list (src/lib/copilot.ts, src/server/templates/publish.ts),
+  both small; reviewed in the merge and kept. Infra track started on the merged head.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
