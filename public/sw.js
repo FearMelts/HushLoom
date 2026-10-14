@@ -160,10 +160,13 @@ async function networkFirst(request) {
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
-      const shell = await caches.open(SHELL_CACHE);
-      await shell.addAll(SHELL_URLS.map((url) => new Request(url, { cache: "reload" })));
-      // Best effort: without it the worker still installs and falls back to a plain offline page.
-      await precacheOffline(shell).catch(() => undefined);
+      if (CACHING) {
+        // Best effort: a failed precache must not stop the worker installing (push depends on it);
+        // without the cached copy the worker falls back to a plain offline page.
+        const shell = await caches.open(SHELL_CACHE);
+        await shell.addAll(SHELL_URLS.map((url) => new Request(url, { cache: "reload" }))).catch(() => undefined);
+        await precacheOffline(shell).catch(() => undefined);
+      }
       await self.skipWaiting();
     })(),
   );

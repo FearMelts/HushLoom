@@ -38,6 +38,17 @@ export function NotificationsCard({ data }: { data: NotificationsSettings }) {
     deviceSubscription()
       .then((s) => setDeviceOn(Boolean(s)))
       .catch(() => undefined);
+    // Follow changes made in the browser's site settings while this page is open.
+    let status: PermissionStatus | null = null;
+    const follow = () => setPermission(Notification.permission);
+    navigator.permissions
+      ?.query({ name: "notifications" })
+      .then((s) => {
+        status = s;
+        s.addEventListener("change", follow);
+      })
+      .catch(() => undefined);
+    return () => status?.removeEventListener("change", follow);
   }, []);
 
   async function turnOn() {
@@ -55,7 +66,10 @@ export function NotificationsCard({ data }: { data: NotificationsSettings }) {
       toast({ message: "Notifications are on for this device.", tone: "success" });
       router.refresh();
     } catch (e) {
-      toast({ message: e instanceof ApiError || e instanceof Error ? e.message : "Notifications could not be turned on.", tone: "error" });
+      // A DOMException comes from the browser's push service (unreachable, refused); its text is not for people.
+      const message =
+        e instanceof DOMException ? "This browser couldn't set up notifications right now. Try again in a moment." : e instanceof Error ? e.message : "Notifications could not be turned on.";
+      toast({ message, tone: "error" });
     } finally {
       setBusy(false);
     }
@@ -81,7 +95,8 @@ export function NotificationsCard({ data }: { data: NotificationsSettings }) {
   const cannotTurnOn = !configured || support !== "supported" || denied;
 
   let note: string | null = null;
-  if (!configured) note = "Push is not configured on this server.";
+  if (busy) note = "One moment…";
+  else if (!configured) note = "Push is not configured on this server.";
   else if (support === "needs-home-screen") note = "On iPhone and iPad, add Hushloom to your Home Screen first (see above), then turn this on from the app.";
   else if (support === "unsupported") note = "This browser can't receive push notifications.";
   else if (denied) note = "Notifications are blocked for Hushloom in this browser. Allow them in the site settings, then come back here.";

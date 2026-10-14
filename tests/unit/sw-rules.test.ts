@@ -251,11 +251,24 @@ describe("service worker behavior", () => {
     expect(self.clients.claim).toHaveBeenCalled();
   });
 
-  it("under next dev (?mode=dev) it answers nothing, so dev code is never served stale", async () => {
-    const { listeners, fetch } = load({ search: "?mode=dev" });
+  it("under next dev (?mode=dev) it caches and answers nothing, so dev code is never served stale", async () => {
+    const { listeners, fetch, stores, self } = load({ search: "?mode=dev" });
+    let installing: Promise<unknown> | null = null;
+    listeners.install!({ waitUntil: (p: Promise<unknown>) => (installing = p) });
+    await installing;
+    expect(stores.size).toBe(0);
+    expect(self.skipWaiting).toHaveBeenCalled();
     expect(await dispatchFetch(listeners, sub("/_next/static/chunks/a.js", "no-cors"))).toBeNull();
     expect(await dispatchFetch(listeners, nav("/explore"))).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("still installs when precaching fails, so push keeps working", async () => {
+    const { listeners, self } = load({ fetch: async () => Promise.reject(new TypeError("Failed to fetch")) });
+    let installing: Promise<unknown> | null = null;
+    listeners.install!({ waitUntil: (p: Promise<unknown>) => (installing = p) });
+    await expect(installing).resolves.toBeUndefined();
+    expect(self.skipWaiting).toHaveBeenCalled();
   });
 });
 
