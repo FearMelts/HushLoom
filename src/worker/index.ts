@@ -6,9 +6,12 @@ import { GENERATION_QUEUE, type GenerationQueueData } from "@/server/generation/
 import { processJob, reconcile } from "@/server/generation/processor";
 import { purgeDeletedMedia } from "@/server/media";
 import { logger } from "@/server/log";
+import { installErrorWebhook } from "@/server/observability";
 import { closeRedis, redis } from "@/server/redis";
 
 const concurrency = env().WORKER_CONCURRENCY;
+// Errors also go to ERROR_WEBHOOK_URL when it is set (src/server/observability.ts).
+installErrorWebhook("worker");
 
 const worker = new Worker<GenerationQueueData>(
   GENERATION_QUEUE,

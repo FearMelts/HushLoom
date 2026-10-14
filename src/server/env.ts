@@ -104,6 +104,13 @@ const schema = z.object({
   VAPID_PRIVATE_KEY: z.string().optional(),
   /** Contact for push services: a mailto: address or an https: URL (Apple rejects localhost). */
   VAPID_SUBJECT: z.string().optional(),
+
+  // ── Observability. Every error is a JSON line on stdout (src/server/log.ts) whatever is set here.
+  // With ERROR_WEBHOOK_URL, each error is also POSTed there as a small JSON event (message, stack,
+  // route, time; never request bodies, query strings, prompts or media), fire-and-forget with a short
+  // timeout. Put Sentry, an incident tool or a chat channel behind it (src/server/observability.ts).
+  /** Receives error events as JSON POSTs. Secret when it carries a token in its path or query. */
+  ERROR_WEBHOOK_URL: z.string().url().optional(),
 });
 
 export type Env = z.infer<typeof schema>;
