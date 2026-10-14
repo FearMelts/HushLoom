@@ -245,19 +245,25 @@ describe("I02: no query parameters reach Next.js's own error printer", () => {
     expect(format(err)).not.toContain(search);
   });
 
-  // HOLE (very low, theoretical): scrubQueryParams stops after five errors of a cause chain (log.ts,
-  // `depth < 5`), on the assumption that nothing prints deeper. Native util.inspect indeed stops after
-  // three causes, but the production server replaces Error's inspect
-  // (next/dist/server/patch-error-inspect.js:363-391, loaded by next-server.js:12 through
-  // node-environment.js) with one that recomputes the depth at every level and prints causes at any
-  // depth. A Drizzle error five or more causes deep is printed with its parameters. No code in the app
-  // wraps an error that deep today.
-  test.fails("HOLE: a Drizzle error five causes deep is not scrubbed, and Next.js's production inspect prints it", async () => {
+  // Was a hole (very low, theoretical): scrubQueryParams stopped after five errors of a cause chain, on
+  // the assumption that nothing prints deeper. Native util.inspect indeed stops after three causes, but
+  // the production server replaces Error's inspect (next/dist/server/patch-error-inspect.js:363-391,
+  // loaded by next-server.js:12 through node-environment.js) with one that recomputes the depth at
+  // every level and prints causes at any depth. The scrub now walks the whole chain.
+  it("holds: a Drizzle error five or more causes deep is scrubbed before Next.js's production inspect prints it", async () => {
     const onRequestError = await hook();
-    let err: Error = new DrizzleQueryError(browse, [`%${search}%`, 24], timeout());
-    for (let i = 0; i < 5; i++) err = new Error(`layer ${i}`, { cause: err });
-    await onRequestError(err, explore, renderCtx);
-    expect(format(err)).not.toContain(search);
+    for (const layers of [5, 12]) {
+      let err: Error = new DrizzleQueryError(browse, [`%${search}%`, 24], timeout());
+      for (let i = 0; i < layers; i++) err = new Error(`layer ${i}`, { cause: err });
+      await onRequestError(err, explore, renderCtx);
+      expect(format(err)).toContain("params: [redacted]");
+      expect(format(err)).not.toContain(search);
+    }
+    // A chain that loops back on itself ends the walk instead of hanging it.
+    const looped = new Error("outer", { cause: new DrizzleQueryError(browse, [`%${search}%`, 24], timeout()) });
+    (looped.cause as Error).cause = looped;
+    scrubQueryParams(looped);
+    expect((looped.cause as Error).message).toBe(`Failed query: ${browse}\nparams: [redacted]`);
   });
 
   it("holds: reporting the same error object twice, concurrently (RSC and render handlers), stays redacted without double-redacting", async () => {

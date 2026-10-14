@@ -28,10 +28,13 @@ export function redactStack(err: Error): string | undefined {
 /**
  * Redacts, in place, the query parameters an error and its causes carry: message, stack and Drizzle's
  * own `params` field. For an error that other code prints after the app has logged it: Next.js's
- * production server prints every error it reports to instrumentation with console.error.
+ * production server prints every error it reports to instrumentation with console.error. The whole
+ * cause chain is walked: Next.js's production inspect prints causes at any depth.
  */
 export function scrubQueryParams(err: unknown): void {
-  for (let e: unknown = err, depth = 0; e instanceof Error && depth < 5; e = e.cause, depth++) {
+  const seen = new Set<Error>();
+  for (let e: unknown = err; e instanceof Error && !seen.has(e); e = e.cause) {
+    seen.add(e);
     const message = redactQueryParams(e.message);
     if (message === e.message) continue;
     e.stack = redactStack(e);
