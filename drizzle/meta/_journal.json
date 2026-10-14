@@ -22,6 +22,13 @@
       "when": 1791845979082,
       "tag": "0002_launch_readiness",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791938170430,
+      "tag": "0003_integrity_fks_and_dob",
+      "breakpoints": true
     }
   ]
 }
