@@ -3,7 +3,7 @@
 import { AlertTriangle, CheckSquare, FolderPlus, Heart, Info, Play, RotateCw, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { CreationListItem } from "@/server/generation/views";
 import { api, ApiError, apiErrorAction, newIdempotencyKey } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -186,11 +186,14 @@ export function LibraryView({
   folders,
   models,
   query,
+  moreFilters,
 }: {
   items: CreationListItem[];
   folders: { id: string; name: string }[];
   models: { key: string; name: string }[];
   query: Query;
+  /** The finer filters (LibraryFilters): its button and pills sit in this filter row, after the chips. */
+  moreFilters?: ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -279,7 +282,7 @@ export function LibraryView({
         </div>
       </div>
 
-      <div className="mb-3 scrollbar-none -mx-1 flex gap-2 overflow-x-auto px-1" aria-label="Filters">
+      <div className="edge-fade mb-3 scrollbar-none -mx-1 flex gap-2 overflow-x-auto px-1" aria-label="Filters">
         <Chip active={!query.media && !query.favorites} onClick={() => go({ media: "", favorites: "" })}>
           All
         </Chip>
@@ -292,6 +295,7 @@ export function LibraryView({
         <Chip active={query.favorites === "1"} onClick={() => go({ favorites: query.favorites ? "" : "1" })}>
           ♥ Favorites
         </Chip>
+        {moreFilters}
         <span className="mx-1 w-px shrink-0 bg-[var(--line)]" aria-hidden />
         <select aria-label="Status" value={query.status} onChange={(e) => go({ status: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline max-sm:h-10">
           <option value="">Any status</option>

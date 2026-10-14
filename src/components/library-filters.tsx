@@ -17,8 +17,8 @@ const EMPTY: LibraryExtraQuery = { project: "", template: "", creator: "", quali
 
 /**
  * The Library's finer filters: project, template, the template's creator, quality and a date
- * range. One compact row (a "More filters" button plus a removable pill per active filter); the
- * controls live in a sheet so the main filter bar stays one line on a phone. Every value is in the
+ * range: a "More filters" button plus a removable pill per active filter, rendered inside the Library's
+ * filter row; the controls live in a sheet so that row stays one line on a phone. Every value is in the
  * URL next to the Library's own filters, which it leaves untouched.
  */
 export function LibraryFilters({ facets, value }: { facets: LibraryFacets; value: LibraryExtraQuery }) {
@@ -48,11 +48,13 @@ export function LibraryFilters({ facets, value }: { facets: LibraryFacets; value
   if (value.from) pills.push({ key: "from", label: `From ${value.from}` });
   if (value.to) pills.push({ key: "to", label: `To ${value.to}` });
 
+  // A fragment: the button and the pills are items of the Library's filter row (LibraryView's moreFilters slot).
   return (
-    <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+    <>
       <Button
         size="sm"
         variant="ghost"
+        className="shrink-0"
         aria-haspopup="dialog"
         onClick={() => {
           setDraft(value);
@@ -66,7 +68,7 @@ export function LibraryFilters({ facets, value }: { facets: LibraryFacets; value
           key={p.key}
           type="button"
           onClick={() => go({ ...value, [p.key]: "" })}
-          className="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full bg-ink-800 px-3 text-[12.5px] text-bone-200 hover:bg-ink-700 max-sm:h-10"
+          className="inline-flex h-8 max-w-60 shrink-0 items-center gap-1.5 rounded-full bg-ink-800 px-3 text-[12.5px] text-bone-200 hover:bg-ink-700 max-sm:h-10"
           aria-label={`Remove filter ${p.label}`}
         >
           <span className="truncate">{p.label}</span>
@@ -139,6 +141,6 @@ export function LibraryFilters({ facets, value }: { facets: LibraryFacets; value
           </div>
         </form>
       </Sheet>
-    </div>
+    </>
   );
 }

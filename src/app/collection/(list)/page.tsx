@@ -42,9 +42,12 @@ export default async function CollectionPage({ searchParams }: { searchParams: P
   // LibraryView rebuilds the URL from this object, so the extra keys ride along and survive its own filter changes.
   const query = { media: sp.media ?? "", status: sp.status ?? "", favorites: sp.favorites ?? "", folder: sp.folder ?? "", model: sp.model ?? "", sort: sp.sort ?? "", ...extra };
   return (
-    <>
-      <LibraryFilters facets={facets} value={extra} />
-      <LibraryView items={items} folders={folders.map((f) => ({ id: f.id, name: f.name }))} models={MODELS.map((m) => ({ key: m.key, name: m.displayName }))} query={query} />
-    </>
+    <LibraryView
+      items={items}
+      folders={folders.map((f) => ({ id: f.id, name: f.name }))}
+      models={MODELS.map((m) => ({ key: m.key, name: m.displayName }))}
+      query={query}
+      moreFilters={<LibraryFilters facets={facets} value={extra} />}
+    />
   );
 }
