@@ -330,12 +330,12 @@ describe("attack R12 (output path): a matched output survives every way recordin
 });
 
 describe("attack R12 (upload entry point): the same evidence on the upload path", () => {
-  // HOLE: acceptUpload calls scanAsset once, with no retry and no fallback hold (media.ts:105). When
-  // recording the match fails, the upload is left pending with legal_hold=false and the request
-  // fails with a 500. The uploader can then withdraw the upload's consent
-  // (DELETE /api/me/consents/:id), which soft-deletes it and purges the bytes at once: no hold,
-  // no escalation, no suspension. The fix covered only the generation worker.
-  test.fails("HOLE: a fault while recording an upload's match, then a consent withdrawal, purges the matched upload", async () => {
+  // Was a hole (R12-H3): acceptUpload recorded a match once, with no retry and no fallback hold. When
+  // recording failed, the upload was left pending with legal_hold=false and the request failed with
+  // a 500; withdrawing the upload's consent (DELETE /api/me/consents/:id) then soft-deleted it and
+  // purged the bytes: no hold, no escalation, no suspension. scanAsset now records a match the way
+  // the worker does: retried, then put under legal hold and left pending for the backfill.
+  it("a fault while recording an upload's match leaves it held, so a consent withdrawal cannot purge it", async () => {
     const u = await makeUser({ credits: 50 });
     setDevScanOverride((input) => (input.mime === "image/webp" ? "matched" : null));
     await injectFault("atk_upload_escalate", "moderation_events", "new.action = 'escalate'");

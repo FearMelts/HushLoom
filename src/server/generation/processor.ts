@@ -10,7 +10,7 @@ import { env } from "@/server/env";
 import { logger } from "@/server/log";
 import { purgeAssetsNow } from "@/server/media";
 import { newStorageKey, sha256, storage } from "@/server/storage";
-import { recordDerivedScan, recordVerdict, runScan, scanFailClosed, type ScanStatus, type ScanSubject } from "@/server/safety/scan";
+import { recordDerivedScan, recordMatch, recordVerdict, runScan, scanFailClosed, type ScanStatus, type ScanSubject } from "@/server/safety/scan";
 import { notifyJobFinished } from "@/server/push/notify";
 import { videoPoster } from "./poster";
 import { enqueueGeneration } from "./queue";
@@ -107,14 +107,11 @@ async function discardAfterFault(track: WriteTrack) {
   }
 }
 
-const MATCH_RECORD_ATTEMPTS = 3;
-
 /**
  * Scans one stored output and records the verdict. The file joins `track` (removable after a fault)
  * only with a verdict that is not a match: a matched file is evidence and nothing here deletes it
- * (addendum §3). If opening the case fails (a deadlock, a connection reset, a statement timeout),
- * recording is retried; if it still fails, the file is put under legal hold and left pending, so it
- * is never served or purged and the scan backfill rescans it and opens the case.
+ * (addendum §3). recordMatch retries a failed write and falls back to a legal hold, so the file is
+ * never served or purged and the scan backfill rescans it and opens the case.
  */
 async function scanOutput(subject: ScanSubject, track: WriteTrack, log: Record<string, unknown>): Promise<ScanStatus> {
   const verdict = await runScan({ bytes: subject.bytes, mime: subject.mime, kind: subject.kind, sha256: subject.sha256 });
@@ -122,20 +119,7 @@ async function scanOutput(subject: ScanSubject, track: WriteTrack, log: Record<s
     track.assetIds.push(subject.assetId);
     return recordVerdict(subject, verdict);
   }
-  for (let attempt = 1; attempt <= MATCH_RECORD_ATTEMPTS; attempt++) {
-    try {
-      return await recordVerdict(subject, verdict);
-    } catch (err) {
-      logger.error("generation.match_record_failed", { ...log, assetId: subject.assetId, attempt, err: err as Error });
-      if (attempt < MATCH_RECORD_ATTEMPTS) await new Promise((r) => setTimeout(r, 200 * attempt));
-    }
-  }
-  try {
-    await getDb().update(mediaAssets).set({ legalHold: true }).where(eq(mediaAssets.id, subject.assetId));
-  } catch (err) {
-    logger.error("generation.match_hold_failed", { ...log, assetId: subject.assetId, err: err as Error });
-  }
-  return "matched";
+  return recordMatch(subject, verdict, "generation", log);
 }
 
 /**

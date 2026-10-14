@@ -140,7 +140,36 @@ export async function runScan(input: ScanInput, provider: ScanProvider = scanPro
 /** Scans one stored asset and records the verdict on media_assets. Returns the recorded status. */
 export async function scanAsset(subject: ScanSubject, tx?: Tx): Promise<ScanStatus> {
   const verdict = await runScan({ bytes: subject.bytes, mime: subject.mime, kind: subject.kind, sha256: subject.sha256, sourceSha256: subject.sourceSha256 });
+  // Inside a caller's transaction a failed write aborts it, so there is nothing to retry here.
+  if (verdict.status === "matched" && !tx) return recordMatch(subject, verdict);
   return recordVerdict(subject, verdict, tx);
+}
+
+const MATCH_RECORD_ATTEMPTS = 3;
+
+/**
+ * Records a match so that a failure to write it never leaves the matched bytes deletable (addendum §3).
+ * If opening the case fails (a deadlock, a connection reset, a statement timeout), recording is retried;
+ * if it still fails, the asset is put under legal hold and left pending, so it is never served or purged
+ * and the scan backfill (scripts/scan-backfill.ts) rescans it and opens the case. Never throws.
+ */
+export async function recordMatch(subject: Omit<ScanSubject, "bytes">, verdict: ScanVerdict, event = "scan", log: Record<string, unknown> = {}): Promise<"matched"> {
+  const ctx = { ...log, assetId: subject.assetId, origin: subject.origin };
+  for (let attempt = 1; attempt <= MATCH_RECORD_ATTEMPTS; attempt++) {
+    try {
+      await recordVerdict(subject, verdict);
+      return "matched";
+    } catch (err) {
+      logger.error(`${event}.match_record_failed`, { ...ctx, attempt, err: err as Error });
+      if (attempt < MATCH_RECORD_ATTEMPTS) await new Promise((r) => setTimeout(r, 200 * attempt));
+    }
+  }
+  try {
+    await getDb().update(mediaAssets).set({ legalHold: true }).where(eq(mediaAssets.id, subject.assetId));
+  } catch (err) {
+    logger.error(`${event}.match_hold_failed`, { ...ctx, err: err as Error });
+  }
+  return "matched";
 }
 
 /** Writes a verdict. A match holds the asset, suspends and flags the owner, and opens a review entry. */
