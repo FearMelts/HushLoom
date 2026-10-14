@@ -157,6 +157,9 @@ export async function recordVerdict(subject: Omit<ScanSubject, "bytes">, verdict
   }
 
   const handle = async (t: Tx): Promise<string | null> => {
+    // Account deletion locks the users row and then the owner's media. Taking the same order here means
+    // a match recorded while its owner deletes the account waits instead of deadlocking (and rolling back the hold).
+    if (subject.ownerId) await t.select({ id: users.id }).from(users).where(eq(users.id, subject.ownerId)).for("update");
     const [asset] = await t.select().from(mediaAssets).where(eq(mediaAssets.id, subject.assetId)).for("update");
     // Already handled (a repeat scan or a backfill re-run): one escalation and one flag per asset.
     if (!asset || asset.scanStatus === "matched") return null;

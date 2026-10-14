@@ -10,7 +10,7 @@ import { env } from "@/server/env";
 import { logger } from "@/server/log";
 import { purgeAssetsNow } from "@/server/media";
 import { newStorageKey, sha256, storage } from "@/server/storage";
-import { recordDerivedScan, scanAsset, scanFailClosed } from "@/server/safety/scan";
+import { recordDerivedScan, recordVerdict, runScan, scanFailClosed, type ScanStatus, type ScanSubject } from "@/server/safety/scan";
 import { notifyJobFinished } from "@/server/push/notify";
 import { videoPoster } from "./poster";
 import { enqueueGeneration } from "./queue";
@@ -105,6 +105,37 @@ async function discardAfterFault(track: WriteTrack) {
       .delete(key)
       .catch((err: Error) => logger.warn("generation.discard_failed", { err: err.message }));
   }
+}
+
+const MATCH_RECORD_ATTEMPTS = 3;
+
+/**
+ * Scans one stored output and records the verdict. The file joins `track` (removable after a fault)
+ * only with a verdict that is not a match: a matched file is evidence and nothing here deletes it
+ * (addendum §3). If opening the case fails (a deadlock, a connection reset, a statement timeout),
+ * recording is retried; if it still fails, the file is put under legal hold and left pending, so it
+ * is never served or purged and the scan backfill rescans it and opens the case.
+ */
+async function scanOutput(subject: ScanSubject, track: WriteTrack, log: Record<string, unknown>): Promise<ScanStatus> {
+  const verdict = await runScan({ bytes: subject.bytes, mime: subject.mime, kind: subject.kind, sha256: subject.sha256 });
+  if (verdict.status !== "matched") {
+    track.assetIds.push(subject.assetId);
+    return recordVerdict(subject, verdict);
+  }
+  for (let attempt = 1; attempt <= MATCH_RECORD_ATTEMPTS; attempt++) {
+    try {
+      return await recordVerdict(subject, verdict);
+    } catch (err) {
+      logger.error("generation.match_record_failed", { ...log, assetId: subject.assetId, attempt, err: err as Error });
+      if (attempt < MATCH_RECORD_ATTEMPTS) await new Promise((r) => setTimeout(r, 200 * attempt));
+    }
+  }
+  try {
+    await getDb().update(mediaAssets).set({ legalHold: true }).where(eq(mediaAssets.id, subject.assetId));
+  } catch (err) {
+    logger.error("generation.match_hold_failed", { ...log, assetId: subject.assetId, err: err as Error });
+  }
+  return "matched";
 }
 
 /**
@@ -278,10 +309,11 @@ async function storeAndSettle(job: ClaimedJob, outputs: ProviderOutput[], opts: 
         visibility: "private",
       })
       .returning({ id: mediaAssets.id });
-    recorded(key, asset!.id);
+    // The row now owns the file; scanOutput adds it to `track` once it knows the file is not evidence.
+    track.pendingKeys.delete(key);
     // Abuse scan of every output before it can be shown (addendum §3). The private file is never
     // served while pending; a non-clean verdict means no output row is ever created for it.
-    const verdict = await scanAsset({ assetId: asset!.id, bytes: out.bytes, mime: out.mime, kind, sha256: sha256(out.bytes), ownerId: job.userId, origin: "output", jobId: job.id });
+    const verdict = await scanOutput({ assetId: asset!.id, bytes: out.bytes, mime: out.mime, kind, sha256: sha256(out.bytes), ownerId: job.userId, origin: "output", jobId: job.id }, track, log);
     if (verdict === "matched") {
       // The matched file stays under legal hold as evidence; anything else this attempt wrote goes.
       await discardStored(storedSoFar());
