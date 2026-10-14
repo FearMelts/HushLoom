@@ -1,0 +1,108 @@
+# Hushloom CI: typecheck, lint, vitest and a production build, then the Playwright journey on the
+# production standalone server. It never runs for main (Copilot's prototype lives there and is not
+# touched): pushes to main and pull requests into main are ignored.
+name: CI
+
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+    branches-ignore: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  # Isolated databases and Redis dbs, as on a developer machine (see README).
+  TEST_DATABASE_URL: postgres://playbox@localhost:5432/playbox_test
+  TEST_REDIS_URL: redis://localhost:6379/1
+  E2E_DATABASE_URL: postgres://playbox@localhost:5432/playbox_e2e
+  E2E_REDIS_URL: redis://localhost:6379/2
+
+jobs:
+  checks:
+    name: Typecheck, lint, unit and integration tests, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: playbox
+          POSTGRES_DB: playbox_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U playbox" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install ffmpeg (demo clips, poster frames, video upload checks)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: vitest (unit and integration)
+        run: npm test
+      - name: Production build
+        run: npm run build
+
+  e2e:
+    name: Playwright journey (production build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: playbox
+          POSTGRES_DB: playbox
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U playbox" --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - run: npm ci
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      # The suite resets playbox_e2e, builds, starts the standalone server and the worker itself
+      # (playwright.config.ts). The HTML report is added here so a failure can be inspected.
+      - name: Playwright e2e
+        run: npm run test:e2e -- --reporter=list,html
+        env:
+          PLAYWRIGHT_HTML_OPEN: never
+      - name: Upload the Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14
+          if-no-files-found: ignore
