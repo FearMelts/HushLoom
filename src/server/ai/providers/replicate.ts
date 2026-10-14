@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { env } from "@/server/env";
-import { ProviderError, type ExecuteContext, type ProviderAdapter, type ProviderOutput, type ProviderRequest } from "./types";
+import { ProviderError, type ExecuteContext, type ProviderAdapter, type ProviderInput, type ProviderOutput, type ProviderRequest } from "./types";
 
 /**
  * Replicate HTTP adapter (https://replicate.com/docs/reference/http).
@@ -17,16 +17,51 @@ type Prediction = {
   error?: string | null;
 };
 
-/** Per-model input mapping. Each provider model has its own schema; add one entry per enabled model. */
-const INPUT_BUILDERS: Record<string, (req: ProviderRequest) => Record<string, unknown>> = {
-  "black-forest-labs/flux-schnell": (req) => ({
-    prompt: req.prompt,
-    aspect_ratio: req.params.aspectRatio ?? "1:1",
-    num_outputs: 1,
-    output_format: "webp",
-    ...(req.params.seed !== undefined ? { seed: req.params.seed } : {}),
-  }),
+type InputBuilder = {
+  /**
+   * The model's own input field for a character reference image, when its schema has one. Without
+   * it, a request that carries a reference fails as "unsupported" before anything is sent, so a
+   * reference is never silently dropped.
+   */
+  referenceField?: string;
+  build: (req: ProviderRequest) => Record<string, unknown>;
 };
+
+/** Per-model input mapping. Each provider model has its own schema; add one entry per enabled model. */
+const INPUT_BUILDERS: Record<string, InputBuilder> = {
+  // Text-to-image only: its schema has no image or reference input.
+  "black-forest-labs/flux-schnell": {
+    build: (req) => ({
+      prompt: req.prompt,
+      aspect_ratio: req.params.aspectRatio ?? "1:1",
+      num_outputs: 1,
+      output_format: "webp",
+      ...(req.params.seed !== undefined ? { seed: req.params.seed } : {}),
+    }),
+  },
+};
+
+/**
+ * A file input as a data URI, which Replicate's HTTP API accepts for small files (larger ones go
+ * through its files API). Written from the public docs; never exercised against the live service,
+ * and no model registered today declares a reference field.
+ */
+function dataUri(input: ProviderInput): string {
+  return `data:${input.mime};base64,${input.bytes.toString("base64")}`;
+}
+
+/** The prediction input for a request, or "unsupported" when the model cannot take the reference it carries. Exported for tests. */
+export function buildReplicateInput(req: ProviderRequest): Record<string, unknown> {
+  const builder = INPUT_BUILDERS[req.model.providerModel];
+  if (!builder) throw new ProviderError("unsupported", `no input mapping for ${req.model.providerModel}`, false);
+  const input = builder.build(req);
+  const reference = req.inputs.find((i) => i.role === "reference");
+  if (reference) {
+    if (!builder.referenceField) throw new ProviderError("unsupported", `${req.model.providerModel} takes no reference image`, false);
+    input[builder.referenceField] = dataUri(reference);
+  }
+  return input;
+}
 
 function normalizeHttpError(status: number, body: string): ProviderError {
   if (status === 401 || status === 403) return new ProviderError("provider_unavailable", `replicate auth failed (${status})`, false);
@@ -75,11 +110,10 @@ export const replicateProvider: ProviderAdapter = {
   isConfigured: () => Boolean(env().REPLICATE_API_TOKEN),
 
   async execute(req: ProviderRequest, ctx: ExecuteContext): Promise<ProviderOutput[]> {
-    const build = INPUT_BUILDERS[req.model.providerModel];
-    if (!build) throw new ProviderError("unsupported", `no input mapping for ${req.model.providerModel}`, false);
+    const input = buildReplicateInput(req);
     let prediction = await call(
       `/models/${req.model.providerModel}/predictions`,
-      { method: "POST", body: JSON.stringify({ input: build(req) }) },
+      { method: "POST", body: JSON.stringify({ input }) },
       ctx.signal,
     );
     await ctx.onProviderJobId(prediction.id);

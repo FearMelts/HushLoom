@@ -1,16 +1,19 @@
 "use client";
 
-import { AlertTriangle, ImagePlus, Info, Lightbulb, Lock, RotateCcw, Sparkles, Undo2, Upload, Wand2, X } from "lucide-react";
+import { AlertTriangle, BookmarkPlus, ImagePlus, Info, Lightbulb, Lock, RotateCcw, Sparkles, Undo2, Upload, Wand2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GenerationParams } from "@/server/db/schema";
 import type { ModelAvailability } from "@/server/ai/providers";
 import { CAMERA_MOVEMENTS, FRAMINGS, LIGHTINGS, MODE_INPUTS, MODE_LABELS, PACINGS, estimateCost, type GenerationMode } from "@/server/ai/registry";
 import { analyze, interpret, type Interpretation, type Suggestion } from "@/lib/copilot";
 import { api, ApiError, newIdempotencyKey } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { draftKeyFor, type DraftKey } from "@/lib/draft-key";
+import { useOnline } from "@/lib/use-online";
 import { JOB_STARTED_EVENT } from "./job-tray";
+import { OFFLINE_MESSAGE, OfflineGuard } from "./offline";
 import { Badge, Button, Chip, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
 
 export type CreateTemplate = {
@@ -35,11 +38,40 @@ export type CreatePrefill = {
   sceneId?: string;
   characterReferenceId?: string;
   continuityNote?: string;
+  /** Remix and Reuse settings: the creation this one comes from, so it shows in that creation's versions. */
+  parentJobId?: string;
+  relation?: "remix";
+  /** The source's template, only while the viewer can still make from it (see generatePrefill). */
+  templateId?: string;
 };
 
 type Upload = { assetId: string; previewUrl: string; width: number | null; height: number | null; kind: "image" | "video"; warnings: string[] };
-type Snapshot = { prompt: string; params: GenerationParams };
-type Draft = { id: string; costCredits: number; isDemo: boolean; status: string };
+type Snapshot = { prompt: string; params: GenerationParams; modelKey?: string; mode?: GenerationMode };
+/** The draft as the server made it; the confirm sheet describes this, not whatever the panel shows now. */
+type Draft = { id: string; costCredits: number; isDemo: boolean; status: string; modelKey: string; characterReferenceId: string | null };
+type Preset = { id: string; name: string; mode: GenerationMode; modelKey: string; prompt: string; params: GenerationParams };
+
+/** The modes a model offers for this kind of output. */
+function outputModes(m: ModelAvailability, output: "image" | "video"): GenerationMode[] {
+  return m.modes.filter((x) => (output === "video" ? x.includes("video") || x === "scene_continuation" : !x.includes("video")));
+}
+
+/** Settings `m` can take: anything it cannot use is dropped (or moved to its first offer) rather than sent. */
+function fitParams(p: GenerationParams, m: ModelAvailability): GenerationParams {
+  const next = { ...p };
+  if (next.aspectRatio && !m.aspectRatios.includes(next.aspectRatio)) next.aspectRatio = m.aspectRatios[0];
+  if (!m.supports.cameraMovement) delete next.cameraMovement;
+  if (!m.supports.motionIntensity) delete next.motionIntensity;
+  if (!m.supports.seed) delete next.seed;
+  if (next.quality && !m.qualities.includes(next.quality)) delete next.quality;
+  if (m.output === "video" && next.durationS && !m.durationsS?.includes(next.durationS)) next.durationS = m.durationsS?.[0];
+  return next;
+}
+
+/** A preset keeps the look, not the exact run: the seed stays out (the server drops it too). */
+function withoutSeed(p: GenerationParams): GenerationParams {
+  return Object.fromEntries(Object.entries(p).filter(([k]) => k !== "seed")) as GenerationParams;
+}
 
 export function CreatePanel({
   output,
@@ -67,6 +99,7 @@ export function CreatePanel({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const online = useOnline();
   const usable = models.filter((m) => m.output === output);
   const initialModel = usable.find((m) => m.key === (prefill?.modelKey ?? template?.modelKey) && m.available) ?? usable.find((m) => m.available) ?? usable[0];
   const original: Snapshot = {
@@ -86,7 +119,10 @@ export function CreatePanel({
   const [consentOpen, setConsentOpen] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [characterRefId, setCharacterRefId] = useState(prefill?.characterReferenceId ?? characterRefs[0]?.id ?? "");
+  // A character carried over from a remix or a scene is kept only while it is still on file; another is never swapped in.
+  const carriedRef = prefill?.characterReferenceId;
+  const carriedRefGone = Boolean(carriedRef && !characterRefs.some((c) => c.id === carriedRef));
+  const [characterRefId, setCharacterRefId] = useState(carriedRef ? (carriedRefGone ? "" : carriedRef) : (characterRefs[0]?.id ?? ""));
   const [projectId, setProjectId] = useState(prefill?.projectId ?? "");
   const [sceneId, setSceneId] = useState(prefill?.sceneId ?? "");
   const [showTweaks, setShowTweaks] = useState(studio);
@@ -96,47 +132,92 @@ export function CreatePanel({
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const idemKey = useRef<string | null>(null);
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [presetOpen, setPresetOpen] = useState(false);
+  const [presetName, setPresetName] = useState("");
+  const [presetBusy, setPresetBusy] = useState(false);
+  const [presetError, setPresetError] = useState<string | null>(null);
+  const draftKey = useRef<DraftKey | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const modes = (model?.modes ?? []).filter((m) => (output === "video" ? m.includes("video") || m === "scene_continuation" : !m.includes("video")));
+  // A template page makes that template, and a remix keeps its source, so presets start only fresh work.
+  const offerPresets = signedIn && !template && !prefill?.parentJobId;
+  useEffect(() => {
+    if (!offerPresets) return;
+    let live = true;
+    api<{ presets: Preset[] }>("/api/presets")
+      .then((r) => {
+        if (live) setPresets(r.presets);
+      })
+      .catch(() => {
+        // A shortcut only: without the list the panel works as before, so nothing is shown.
+      });
+    return () => {
+      live = false;
+    };
+  }, [offerPresets]);
+
+  const modes = model ? outputModes(model, output) : [];
   const needs = MODE_INPUTS[mode];
+  const startable = presets.filter((p) => {
+    const m = usable.find((x) => x.key === p.modelKey && x.available);
+    return m && outputModes(m, output).includes(p.mode);
+  });
   const cost = model ? estimateCost(model, params, model.priceMultiplierPct) : 0;
   const short = cost > balance;
   const changed = prompt !== original.prompt || JSON.stringify(params) !== JSON.stringify(original.params);
 
-  const suggestions = useMemo<Suggestion[]>(
-    () =>
-      model
-        ? analyze({ prompt, negativePrompt, params, mode, model, input: upload ? { kind: upload.kind, width: upload.width, height: upload.height } : null }).filter(
-            (s) => !dismissed.includes(s.id) && (copilot || s.severity === "block"),
-          )
-        : [],
-    [prompt, negativePrompt, params, mode, model, upload, dismissed, copilot],
-  );
+  const suggestions = useMemo<Suggestion[]>(() => {
+    if (!model) return [];
+    const notes = analyze({ prompt, negativePrompt, params, mode, model, input: upload ? { kind: upload.kind, width: upload.width, height: upload.height } : null });
+    // What the server noticed about the upload, said the same way as the assistant's own notes.
+    if (upload?.warnings.includes("low_resolution") && !notes.some((s) => s.id === "low-res")) {
+      notes.push({ id: "upload-low-res", severity: "warn", title: "Low-resolution upload", detail: "Your image is under 512px on its short side, so expect soft detail. A larger photo works better." });
+    }
+    if (upload?.warnings.includes("scan_pending")) {
+      notes.push({
+        id: "upload-scan-pending",
+        severity: "block",
+        title: "This upload isn't checked yet",
+        detail: "We couldn't run our safety check on it, so it can't be used yet. Remove it and upload again in a few minutes.",
+      });
+    }
+    return notes.filter((s) => !dismissed.includes(s.id) && (copilot || s.severity === "block"));
+  }, [prompt, negativePrompt, params, mode, model, upload, dismissed, copilot]);
   const blocked = suggestions.some((s) => s.severity === "block");
 
+  /**
+   * Every edit forgets the key, so the next "Make it" is a new request. draftKeyFor also compares the
+   * whole request, so a key is only ever reused for the same request (src/lib/draft-key.ts).
+   */
+  function forgetDraftKey() {
+    draftKey.current = null;
+  }
   function remember() {
-    setHistory((h) => [...h.slice(-19), { prompt, params }]);
+    setHistory((h) => [...h.slice(-19), { prompt, params, modelKey, mode }]);
   }
   function applyPatch(patch: Suggestion["patch"]) {
     if (!patch) return;
     remember();
     if (patch.prompt !== undefined) setPrompt(patch.prompt);
     if (patch.params) setParams((p) => ({ ...p, ...patch.params }));
-    idemKey.current = null;
+    forgetDraftKey();
   }
   function undo() {
     const prev = history.at(-1);
     if (!prev) return;
     setPrompt(prev.prompt);
     setParams(prev.params);
+    if (prev.modelKey) setModelKey(prev.modelKey);
+    if (prev.mode) setMode(prev.mode);
     setHistory((h) => h.slice(0, -1));
+    forgetDraftKey();
   }
   function restore() {
     remember();
     setPrompt(original.prompt);
     setParams(original.params);
+    forgetDraftKey();
   }
   function setParam<K extends keyof GenerationParams>(k: K, v: GenerationParams[K] | undefined) {
     setParams((p) => {
@@ -145,24 +226,42 @@ export function CreatePanel({
       else next[k] = v;
       return next;
     });
-    idemKey.current = null;
+    forgetDraftKey();
   }
   function switchModel(key: string) {
     setModelKey(key);
     const m = usable.find((x) => x.key === key);
-    if (m && !m.modes.includes(mode)) setMode(m.modes.find((x) => (output === "video" ? x.includes("video") : !x.includes("video"))) ?? m.modes[0]!);
+    if (m && !m.modes.includes(mode)) setMode(outputModes(m, output)[0] ?? m.modes[0]!);
     // Drop settings the new model cannot use rather than sending them.
-    if (m) {
-      setParams((p) => {
-        const next = { ...p };
-        if (next.aspectRatio && !m.aspectRatios.includes(next.aspectRatio)) next.aspectRatio = m.aspectRatios[0];
-        if (!m.supports.cameraMovement) delete next.cameraMovement;
-        if (!m.supports.motionIntensity) delete next.motionIntensity;
-        if (!m.supports.seed) delete next.seed;
-        if (next.quality && !m.qualities.includes(next.quality)) delete next.quality;
-        if (m.output === "video" && next.durationS && !m.durationsS?.includes(next.durationS)) next.durationS = m.durationsS?.[0];
-        return next;
-      });
+    if (m) setParams((p) => fitParams(p, m));
+    forgetDraftKey();
+  }
+  function applyPreset(id: string) {
+    const p = startable.find((x) => x.id === id);
+    const m = p && usable.find((x) => x.key === p.modelKey);
+    if (!p || !m) return;
+    remember();
+    setModelKey(m.key);
+    setMode(p.mode);
+    if (p.prompt.trim()) setPrompt(p.prompt);
+    setParams(fitParams(p.params, m));
+    forgetDraftKey();
+  }
+
+  async function savePreset() {
+    if (!model) return;
+    setPresetBusy(true);
+    setPresetError(null);
+    try {
+      const { preset } = await api<{ preset: Preset }>("/api/presets", { body: { name: presetName.trim(), mode, modelKey: model.key, prompt, params: withoutSeed(params) } });
+      setPresets((ps) => [preset, ...ps]);
+      setPresetOpen(false);
+      setPresetName("");
+      toast({ message: `Saved "${preset.name}" as a preset.`, tone: "success" });
+    } catch (e) {
+      setPresetError(e instanceof ApiError ? e.message : "We couldn't save that preset. Try again.");
+    } finally {
+      setPresetBusy(false);
     }
   }
 
@@ -176,7 +275,7 @@ export function CreatePanel({
     try {
       const res = await api<{ assetId: string; width: number | null; height: number | null; kind: "image" | "video"; warnings: string[] }>("/api/uploads", { form });
       setUpload({ ...res, previewUrl: URL.createObjectURL(file) });
-      idemKey.current = null;
+      forgetDraftKey();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Upload failed.");
     } finally {
@@ -192,26 +291,32 @@ export function CreatePanel({
       router.push(`/auth?next=${encodeURIComponent(location.pathname)}`);
       return;
     }
-    if (!model) return;
+    if (!model || !online) return;
     setBusy(true);
     setError(null);
-    idemKey.current ??= newIdempotencyKey();
+    const request = {
+      mode,
+      modelKey: model.key,
+      prompt,
+      negativePrompt: model.supports.negativePrompt ? negativePrompt : "",
+      params,
+      inputAssetIds: upload ? [upload.assetId] : [],
+      templateId: template?.id ?? prefill?.templateId,
+      characterReferenceId: needs.characterRef ? characterRefId || undefined : undefined,
+      projectId: projectId || undefined,
+      sceneId: sceneId || undefined,
+      parentJobId: prefill?.parentJobId,
+      relation: prefill?.parentJobId ? prefill.relation : undefined,
+    };
+    // The same request keeps its key, so a retry after a lost reply finds the draft already made.
+    const key = (draftKey.current = draftKeyFor(draftKey.current, request, newIdempotencyKey));
     try {
-      const { job } = await api<{ job: Draft }>("/api/generations", {
-        body: {
-          idempotencyKey: idemKey.current,
-          mode,
-          modelKey: model.key,
-          prompt,
-          negativePrompt: model.supports.negativePrompt ? negativePrompt : "",
-          params,
-          inputAssetIds: upload ? [upload.assetId] : [],
-          templateId: template?.id,
-          characterReferenceId: needs.characterRef ? characterRefId || undefined : undefined,
-          projectId: projectId || undefined,
-          sceneId: sceneId || undefined,
-        },
-      });
+      let { job } = await api<{ job: Draft }>("/api/generations", { body: { ...request, idempotencyKey: key.key } });
+      if (job.status !== "awaiting_confirmation") {
+        // That key's draft already started or expired, so this is a new request with a new key.
+        draftKey.current = { key: newIdempotencyKey(), signature: key.signature };
+        ({ job } = await api<{ job: Draft }>("/api/generations", { body: { ...request, idempotencyKey: draftKey.current.key } }));
+      }
       setDraft(job);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Something went wrong.");
@@ -221,18 +326,19 @@ export function CreatePanel({
   }
 
   async function confirm() {
-    if (!draft) return;
+    if (!draft || !online) return;
     setBusy(true);
     try {
       await api(`/api/generations/${draft.id}/confirm`, { body: { expectedCost: draft.costCredits } });
       setDraft(null);
-      idemKey.current = null;
+      forgetDraftKey();
       window.dispatchEvent(new Event(JOB_STARTED_EVENT));
       toast({ message: draft.isDemo ? "Weaving a demo placeholder." : "Weaving your creation.", action: { label: "Library", href: "/collection" } });
       router.refresh();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not start.");
       setDraft(null);
+      forgetDraftKey();
     } finally {
       setBusy(false);
     }
@@ -243,6 +349,8 @@ export function CreatePanel({
   }
 
   const project = projects.find((p) => p.id === projectId);
+  const draftModel = draft ? models.find((m) => m.key === draft.modelKey) : undefined;
+  const draftCharacter = draft?.characterReferenceId ? (characterRefs.find((c) => c.id === draft.characterReferenceId)?.name ?? "Your character") : null;
 
   return (
     <div className="space-y-5" id="make">
@@ -255,10 +363,51 @@ export function CreatePanel({
         </div>
       ) : null}
 
+      {signedIn && !template?.locked ? (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {offerPresets && startable.length ? (
+            <div className="min-w-0 flex-1 sm:max-w-64">
+              <label htmlFor="preset" className="sr-only">
+                Start from preset
+              </label>
+              <select id="preset" className={inputClass} value="" onChange={(e) => applyPreset(e.target.value)}>
+                <option value="">Start from preset</option>
+                {startable.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <span />
+          )}
+          <button
+            type="button"
+            className={buttonClass("quiet", "sm")}
+            onClick={() => {
+              setPresetError(null);
+              setPresetOpen(true);
+            }}
+          >
+            <BookmarkPlus size={14} aria-hidden /> Save as preset
+          </button>
+        </div>
+      ) : null}
+
       {modes.length > 1 ? (
         <div role="radiogroup" aria-label="What to make" className="flex flex-wrap gap-2">
           {modes.map((m) => (
-            <Chip key={m} active={mode === m} role="radio" aria-checked={mode === m} onClick={() => setMode(m)}>
+            <Chip
+              key={m}
+              active={mode === m}
+              role="radio"
+              aria-checked={mode === m}
+              onClick={() => {
+                setMode(m);
+                forgetDraftKey();
+              }}
+            >
               {MODE_LABELS[m]}
             </Chip>
           ))}
@@ -282,7 +431,13 @@ export function CreatePanel({
                 </p>
                 <p className="text-bone-400">Private. Only you can see it.</p>
               </div>
-              <button type="button" onClick={() => setUpload(null)} className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800" aria-label="Remove upload">
+              <button
+                type="button"
+                onClick={() => {
+                  setUpload(null);
+                  forgetDraftKey();
+                }}
+                className="grid size-9 place-items-center rounded-full text-bone-400 hover:bg-ink-800" aria-label="Remove upload">
                 <X size={16} />
               </button>
             </div>
@@ -322,9 +477,26 @@ export function CreatePanel({
       ) : null}
 
       {needs.characterRef ? (
-        <Field label="Character" hint="References you added in Train, with consent on file." htmlFor="charref">
+        <Field
+          label="Character"
+          hint={carriedRefGone && !characterRefId ? "The character from before isn't on file anymore. Pick another, or add one in Train." : "From Train, with consent on file. It's sent with this request to the model."}
+          htmlFor="charref"
+        >
           {characterRefs.length ? (
-            <select id="charref" className={inputClass} value={characterRefId} onChange={(e) => setCharacterRefId(e.target.value)}>
+            <select
+              id="charref"
+              className={inputClass}
+              value={characterRefId}
+              onChange={(e) => {
+                setCharacterRefId(e.target.value);
+                forgetDraftKey();
+              }}
+            >
+              {characterRefId ? null : (
+                <option value="" disabled>
+                  Pick a character
+                </option>
+              )}
               {characterRefs.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -337,6 +509,17 @@ export function CreatePanel({
             </p>
           )}
         </Field>
+      ) : null}
+
+      {carriedRef && !needs.characterRef ? (
+        <p className="flex gap-2 rounded-2xl bg-ink-850 p-3.5 text-[13px] text-bone-300 hairline">
+          <Info size={16} className="mt-0.5 shrink-0 text-iris-300" aria-hidden />
+          {output === "video"
+            ? "Clips can't use a character reference in this build, so continuity relies on the guide text and settings."
+            : modes.includes("reference_guided")
+              ? `${MODE_LABELS[mode]} doesn't send your character. Pick ${MODE_LABELS.reference_guided} to use it.`
+              : `${model.displayName} can't take a character reference, so yours isn't used here.`}
+        </p>
       ) : null}
 
       <div>
@@ -362,7 +545,7 @@ export function CreatePanel({
           value={prompt}
           onChange={(e) => {
             setPrompt(e.target.value);
-            idemKey.current = null;
+            forgetDraftKey();
           }}
           rows={studio ? 5 : 3}
           maxLength={2000}
@@ -549,7 +732,7 @@ export function CreatePanel({
               </div>
             ) : null}
             {model.supports.cameraMovement ? (
-              <Field label="Camera" htmlFor="camera">
+              <Field label="Camera" htmlFor="camera" hint="How the shot moves. Static keeps the frame still.">
                 <select id="camera" className={inputClass} value={params.cameraMovement ?? ""} onChange={(e) => setParam("cameraMovement", e.target.value || undefined)}>
                   <option value="">Let the model choose</option>
                   {CAMERA_MOVEMENTS.map((c) => (
@@ -565,7 +748,7 @@ export function CreatePanel({
             ) : null}
             <div className="grid gap-4 sm:grid-cols-3">
               {model.output === "video" ? (
-                <Field label="Pacing" htmlFor="pacing">
+                <Field label="Pacing" htmlFor="pacing" hint="How quickly the action unfolds.">
                   <select id="pacing" className={inputClass} value={params.pacing ?? ""} onChange={(e) => setParam("pacing", e.target.value || undefined)}>
                     <option value="">Natural</option>
                     {PACINGS.map((p) => (
@@ -574,7 +757,7 @@ export function CreatePanel({
                   </select>
                 </Field>
               ) : null}
-              <Field label="Lighting" htmlFor="lighting">
+              <Field label="Lighting" htmlFor="lighting" hint="From prompt follows your words.">
                 <select id="lighting" className={inputClass} value={params.lighting ?? ""} onChange={(e) => setParam("lighting", e.target.value || undefined)}>
                   <option value="">From prompt</option>
                   {LIGHTINGS.map((p) => (
@@ -582,7 +765,7 @@ export function CreatePanel({
                   ))}
                 </select>
               </Field>
-              <Field label="Framing" htmlFor="framing">
+              <Field label="Framing" htmlFor="framing" hint="How close the camera is. From prompt follows your words.">
                 <select id="framing" className={inputClass} value={params.framing ?? ""} onChange={(e) => setParam("framing", e.target.value || undefined)}>
                   <option value="">From prompt</option>
                   {FRAMINGS.map((p) => (
@@ -591,14 +774,23 @@ export function CreatePanel({
                 </select>
               </Field>
             </div>
+            <Field label="Atmosphere" htmlFor="atmosphere" hint="A few words of mood.">
+              <input id="atmosphere" className={inputClass} value={params.atmosphere ?? ""} maxLength={80} onChange={(e) => setParam("atmosphere", e.target.value || undefined)} placeholder="e.g. hazy, intimate, playful" />
+            </Field>
             {studio ? (
               <>
-                <Field label="Atmosphere" htmlFor="atmosphere">
-                  <input id="atmosphere" className={inputClass} value={params.atmosphere ?? ""} maxLength={80} onChange={(e) => setParam("atmosphere", e.target.value || undefined)} placeholder="e.g. hazy, intimate, playful" />
-                </Field>
                 {model.supports.negativePrompt ? (
                   <Field label="Avoid (negative prompt)" htmlFor="neg">
-                    <input id="neg" className={inputClass} value={negativePrompt} onChange={(e) => setNegativePrompt(e.target.value)} placeholder="e.g. text, watermark, extra fingers" />
+                    <input
+                      id="neg"
+                      className={inputClass}
+                      value={negativePrompt}
+                      onChange={(e) => {
+                        setNegativePrompt(e.target.value);
+                        forgetDraftKey();
+                      }}
+                      placeholder="e.g. text, watermark, extra fingers"
+                    />
                   </Field>
                 ) : null}
                 {model.supports.seed ? (
@@ -609,7 +801,16 @@ export function CreatePanel({
                 {projects.length ? (
                   <div className="grid gap-4 sm:grid-cols-2">
                     <Field label="Project" htmlFor="project">
-                      <select id="project" className={inputClass} value={projectId} onChange={(e) => { setProjectId(e.target.value); setSceneId(""); }}>
+                      <select
+                        id="project"
+                        className={inputClass}
+                        value={projectId}
+                        onChange={(e) => {
+                          setProjectId(e.target.value);
+                          setSceneId("");
+                          forgetDraftKey();
+                        }}
+                      >
                         <option value="">None</option>
                         {projects.map((p) => (
                           <option key={p.id} value={p.id}>{p.title}</option>
@@ -617,7 +818,16 @@ export function CreatePanel({
                       </select>
                     </Field>
                     <Field label="Scene" htmlFor="scene">
-                      <select id="scene" className={inputClass} value={sceneId} disabled={!project} onChange={(e) => setSceneId(e.target.value)}>
+                      <select
+                        id="scene"
+                        className={inputClass}
+                        value={sceneId}
+                        disabled={!project}
+                        onChange={(e) => {
+                          setSceneId(e.target.value);
+                          forgetDraftKey();
+                        }}
+                      >
                         <option value="">None</option>
                         {project?.scenes.map((s) => (
                           <option key={s.id} value={s.id}>{s.title}</option>
@@ -642,38 +852,40 @@ export function CreatePanel({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="ember"
-          size="lg"
-          onClick={startDraft}
-          busy={busy && !draft}
-          disabled={!prompt.trim() || blocked || template?.locked || (needs.image > 0 && !upload) || (needs.video > 0 && !upload) || (needs.characterRef && !characterRefId)}
-          className="min-w-40"
-        >
-          <Wand2 size={18} aria-hidden /> Make it
-        </Button>
-        <p className="text-[13px] text-bone-300" data-testid="cost-line">
-          <span className="font-mono text-bone-50">{cost}</span> credits
-          {signedIn ? (
-            <>
-              {" "}
-              · you have <span className={cn("font-mono", short ? "text-danger-400" : "text-bone-50")}>{balance}</span>
-              {short ? (
-                <>
-                  {" "}
-                  · <Link href="/pricing" className="text-ember-300 underline">Get credits</Link>
-                </>
-              ) : null}
-            </>
+      <OfflineGuard>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button
+            variant="ember"
+            size="lg"
+            onClick={startDraft}
+            busy={busy && !draft}
+            disabled={!prompt.trim() || blocked || template?.locked || (needs.image > 0 && !upload) || (needs.video > 0 && !upload) || (needs.characterRef && !characterRefId)}
+            className="min-w-40"
+          >
+            <Wand2 size={18} aria-hidden /> Make it
+          </Button>
+          <p className="text-[13px] text-bone-300" data-testid="cost-line">
+            <span className="font-mono text-bone-50">{cost}</span> credits
+            {signedIn ? (
+              <>
+                {" "}
+                · you have <span className={cn("font-mono", short ? "text-danger-400" : "text-bone-50")}>{balance}</span>
+                {short ? (
+                  <>
+                    {" "}
+                    · <Link href="/pricing" className="text-ember-300 underline">Get credits</Link>
+                  </>
+                ) : null}
+              </>
+            ) : null}
+          </p>
+          {model.isDemo ? (
+            <Badge tone="demo">
+              <Info size={11} aria-hidden /> Demo model
+            </Badge>
           ) : null}
-        </p>
-        {model.isDemo ? (
-          <Badge tone="demo">
-            <Info size={11} aria-hidden /> Demo model
-          </Badge>
-        ) : null}
-      </div>
+        </div>
+      </OfflineGuard>
 
       <Sheet open={consentOpen} onClose={() => { setConsentOpen(false); setPendingFile(null); setConsentChecked(false); }} title="Before you upload">
         <div className="space-y-4 text-[14px] text-bone-300">
@@ -696,7 +908,14 @@ export function CreatePanel({
         </div>
       </Sheet>
 
-      <Sheet open={Boolean(draft)} onClose={() => setDraft(null)} title="Ready to make this?">
+      <Sheet
+        open={Boolean(draft)}
+        onClose={() => {
+          setDraft(null);
+          forgetDraftKey();
+        }}
+        title="Ready to make this?"
+      >
         {draft ? (
           <div className="space-y-4 text-[14px]">
             <dl className="divide-y divide-[var(--line)] rounded-2xl bg-ink-850 hairline">
@@ -710,26 +929,61 @@ export function CreatePanel({
               </div>
               <div className="flex justify-between px-4 py-3">
                 <dt className="text-bone-300">Model</dt>
-                <dd>{model.displayName}</dd>
+                <dd>{draftModel?.displayName ?? draft.modelKey}</dd>
               </div>
+              {draftCharacter ? (
+                <div className="flex justify-between px-4 py-3">
+                  <dt className="text-bone-300">Character</dt>
+                  <dd>{draftCharacter}</dd>
+                </div>
+              ) : null}
             </dl>
             {draft.isDemo ? (
               <p className="flex gap-2 rounded-2xl bg-iris-400/10 p-3.5 text-[13px] text-iris-300">
                 <Info size={16} className="mt-0.5 shrink-0" aria-hidden />
-                This server runs the demo model. You will get a labeled placeholder made locally, not an AI-generated result.
+                <span>
+                  This server runs the demo model. You will get a labeled placeholder made locally, not an AI-generated result.
+                  {draftCharacter ? " Your character's photo is blended under the watermark; it isn't a likeness match." : ""}
+                </span>
               </p>
             ) : null}
             <p className="text-[12.5px] text-bone-400">If it fails, your credits come back automatically. It stays private in your Library.</p>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <Button variant="quiet" onClick={() => setDraft(null)}>
                 Not now
               </Button>
-              <Button variant="ember" onClick={confirm} busy={busy} disabled={balance < draft.costCredits} data-testid="confirm-make">
-                Confirm · {draft.costCredits} credits
-              </Button>
+              <OfflineGuard note={false}>
+                <Button variant="ember" onClick={confirm} busy={busy} disabled={balance < draft.costCredits} data-testid="confirm-make">
+                  Confirm · {draft.costCredits} credits
+                </Button>
+              </OfflineGuard>
             </div>
+            {online ? null : <p className="text-right text-[12.5px] text-brass-300">{OFFLINE_MESSAGE}</p>}
           </div>
         ) : null}
+      </Sheet>
+
+      <Sheet open={presetOpen} onClose={() => setPresetOpen(false)} title="Save as preset">
+        <form
+          className="space-y-4 text-[14px]"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void savePreset();
+          }}
+        >
+          <p className="text-bone-300">Keeps this model, mode, prompt and settings so you can start from them again. The seed isn't kept, so each run is fresh.</p>
+          <Field label="Name" htmlFor="preset-name" error={presetError ?? undefined}>
+            <input id="preset-name" className={inputClass} value={presetName} maxLength={40} onChange={(e) => setPresetName(e.target.value)} placeholder="e.g. Soft window portraits" />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="quiet" onClick={() => setPresetOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="ember" busy={presetBusy} disabled={!presetName.trim()}>
+              Save preset
+            </Button>
+          </div>
+        </form>
       </Sheet>
     </div>
   );

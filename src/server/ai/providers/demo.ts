@@ -66,10 +66,11 @@ async function renderStill(req: ProviderRequest, longSide: number): Promise<{ pn
   const { width, height } = dims(req.params.aspectRatio, longSide);
   const seed = req.params.seed ?? 0;
   const art = Buffer.from(demoSvg(req.prompt, seed, width, height));
-  const source = req.inputs.find((i) => i.kind === "image");
+  // Image-to-image uses the upload; reference-guided uses the character reference. The demo treats
+  // both the same way: the photo, recolored, under the same watermark band. It is not a likeness match.
+  const source = req.inputs.find((i) => i.kind === "image" && i.role !== "reference") ?? req.inputs.find((i) => i.kind === "image" && i.role === "reference");
   let img = sharp(art);
   if (source) {
-    // Image-to-image demo: the upload, recolored, under the same watermark band.
     const base = await sharp(source.bytes).resize(width, height, { fit: "cover" }).modulate({ saturation: 0.6 }).toBuffer();
     const overlay = await sharp(art).ensureAlpha(0.55).toBuffer();
     img = sharp(base).composite([{ input: overlay, blend: "over" }]);

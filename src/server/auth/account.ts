@@ -158,9 +158,11 @@ export async function deleteAccount(userId: string, password: string) {
   if (!user || !(await verifyPassword(password, user.passwordHash))) throw new HttpError(403, "bad_password", "Password is incorrect.");
   const now = new Date();
   await getDb().transaction(async (tx) => {
+    // The date of birth goes with the account. When and how age was assured (age_assured_at, the
+    // method and any provider verification) is kept as the record that the account was checked.
     await tx
       .update(users)
-      .set({ status: "deleted", deletedAt: now, email: `deleted-${randomUUID()}@invalid`, passwordHash: "!" })
+      .set({ status: "deleted", deletedAt: now, email: `deleted-${randomUUID()}@invalid`, passwordHash: "!", dateOfBirth: null })
       .where(eq(users.id, userId));
     await tx.update(userProfiles).set({ handle: `deleted_${userId.slice(0, 8)}`, displayName: "Deleted account", bio: "" }).where(eq(userProfiles.userId, userId));
     // Held evidence (abuse-scan matches) survives account deletion; it is never served and never purged.

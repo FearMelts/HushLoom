@@ -16,7 +16,7 @@ import {
   users,
 } from "@/server/db/schema";
 import { HttpError, notFound } from "@/server/http";
-import { checkPrompt } from "@/server/safety/policy";
+import { checkPrompt, paramTexts } from "@/server/safety/policy";
 import { newStorageKey, storage } from "@/server/storage";
 
 export const publishSchema = z.object({
@@ -53,7 +53,8 @@ export async function publishTemplate(user: SessionUser, input: z.infer<typeof p
       "Creations made from your uploads or character references stay private, to protect the people in them. Publish one made from a prompt or template instead.",
     );
   }
-  const verdict = checkPrompt(input.title, input.description, input.tags.join(" "), job.prompt);
+  // The settings become the public recipe's defaults, so their free text is checked too (a job older than the closed lists may carry any).
+  const verdict = checkPrompt(input.title, input.description, input.tags.join(" "), job.prompt, job.negativePrompt, ...paramTexts(job.params));
   if (!verdict.allowed) {
     await db.insert(moderationEvents).values({ subjectType: "template", subjectId: job.id, action: "auto_block", status: "resolved", reason: verdict.category, details: { matched: verdict.matched }, resolvedAt: new Date() });
     throw new HttpError(422, "policy_blocked", verdict.message);
