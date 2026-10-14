@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { viewerAccessFor } from "@/server/age/service";
 import { createDraft, draftSchema } from "@/server/generation/service";
 import { listCreations } from "@/server/generation/views";
 import { parseJson, requireUser, route } from "@/server/http";
@@ -23,7 +24,8 @@ const listQuery = z.object({
 export const GET = route(async (req) => {
   const user = await requireUser();
   const q = listQuery.parse(Object.fromEntries(req.nextUrl.searchParams));
-  const items = await listCreations(user.id, { ...q, active: q.active === "1", favorites: q.favorites === "1" });
+  const access = await viewerAccessFor(user, { country: requestCountry(req), region: requestRegion(req) });
+  const items = await listCreations(user.id, { ...q, active: q.active === "1", favorites: q.favorites === "1" }, access);
   return NextResponse.json({ items });
 });
 

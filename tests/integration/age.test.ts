@@ -17,8 +17,13 @@ vi.mock("next/headers", () => ({
 
 import { POST as charactersRoute } from "@/app/api/characters/route";
 import { POST as deriveRoute } from "@/app/api/generations/[id]/derive/route";
+import { GET as downloadRoute } from "@/app/api/generations/[id]/download/route";
+import { GET as creationRoute } from "@/app/api/generations/[id]/route";
+import { GET as generationsRoute } from "@/app/api/generations/route";
 import { GET as meRoute } from "@/app/api/me/route";
-import { GET as templatesRoute } from "@/app/api/templates/route";
+import { GET as projectRoute } from "@/app/api/projects/[id]/route";
+import { GET as projectsRoute } from "@/app/api/projects/route";
+import { GET as templatesRoute, POST as templatesPost } from "@/app/api/templates/route";
 import { POST as uploadsRoute } from "@/app/api/uploads/route";
 import { POST as ageWebhook } from "@/app/api/webhooks/age-verification/[provider]/route";
 import { ageVerificationStatus } from "@/server/age";
@@ -29,11 +34,12 @@ import { configuredRegions, jurisdictionRequired } from "@/server/age/rules";
 import { applyResult, handleCallback, requirementFor, startVerification, viewerAccessFor } from "@/server/age/service";
 import { createSession, type SessionUser } from "@/server/auth/session";
 import { closeDb, getDb } from "@/server/db";
-import { ageVerifications, auditLogs, characterReferences, generationJobs, uploads, users } from "@/server/db/schema";
+import { ageVerifications, auditLogs, characterReferences, generationJobs, templates, uploads, users } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { browseTemplates } from "@/server/discovery/templates";
 import { confirmJob, createDraft } from "@/server/generation/service";
 import { processJob } from "@/server/generation/processor";
+import { createProject } from "@/server/projects";
 import { closeRedis } from "@/server/redis";
 import { publishTemplate } from "@/server/templates/publish";
 import { key, makeUser, resetDb } from "../helpers";
@@ -486,6 +492,50 @@ describe("R14: derived drafts see the request's US state", () => {
     expect(tx.status).toBe(451);
     expect(await tx.json()).toMatchObject({ error: { code: "age_verification_required", details: { jurisdiction: "US-TX" } } });
     expect((await derive({ "x-country-code": "US", "x-region-code": "CA" })).status).toBe(201);
+  });
+});
+
+describe("R15: a user's own creations once they need verification", () => {
+  type Output = { url: string | null; posterUrl: string | null; mediaWithheld?: boolean } | null;
+
+  it("withholds their own media and refuses download and publishing until verified", async () => {
+    // Made while the account was in an uncovered place.
+    const user = await userIn("DE");
+    const project = await createProject(user.id, { title: "Night swim", description: "" });
+    const draft = await createDraft(user, { ...draftInput(), projectId: project.id }, ctx);
+    await confirmJob(user, draft.id, draft.costCredits);
+    await processJob(draft.id);
+    // Then a sign-in from GB refreshes the stored jurisdiction; the account is unverified there.
+    await getDb().update(users).set({ jurisdiction: "GB" }).where(eq(users.id, user.id));
+    await signIn(user, { "x-country-code": "GB" });
+    const gbHeaders = { "x-country-code": "GB" };
+    const params = { params: Promise.resolve({ id: draft.id }) };
+
+    const surfaces = async () => {
+      const list = (await (await generationsRoute(new NextRequest("http://localhost/api/generations", { headers: gbHeaders }), undefined as never)).json()) as { items: { id: string; output: Output }[] };
+      const one = (await (await creationRoute(new NextRequest(`http://localhost/api/generations/${draft.id}`, { headers: gbHeaders }), params)).json()) as { job: { output: Output } };
+      const projectList = (await (await projectsRoute(new NextRequest("http://localhost/api/projects", { headers: gbHeaders }), undefined as never)).json()) as { projects: { id: string; cover: Output }[] };
+      const detail = (await (await projectRoute(new NextRequest(`http://localhost/api/projects/${project.id}`, { headers: gbHeaders }), { params: Promise.resolve({ id: project.id }) })).json()) as { loose: { id: string; output: Output }[] };
+      return [list.items.find((i) => i.id === draft.id)!.output, one.job.output, projectList.projects.find((p) => p.id === project.id)!.cover, detail.loose.find((i) => i.id === draft.id)!.output];
+    };
+    const download = () => downloadRoute(new NextRequest(`http://localhost/api/generations/${draft.id}/download`, { headers: gbHeaders }), params);
+    const publish = () =>
+      templatesPost(
+        new NextRequest("http://localhost/api/templates", { method: "POST", headers: { ...gbHeaders, "content-type": "application/json" }, body: JSON.stringify({ jobId: draft.id, title: "Night Swim", tags: [] }) }),
+        undefined as never,
+      );
+
+    for (const output of await surfaces()) expect(output).toMatchObject({ url: null, posterUrl: null });
+    const blocked = await download();
+    expect(blocked.status).toBe(451);
+    expect(blocked.headers.get("location")).toBeNull();
+    expect((await publish()).status).toBe(451);
+    expect(await getDb().select().from(templates)).toHaveLength(0);
+
+    await verifyThroughSandbox(user);
+    for (const output of await surfaces()) expect(output!.url).toMatch(/\/api\/media/);
+    expect((await download()).status).toBe(302);
+    expect((await publish()).status).toBe(201);
   });
 });
 

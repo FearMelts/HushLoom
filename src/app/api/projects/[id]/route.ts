@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
+import { viewerAccessFor } from "@/server/age/service";
 import { parseJson, requireUser, route } from "@/server/http";
 import { deleteProject, getProjectDetail, projectPatchSchema, updateProject } from "@/server/projects";
+import { requestCountry, requestRegion } from "@/server/request";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export const GET = route<Ctx>(async (_req, { params }) => {
+export const GET = route<Ctx>(async (req, { params }) => {
   const user = await requireUser();
-  return NextResponse.json(await getProjectDetail(user.id, (await params).id));
+  const access = await viewerAccessFor(user, { country: requestCountry(req), region: requestRegion(req) });
+  return NextResponse.json(await getProjectDetail(user.id, (await params).id, access));
 });
 
 export const PATCH = route<Ctx>(async (req, { params }) => {

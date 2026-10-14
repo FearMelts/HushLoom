@@ -16,12 +16,12 @@ import { Badge, useToast } from "./ui";
  */
 export const verifyHref = (signedIn: boolean) => (signedIn ? "/settings#age-verification" : "/auth?next=/settings%23age-verification");
 
-export function WithheldMedia({ signedIn, compact, link = true }: { signedIn: boolean; compact?: boolean; link?: boolean }) {
+export function WithheldMedia({ signedIn, compact, link = true, label }: { signedIn: boolean; compact?: boolean; link?: boolean; label?: string }) {
   return (
     <div className="absolute inset-0 grid place-items-center bg-[radial-gradient(circle_at_30%_20%,color-mix(in_oklab,var(--color-ember-700)_28%,transparent),transparent_60%),linear-gradient(160deg,var(--color-ink-800),var(--color-ink-950))] p-3 text-center">
       <div>
         <ShieldCheck size={compact ? 20 : 28} className="mx-auto text-ember-300" aria-hidden />
-        <p className={cn("mt-2 font-display leading-snug text-bone-100", compact ? "text-[13px]" : "text-base")}>{signedIn ? "Verify your age to see previews" : "Sign in and verify to see previews"}</p>
+        <p className={cn("mt-2 font-display leading-snug text-bone-100", compact ? "text-[13px]" : "text-base")}>{label ?? (signedIn ? "Verify your age to see previews" : "Sign in and verify to see previews")}</p>
         {link ? (
           <Link href={verifyHref(signedIn)} className="mt-2 inline-block font-mono text-[11px] uppercase tracking-[0.08em] text-ember-400 underline-offset-2 hover:underline">
             {signedIn ? "Verify now" : "Sign in"}

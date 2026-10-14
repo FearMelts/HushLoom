@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { viewerAccess } from "@/server/age/access";
+import { assertAgeVerified } from "@/server/age/gate";
 import { browseTemplates } from "@/server/discovery/templates";
 import { route } from "@/server/http";
+import { requestCountry, requestRegion } from "@/server/request";
 import { publishTemplate, publishSchema } from "@/server/templates/publish";
 import { requireUser, parseJson } from "@/server/http";
 
@@ -30,6 +32,8 @@ export const GET = route(async (req) => {
 
 export const POST = route(async (req) => {
   const user = await requireUser();
+  // Publishing shares explicit media, so it sits behind the same age-verification gate as creating and uploading.
+  await assertAgeVerified(user, { country: requestCountry(req), region: requestRegion(req) });
   const input = await parseJson(req, publishSchema);
   const template = await publishTemplate(user, input);
   return NextResponse.json({ template }, { status: 201 });

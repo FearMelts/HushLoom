@@ -241,7 +241,7 @@ describe("a matched output", () => {
     expect(job.failureMessage).toMatch(/credits were returned/);
     expect(await getBalance(u.id)).toEqual({ available: 50, reserved: 0 });
     expect(await getDb().select().from(generationOutputs).where(eq(generationOutputs.jobId, draft.id))).toHaveLength(0);
-    expect((await getCreation(u.id, draft.id))!.output).toBeNull();
+    expect((await getCreation(u.id, draft.id, { explicitAllowed: true }))!.output).toBeNull();
 
     const [held] = await getDb().select().from(mediaAssets).where(and(eq(mediaAssets.ownerId, u.id), like(mediaAssets.storageKey, "outputs/%")));
     expect(held).toMatchObject({ scanStatus: "matched", legalHold: true, deletedAt: null });
@@ -295,7 +295,7 @@ describe("scanner outage, fail closed", () => {
     expect(await getDb().select().from(generationOutputs).where(eq(generationOutputs.jobId, draft.id))).toHaveLength(0);
     expect(await filesUnder("outputs", u.id)).toHaveLength(0);
     expect((await assetsOf(u.id)).every((a) => a.deletedAt && a.storageKey.startsWith("purged/"))).toBe(true);
-    expect((await getCreation(u.id, draft.id))!.output).toBeNull();
+    expect((await getCreation(u.id, draft.id, { explicitAllowed: true }))!.output).toBeNull();
 
     await processJob(draft.id, { retryBaseDelayMs: 1 });
     await processJob(draft.id, { retryBaseDelayMs: 1 });
@@ -313,7 +313,7 @@ describe("scanner outage, fail closed", () => {
     setDevScanOverride(null);
     await processJob(draft.id, { retryBaseDelayMs: 1 });
     expect(await jobRow(draft.id)).toMatchObject({ status: "completed", attempts: 2 });
-    expect((await getCreation(u.id, draft.id))!.output!.url).toContain("/api/media?");
+    expect((await getCreation(u.id, draft.id, { explicitAllowed: true }))!.output!.url).toContain("/api/media?");
   });
 });
 
@@ -346,7 +346,7 @@ describe("scanner outage, fail-closed turned off", () => {
       const draft = await makeJob(u);
       await processJob(draft.id);
       expect(await jobRow(draft.id)).toMatchObject({ status: "completed" });
-      const creation = await getCreation(u.id, draft.id);
+      const creation = await getCreation(u.id, draft.id, { explicitAllowed: true });
       expect(creation!.output!.url).toBeNull();
       const [out] = await getDb().select().from(generationOutputs).where(eq(generationOutputs.jobId, draft.id));
       const [oa] = await getDb().select().from(mediaAssets).where(eq(mediaAssets.id, out!.assetId));
