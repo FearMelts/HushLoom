@@ -164,7 +164,9 @@ export async function deleteAccount(userId: string, password: string) {
       .update(users)
       .set({ status: "deleted", deletedAt: now, email: `deleted-${randomUUID()}@invalid`, passwordHash: "!", dateOfBirth: null })
       .where(eq(users.id, userId));
-    await tx.update(userProfiles).set({ handle: `deleted_${userId.slice(0, 8)}`, displayName: "Deleted account", bio: "" }).where(eq(userProfiles.userId, userId));
+    // The whole id: unique, and no one can take it first (chosen handles are at most 24 characters with no
+    // hyphens). A short prefix of the id, which creator cards show, could be claimed to block deletion.
+    await tx.update(userProfiles).set({ handle: `deleted_${userId}`, displayName: "Deleted account", bio: "" }).where(eq(userProfiles.userId, userId));
     // Held evidence (abuse-scan matches) survives account deletion; it is never served and never purged.
     await tx.update(mediaAssets).set({ deletedAt: now }).where(and(eq(mediaAssets.ownerId, userId), isNull(mediaAssets.deletedAt), eq(mediaAssets.legalHold, false)));
     await tx.update(generationOutputs).set({ deletedAt: now }).where(eq(generationOutputs.userId, userId));

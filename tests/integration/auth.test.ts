@@ -15,14 +15,19 @@ vi.mock("next/headers", () => ({
 
 import * as React from "react";
 import type { ReactElement } from "react";
+import { eq } from "drizzle-orm";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
 import { POST as signupRoute } from "@/app/api/auth/signup/route";
+import { DELETE as meDelete, PATCH as mePatch } from "@/app/api/me/route";
 import { POST as takedownRoute } from "@/app/api/takedowns/route";
 import AuthPage from "@/app/auth/page";
 import { AuthForms } from "@/components/auth-forms";
 import { registerUser } from "@/server/auth/account";
 import { createSession } from "@/server/auth/session";
-import { closeDb } from "@/server/db";
+import { closeDb, getDb } from "@/server/db";
+import { userProfiles, users } from "@/server/db/schema";
+import { HttpError } from "@/server/http";
+import { updateProfile } from "@/server/me";
 import { closeRedis } from "@/server/redis";
 import { resetDb } from "../helpers";
 
@@ -131,4 +136,47 @@ describe("R23 sign-in redirect target", () => {
       expect(await authLanding("/templates/night-swim?ref=home")).toBe("/templates/night-swim?ref=home");
     });
   }
+});
+
+describe("R22 account deletion and handles", () => {
+  it("a handle someone else chose cannot block deleting an account", async () => {
+    const creator = await victim("creator@example.test", "creator");
+    const attacker = await victim("attacker@example.test", "attacker");
+    // The handle deletion used to assign: "deleted_" and the first 8 characters of the (public) user id.
+    requestScope.token = (await createSession(attacker.id, null)).token;
+    const claim = await call(mePatch, "PATCH", "/api/me", { displayName: "A", handle: `deleted_${creator.id.slice(0, 8)}` });
+    expect(claim.status).toBe(200);
+
+    requestScope.token = (await createSession(creator.id, null)).token;
+    const res = await call(meDelete, "DELETE", "/api/me", { password: PASSWORD });
+    expect(res.status).toBe(200);
+    const [row] = await getDb().select().from(users).where(eq(users.id, creator.id));
+    expect(row?.status).toBe("deleted");
+  });
+
+  it("losing a race for a handle is a 409, not a server error", async () => {
+    const a = await victim("a@example.test", "first_user");
+    const b = await victim("b@example.test", "second_user");
+    // b's claim is written but not committed when a's check runs, so the check passes and a's update waits on the unique index.
+    let commit!: () => void;
+    const committed = new Promise<void>((resolve) => (commit = resolve));
+    let claimed!: () => void;
+    const written = new Promise<void>((resolve) => (claimed = resolve));
+    const other = getDb().transaction(async (tx) => {
+      await tx.update(userProfiles).set({ handle: "contested" }).where(eq(userProfiles.userId, b.id));
+      claimed();
+      await committed;
+    });
+    await written;
+    const mine = updateProfile(a.id, { displayName: "A", handle: "contested", bio: "" }).then(
+      () => "updated",
+      (e: unknown) => e,
+    );
+    await new Promise((r) => setTimeout(r, 300));
+    commit();
+    await other;
+    const outcome = await mine;
+    expect(outcome).toBeInstanceOf(HttpError);
+    expect({ status: (outcome as HttpError).status, code: (outcome as HttpError).code }).toEqual({ status: 409, code: "handle_taken" });
+  });
 });
