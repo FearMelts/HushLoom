@@ -25,7 +25,9 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 2 Merge infra | verified | merge a432052: typecheck 0, lint 0, vitest 258/258 (23 files) |
 | 2 Clean install and full verification | verified | fresh worktree at a432052 (notes/evidence/clean-verify-a432052.log): npm ci (462 packages), typecheck 0, lint 0, vitest 258/258 in 23 files, next build exit 0 |
 | 2 Launch browser journey (age verification, payments, scanning, web app, core flows) | not done | being written in a worktree on base 542af7a |
-| 3 Adversarial review | not done | started 2026-10-14 01:2x on a frozen snapshot of f8d5ef3 (all tracks but infra); infra code gets its own pass after it merges |
+| 3.1 Adversarial review: find | verified | seven finders on a frozen snapshot of f8d5ef3 returned 62 raw findings (notes/analysis/review/raw-findings.json) and a checked-and-fine list per area |
+| 3.2 Triage | verified | the triage agent's output was withheld by the platform, so the main session triaged by hand: 49 findings after merging duplicates: 1 critical, 12 high, 22 medium, 14 low (notes/analysis/review/triage.json) |
+| 3.3 Reproduce and fix | not done | |
 | 4 Visual review | not done | |
 | 5 Deliverables: vision, information architecture | implemented but not verified | drafts in the session scratchpad; critiques returned "revise"; finishing in phase 5 against the merged build |
 | 5 Deliverables: design system, engineering, deployment, verification | not done | |
@@ -153,6 +155,11 @@ vitest suite before merging.
 - 2026-10-14 01:45 Clean-install verification passed (log in notes/evidence). npm warns that
   eslint 9.39.1 is no longer supported (out of scope; noted). Docs workflow for deliverables A, B, C, E
   and F started on a frozen snapshot of c52f843, writing to /mnt/project-files/playbox-2/docs.
+- 2026-10-14 02:3x Review finders done. The triage step's output was withheld before it returned
+  (nothing was refuted by it), so I merged duplicates and calibrated severity by hand from the raw
+  findings. Next: one fix agent per area (payments, age, scan and media, auth, moderation,
+  generation, plus an infra review), each reproducing every finding with a failing test before
+  fixing it, then an independent agent trying to bypass each critical and high fix.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
