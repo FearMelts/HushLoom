@@ -80,8 +80,13 @@ const schema = z.object({
   SCAN_DEV_MATCH_HASHES: z.string().default(""),
 
   // ── Installable web app and push (addendum §4). Without VAPID keys push is disabled and says so.
+  // Generate one pair per deployment with `npx web-push generate-vapid-keys` and keep both in the
+  // secret store, never in the repo. Rotating the pair invalidates every existing subscription.
+  /** Base64url P-256 public key (65 bytes decoded); browsers subscribe with it. */
   VAPID_PUBLIC_KEY: z.string().optional(),
+  /** Base64url P-256 private key (32 bytes decoded); signs each push request. Secret. */
   VAPID_PRIVATE_KEY: z.string().optional(),
+  /** Contact for push services: a mailto: address or an https: URL (Apple rejects localhost). */
   VAPID_SUBJECT: z.string().optional(),
 });
 

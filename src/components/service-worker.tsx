@@ -33,7 +33,7 @@ export function ServiceWorkerRegistrar({ userId }: { userId: string | null }) {
   }, [toast]);
 
   useEffect(() => {
-    if (userId) void resyncThisDevice().catch(() => undefined);
+    void resyncThisDevice(userId).catch(() => undefined);
   }, [userId]);
 
   return null;

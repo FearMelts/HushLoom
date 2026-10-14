@@ -169,13 +169,39 @@ export async function unsubscribeThisDevice(): Promise<void> {
   await subscription.unsubscribe();
 }
 
+/** Per tab: which signed-in user this device's subscription was last tied to, so a visit re-syncs once, not on every page load. */
+const BOUND_KEY = "hl_push_bound";
+
+function readBound(): string | null {
+  try {
+    return sessionStorage.getItem(BOUND_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeBound(value: string | null) {
+  try {
+    if (value) sessionStorage.setItem(BOUND_KEY, value);
+    else sessionStorage.removeItem(BOUND_KEY);
+  } catch {
+    // Storage blocked: the next visit simply re-syncs again.
+  }
+}
+
 /**
  * Signing out removes this device's subscription on the server, but the browser keeps it. When
  * someone signs in again, the existing subscription is tied to the new session; the user's
- * notification preference still decides whether anything is sent.
+ * notification preference still decides whether anything is sent. Called with null while signed
+ * out, which forgets the marker so the next sign-in re-syncs.
  */
-export async function resyncThisDevice(): Promise<void> {
+export async function resyncThisDevice(userId: string | null): Promise<void> {
+  if (!userId) return writeBound(null);
   if (!pushSupported() || Notification.permission !== "granted") return;
   const subscription = await deviceSubscription();
-  if (subscription) await api("/api/push/subscriptions", { method: "POST", body: subscription.toJSON() });
+  if (!subscription) return;
+  const marker = `${userId}|${subscription.endpoint}`;
+  if (readBound() === marker) return;
+  await api("/api/push/subscriptions", { method: "POST", body: subscription.toJSON() });
+  writeBound(marker);
 }
