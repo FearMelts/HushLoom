@@ -142,6 +142,12 @@ export async function publishTemplate(user: SessionUser, input: z.infer<typeof p
         defaults: Object.fromEntries(Object.entries(job.params).filter(([k]) => k !== "seed")),
         changelog: "First version",
       });
+      // A suspension signs the account out and unpublishes everything it has live, but a request
+      // already past requireUser still gets here, and that unpublish cannot see this template until
+      // it commits. So the account is read under a lock held to the commit: a suspension that came
+      // first is seen here, and one that comes later waits, then unpublishes this template too.
+      const [account] = await tx.select({ status: users.status }).from(users).where(eq(users.id, user.id)).for("no key update");
+      if (account?.status !== "active") throw new HttpError(403, "creator_suspended", "This account is suspended, so it can't publish templates.");
       if (user.role === "member") await tx.update(users).set({ role: "creator" }).where(eq(users.id, user.id));
       await tx.insert(creatorProfiles).values({ userId: user.id }).onConflictDoNothing();
       await audit(user.id, "template.publish", "template", t!.id, { fromJob: job.id }, tx);

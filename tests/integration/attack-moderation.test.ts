@@ -406,10 +406,11 @@ describe("R11 attack: undoing a removal or suspension through a template edit", 
     expect((await templateRow(t.id)).status).not.toBe("published");
   });
 
-  // HOLE (R11, other entry point): POST /api/templates (publishTemplate) never checks the creator's
-  // account status at all. A publish already past requireUser when the suspension commits creates
-  // a brand-new published template for the suspended account.
-  it.fails("a new publish in flight while an admin suspends the creator leaves nothing live", async () => {
+  // Was a hole (R11, other entry point): POST /api/templates (publishTemplate) never checked the
+  // creator's account status at all. A publish already past requireUser when the suspension committed
+  // created a brand-new published template for the suspended account. Closed: publishTemplate reads
+  // the account inside its transaction, under a lock held until it commits.
+  it("a new publish in flight while an admin suspends the creator leaves nothing live", async () => {
     const { admin, creator } = await setup();
     const job = await finished(creator, { params: { aspectRatio: "1:1", seed: 4321 } });
 
@@ -417,6 +418,37 @@ describe("R11 attack: undoing a removal or suspension through a template edit", 
       () => publish(creator, job.id, "Slipped through", "any-category"),
       () => suspendUser(admin.id, creator.id, "Harassment reports"),
     );
+    expect(await userStatus(creator.id)).toBe("suspended");
+    expect(await liveTemplates(creator.id)).toHaveLength(0);
+  });
+
+  // The other order: the publish has read the account and is finishing its write (parked on its
+  // creator_profiles insert, inside its transaction) when a scanner match suspends the creator. The
+  // suspension waits on the account's lock, then its unpublish sees the new template and takes it
+  // down. (An admin suspension's SELECT ... FOR UPDATE would already wait on the key-share lock the
+  // template's creator_id foreign key takes; the abuse path's plain UPDATE does not.) A creator whose
+  // session already says "creator" is used, so the first-publish role update takes no lock of its own.
+  it("a scanner-match suspension arriving while a new publish is mid-write still leaves nothing live", async () => {
+    const creator = await makeUser({ role: "creator", credits: 80 });
+    const job = await finished(creator, { params: { aspectRatio: "1:1", seed: 8642 } });
+    const { asset } = await sourceOf((await finished(creator, { params: { aspectRatio: "1:1", seed: 2468 } })).id);
+
+    let publishing!: Promise<unknown>;
+    let matching!: Promise<unknown>;
+    await getDb().transaction(async (tx) => {
+      await tx.execute(sql`lock table creator_profiles in access exclusive mode`);
+      publishing = publish(creator, job.id, "Mid-write").catch((e: unknown) => e);
+      await lockWaiters(1);
+      matching = recordVerdict(
+        { assetId: asset.id, mime: asset.mime, kind: "image", sha256: asset.sha256, ownerId: creator.id, origin: "backfill" },
+        { status: "matched", provider: "dev", ref: "drill", category: "csam" },
+      ).catch((e: unknown) => e);
+      // The suspension either queues behind the publish or (without the lock) runs to the end at once.
+      await Promise.race([matching, lockWaiters(2)]);
+    });
+    const [published, matched] = await Promise.all([publishing, matching]);
+    expect(published).toMatchObject({ title: "Mid-write" });
+    expect(matched).toBe("matched");
     expect(await userStatus(creator.id)).toBe("suspended");
     expect(await liveTemplates(creator.id)).toHaveLength(0);
   });
