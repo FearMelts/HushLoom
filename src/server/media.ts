@@ -161,14 +161,24 @@ async function discardUnscannedUpload(assetId: string) {
 
 /**
  * Removes stored bytes for assets soft-deleted longer ago than the retention window.
- * Assets under legal hold (abuse-scan evidence) are never purged.
+ * Assets under legal hold (abuse-scan evidence) are never purged, and neither is a file with no
+ * verdict (scan_status 'pending', such as a match nothing could be written for): it waits for
+ * scripts/scan-backfill.ts to scan it, however long that takes, and goes on a later run if clean.
  */
 export async function purgeDeletedMedia(retentionDays: number): Promise<number> {
   const cutoff = new Date(Date.now() - retentionDays * 86_400_000);
   const rows = await getDb()
     .select({ id: mediaAssets.id, key: mediaAssets.storageKey })
     .from(mediaAssets)
-    .where(and(isNotNull(mediaAssets.deletedAt), lt(mediaAssets.deletedAt, cutoff), notLike(mediaAssets.storageKey, "purged/%"), eq(mediaAssets.legalHold, false)))
+    .where(
+      and(
+        isNotNull(mediaAssets.deletedAt),
+        lt(mediaAssets.deletedAt, cutoff),
+        notLike(mediaAssets.storageKey, "purged/%"),
+        eq(mediaAssets.legalHold, false),
+        ne(mediaAssets.scanStatus, "pending"),
+      ),
+    )
     .limit(500);
   return purgeRows(rows);
 }

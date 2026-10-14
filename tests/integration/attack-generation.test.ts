@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it, test, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, desc, eq, sql } from "drizzle-orm";
 import sharp from "sharp";
 import { deleteAccount, withdrawConsent } from "@/server/auth/account";
@@ -21,8 +21,8 @@ import { key, makeUser, resetDb } from "../helpers";
 /**
  * Attack tests for the generation-cluster fixes (R12 above all: a matched output's evidence must
  * survive a failure to record the match). Tests that pass are regression tests for the fix.
- * Tests marked `test.fails` are holes: each one asserts the safe behaviour, fails today, and
- * names the hole in its comment, so the suite stays runnable until someone fixes it.
+ * The four holes they found (R12-H1 to R12-H4) are fixed; each test that showed one says so in its
+ * comment and now asserts the safe behaviour as a normal test.
  */
 
 const ctx = { country: null };
@@ -307,12 +307,13 @@ describe("attack R12 (output path): a matched output survives every way recordin
     expect(await assetUrl(after, u.id)).toBeNull();
   });
 
-  // HOLE (residual, low likelihood): when both the match transaction and the fallback hold fail
-  // (generation.match_hold_failed), the output is left pending with legal_hold=false. Nothing marks
-  // it as evidence in the database, so the owner's account deletion soft-deletes it and the 30-day
-  // retention purge (worker: purgeDeletedMedia(30)) deletes the bytes unless an operator ran
-  // scripts/scan-backfill.ts within the window. Shown here with a zero-day window.
-  test.fails("HOLE: after a double fault, account deletion plus the retention purge deletes the unrecorded evidence", async () => {
+  // Was a hole (R12-H4, residual, low likelihood): when both the match transaction and the fallback
+  // hold fail (generation.match_hold_failed), the output is left pending with legal_hold=false, so
+  // the owner's account deletion soft-deleted it and the 30-day retention purge (worker:
+  // purgeDeletedMedia(30)) deleted the bytes unless an operator ran scripts/scan-backfill.ts within
+  // the window. Shown here with a zero-day window. The retention purge now skips a file with no
+  // verdict, so it waits for the backfill however long that takes.
+  it("after a double fault, account deletion plus the retention purge keeps the unrecorded evidence", async () => {
     const u = await makeUser({ credits: 50 });
     await withPassword(u);
     setDevScanOverride((input) => (input.mime === "image/webp" ? "matched" : null));
@@ -325,6 +326,14 @@ describe("attack R12 (output path): a matched output survives every way recordin
 
     await deleteAccount(u.id, PASSWORD);
     await purgeDeletedMedia(0);
+    expect(await storedBytes(asset!.storageKey)).not.toBeNull();
+
+    // scripts/scan-backfill.ts later rescans it (it also covers soft-deleted rows) and opens the case.
+    const bytes = (await storedBytes(asset!.storageKey))!;
+    expect(await scanAsset({ assetId: asset!.id, bytes, mime: asset!.mime, kind: asset!.kind, sha256: asset!.sha256, ownerId: asset!.ownerId, origin: "backfill" })).toBe("matched");
+    expect(await assetRow(asset!.id)).toMatchObject({ scanStatus: "matched", legalHold: true, storageKey: asset!.storageKey });
+    expect(await escalationsFor(asset!.id)).toHaveLength(1);
+    expect(await purgeDeletedMedia(0)).toBe(0);
     expect(await storedBytes(asset!.storageKey)).not.toBeNull();
   });
 });
