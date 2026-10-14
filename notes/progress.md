@@ -16,12 +16,13 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 1.4 Web app track | verified | branch worktree-wf_a044751c-de7-2 (8 commits f31e530..e29a196) on base e0ae32c; agent run: typecheck 0, lint 0, vitest 169/169, real-Chromium service worker and offline checks; report notes/analysis/track-reports/pwa.json |
 | 1.5 Fix track A (fixes-core) | verified | branch worktree-wf_44ccc76c-0c7-1 (2c0068b a84f632 4498243 e12bacd a30f7ea) on base d6c48b6; agent run: typecheck 0, lint 0, vitest 232/232, migration chain 0000-0003 applied to a copy of the dev database, seed on a fresh database; UI changes not seen in a browser (report notes/analysis/track-reports/fixes-core.json) |
 | 1.6 Fix track B (fixes-ui) | implemented but not verified | branch worktree-wf_44ccc76c-0c7-2 (7 commits b0e0e0a..7f7afb0) on base d6c48b6; agent run: typecheck 0, lint 0, vitest 202/202; no browser was run, so layout and interaction changes are unseen until the phase 2 journey and phase 4 visual review (report notes/analysis/track-reports/fixes-ui.json) |
-| 1.7 Infra track | not done | |
+| 1.7 Infra track | implemented but not verified | branch worktree-wf_99e4d646-98b-1 (6 commits 9109f7d..9856efd) on base 542af7a; agent run: typecheck 0, lint 0, vitest 258/258, `docker compose config` valid, worker and error webhook exercised outside Docker; `docker build` and `docker compose up` never ran (no Docker daemon here), CI never ran on GitHub (report notes/analysis/track-reports/infra.json) |
 | 2 Merge payments, then age, into the integration branch | verified | merges c1ef260, bcf9113; after each: typecheck 0, lint 0; after both: vitest 121/121 (9 files) |
 | 2 Merge scanning, then web app | verified | merges feafeb4 (then typecheck 0, lint 0, vitest 140/140) and 96923a7 (npm install, then typecheck 0, lint 0, vitest 188/188) |
 | 2 APP_ENV: sandboxes allowed on a production build only when it is not a live site | verified | 0686f87; tests/unit/env.test.ts 5/5; full suite 193/193 |
 | 2 Production build and existing e2e after four tracks | verified | `npm run test:e2e` at 0686f87 (APP_ENV=test): next build ok, Playwright 8/8 in 2.3 min, exit 0 |
 | 2 Merge fix track A, then fix track B | verified | merges 0d06957 (typecheck 0, lint 0, vitest 232/232) and b28583c (typecheck 0, lint 0, vitest 241/241); the two tracks changed no file in common |
+| 2 Merge infra | verified | merge a432052: typecheck 0, lint 0, vitest 258/258 (23 files) |
 | 2 Merge remaining tracks, full verification, browser journey | not done | |
 | 3 Adversarial review | not done | started 2026-10-14 01:2x on a frozen snapshot of f8d5ef3 (all tracks but infra); infra code gets its own pass after it merges |
 | 4 Visual review | not done | |
@@ -108,6 +109,12 @@ vitest suite before merging.
 - Fix track B: Library's extra filters render as a row above the Library heading rather than inside its
   filter bar; every seeded template shows Demo (all seeds use demo models); admin suspend reason and
   flag clearing still use window.prompt.
+- Infra: MinIO's official images are no longer on Docker Hub (registry 401 on 2026-10-14), so the s3
+  profile defaults to Pigsty's community fork pgsty/minio at a pinned tag (overridable with
+  MINIO_IMAGE). A third-party image is a supply-chain choice for Jayvo. No reverse proxy is bundled
+  (TLS and geo-header stripping assumed at the edge). Next.js's own error printer can still print a
+  Drizzle error's query params to stdout. scripts/seed.ts has no live-site guard outside compose.
+  CI builds twice (checks job and e2e job).
 
 ## Log (newest last)
 
@@ -140,6 +147,8 @@ vitest suite before merging.
   production build, writes tests/e2e/launch.spec.ts and evidence capture) and the phase 3 adversarial
   review (seven finders on a frozen snapshot of f8d5ef3, triage, then reproduce-or-refute with a
   failing test per finding). Neither is a build track, so the two-track limit still holds.
+- 2026-10-14 01:42 Infra finished green and merged (258/258). All seven phase 1 tracks are merged.
+  Clean-install verification (fresh worktree, npm ci, typecheck, lint, vitest, next build) running.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
