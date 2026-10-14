@@ -29,7 +29,7 @@ import { POST as ageWebhook } from "@/app/api/webhooks/age-verification/[provide
 import { ageVerificationStatus } from "@/server/age";
 import { viewerAccess } from "@/server/age/access";
 import { assertAgeVerified } from "@/server/age/gate";
-import { SANDBOX_SIGNATURE_HEADER, sandboxCallback } from "@/server/age/providers/sandbox";
+import { SANDBOX_SIGNATURE_HEADER, sandboxCallback, sandboxProvider } from "@/server/age/providers/sandbox";
 import { configuredRegions, jurisdictionRequired } from "@/server/age/rules";
 import { applyResult, handleCallback, requirementFor, startVerification, viewerAccessFor } from "@/server/age/service";
 import { createSession, type SessionUser } from "@/server/auth/session";
@@ -570,5 +570,37 @@ describe("R16: sandbox results on a live site", () => {
     });
     // Off a live site the sandbox result still counts, as before.
     expect((await requirementFor({ id: preview.id }, ctx)).status).toBe("verified");
+  });
+});
+
+describe("R48: a new check opened while an earlier one completes", () => {
+  it("keeps the verified status that the earlier check set while the provider was opening the new one", async () => {
+    const gb = await userIn("GB");
+    const first = await startVerification(gb, ctx);
+    const realStart = sandboxProvider.start;
+    const start = vi.spyOn(sandboxProvider, "start").mockImplementationOnce(async (input) => {
+      // The first check's signed callback lands after the new check read the status, before it is recorded.
+      const signed = sandboxCallback(first.providerRef, "verified");
+      expect((await sandboxWebhook(signed.body, signed.signature)).status).toBe(200);
+      return realStart(input);
+    });
+    try {
+      await startVerification(gb, ctx);
+    } finally {
+      start.mockRestore();
+    }
+    expect((await userRow(gb.id)).ageVerificationStatus).toBe("verified");
+    await expect(assertAgeVerified({ id: gb.id }, ctx)).resolves.toBeUndefined();
+  });
+
+  it("still marks an expired account pending when it starts a new check", async () => {
+    const gb = await userIn("GB");
+    await verifyThroughSandbox(gb);
+    await getDb()
+      .update(users)
+      .set({ ageVerifiedAt: new Date(Date.now() - (env().AGE_VERIFICATION_VALID_DAYS + 1) * 86_400_000) })
+      .where(eq(users.id, gb.id));
+    await startVerification(gb, ctx);
+    expect((await userRow(gb.id)).ageVerificationStatus).toBe("pending");
   });
 });

@@ -125,7 +125,13 @@ export async function startVerification(user: SessionUser, ctx: AgeContext): Pro
   }
   await db.transaction(async (tx) => {
     await tx.update(ageVerifications).set({ providerRef: started.providerRef, method: started.method }).where(eq(ageVerifications.id, verification.id));
-    await tx.update(users).set({ ageVerificationStatus: "pending", ageVerificationProvider: provider.key, updatedAt: new Date() }).where(eq(users.id, user.id));
+    // An earlier check that completed while the provider was opening this one keeps its verified
+    // status: only the verification read above (none, expired, or a sandbox one on a live site) is replaced.
+    const unchanged = req.verifiedAt ? eq(users.ageVerifiedAt, req.verifiedAt) : isNull(users.ageVerifiedAt);
+    await tx
+      .update(users)
+      .set({ ageVerificationStatus: "pending", ageVerificationProvider: provider.key, updatedAt: new Date() })
+      .where(and(eq(users.id, user.id), or(ne(users.ageVerificationStatus, "verified"), unchanged)));
     await audit(user.id, "age_verification.pending", "age_verification", verification.id, { provider: provider.key, providerRef: started.providerRef, jurisdiction: req.jurisdiction, sandbox: provider.isSandbox }, tx);
   });
   return { url: started.url, providerRef: started.providerRef, verificationId: verification.id, provider: provider.key, sandbox: provider.isSandbox };
