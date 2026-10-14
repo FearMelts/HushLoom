@@ -20,6 +20,7 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 2 Merge payments, then age, into the integration branch | verified | merges c1ef260, bcf9113; after each: typecheck 0, lint 0; after both: vitest 121/121 (9 files) |
 | 2 Merge scanning, then web app | verified | merges feafeb4 (then typecheck 0, lint 0, vitest 140/140) and 96923a7 (npm install, then typecheck 0, lint 0, vitest 188/188) |
 | 2 APP_ENV: sandboxes allowed on a production build only when it is not a live site | verified | 0686f87; tests/unit/env.test.ts 5/5; full suite 193/193 |
+| 2 Production build and existing e2e after four tracks | verified | `npm run test:e2e` at 0686f87 (APP_ENV=test): next build ok, Playwright 8/8 in 2.3 min, exit 0 |
 | 2 Merge remaining tracks, full verification, browser journey | not done | |
 | 3 Adversarial review | not done | |
 | 4 Visual review | not done | |
@@ -123,6 +124,8 @@ vitest suite before merging.
   panel, creation detail and Library retry in OfflineGuard; fix track B offsets toasts for the iPhone
   safe area, guards projects and the buy button, and adds a single-device sign-out; infra copies
   public/ into the image and documents APP_ENV.
+- 2026-10-14 00:35 `npm run test:e2e` at 0686f87: production build, 8/8 passed. Fix tracks A and B started
+  on base d6c48b6.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
