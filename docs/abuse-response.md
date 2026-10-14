@@ -94,7 +94,8 @@ Public page `/policies/takedown` (outside the age gate; linked from the Policies
   - **Take it down** (API action `action`): soft-deletes the target (a creation with its outputs and poster, a template with its public media, or one asset and anything showing it). `ncii` and `likeness` requests purge the files right away, as a consent withdrawal does. A `csam` request instead puts the files on legal hold and opens an escalation (`csam_report`) so the reporting step runs through §5. Audit row `takedown.action`.
   - **Dismiss**: needs a note. Audit row `takedown.dismiss`.
 - The card shows how long a request has been open and turns amber after 24 hours for urgent categories (see the 48-hour note in §6).
-- The existing template report (`POST /api/templates/:id/report`, signed in) still works and still feeds the Reports panel on `/admin`.
+- The existing template report (`POST /api/templates/:id/report`, signed in) still works and still feeds the Reports panel on `/admin`. Removing a reported template there removes its public media like a takedown: soft-deleted (purged after the retention window), or, for a report of a minor, held (`legal_hold`, never purged) with an open `csam_report` entry in the review queue.
+- Public media is served only while a published template uses it. Once a template is removed or unpublished, or its creator suspended, every link to its media handed out before answers 404 (the creator still sees their own).
 
 ## 8 Fail-closed behavior
 

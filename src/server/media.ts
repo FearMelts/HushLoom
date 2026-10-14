@@ -2,10 +2,10 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { and, eq, inArray, isNotNull, lt, notLike } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, lt, notLike, or } from "drizzle-orm";
 import sharp from "sharp";
 import { getDb } from "@/server/db";
-import { consentRecords, mediaAssets, uploads } from "@/server/db/schema";
+import { consentRecords, mediaAssets, templates, uploads } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { HttpError } from "@/server/http";
 import { isPixelLimitError, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE, untrustedImage } from "@/server/images";
@@ -29,6 +29,20 @@ export async function assetUrl(
   if (asset.visibility !== "public" && asset.ownerId !== viewerId) return null;
   const ttl = asset.visibility === "public" ? 3600 : env().MEDIA_URL_TTL_S;
   return storage().signedUrl(asset.storageKey, ttl, opts);
+}
+
+/**
+ * True while a public asset is on show: a published, undeleted template uses it as its poster or
+ * preview. Public assets are only ever template copies, so once the template is removed,
+ * unpublished or its creator suspended, links issued earlier stop working (src/app/api/media).
+ */
+export async function publicAssetLive(assetId: string): Promise<boolean> {
+  const [t] = await getDb()
+    .select({ id: templates.id })
+    .from(templates)
+    .where(and(or(eq(templates.posterAssetId, assetId), eq(templates.previewAssetId, assetId)), eq(templates.status, "published"), isNull(templates.deletedAt)))
+    .limit(1);
+  return Boolean(t);
 }
 
 export async function assetUrlById(assetId: string | null, viewerId: string | null): Promise<string | null> {

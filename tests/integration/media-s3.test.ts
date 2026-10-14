@@ -5,7 +5,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { GET as mediaRoute } from "@/app/api/media/route";
 import { closeDb, getDb } from "@/server/db";
-import { mediaAssets } from "@/server/db/schema";
+import { mediaAssets, templates } from "@/server/db/schema";
 import { assetUrl } from "@/server/media";
 import { closeRedis } from "@/server/redis";
 import { sha256, storage } from "@/server/storage";
@@ -65,6 +65,10 @@ async function publicAsset(ownerId: string) {
     .insert(mediaAssets)
     .values({ ownerId, kind: "image", storageKey: key, mime: "image/webp", bytes: bytes.length, sha256: sha256(bytes), visibility: "public", scanStatus: "clean" })
     .returning();
+  // Public assets are template copies, served while their template is published.
+  await getDb()
+    .insert(templates)
+    .values({ slug: `t-${randomUUID().slice(0, 8)}`, creatorId: ownerId, title: "T", mediaType: "image", mode: "text_to_image", status: "published", posterAssetId: a!.id, publishedAt: new Date() });
   return { asset: a!, bytes };
 }
 
