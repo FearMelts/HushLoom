@@ -214,10 +214,11 @@ describe("R03 attack: other entry points and header forms for a member whose sto
     });
   });
 
-  // HOLE: POST /api/generations/:id/confirm has no age gate. confirmJob reserves the credits and queues
-  // the job that actually generates, but only createDraft checks age. A draft priced from an uncovered
-  // place (one VPN request, or a trip abroad) can be started from GB within the 24 h draft window.
-  test.fails("HOLE: confirming a draft priced from an uncovered place does not start a generation from GB", async () => {
+  // Was a hole: POST /api/generations/:id/confirm had no age gate. confirmJob reserves the credits and
+  // queues the job that actually generates, but only createDraft checked age, so a draft priced from an
+  // uncovered place (one VPN request, or a trip abroad) could be started from GB within the 24 h draft
+  // window. The confirm route now runs the gate for its own request.
+  it("confirming a draft priced from an uncovered place does not start a generation from GB", async () => {
     const nl = await userIn("NL");
     await signIn(nl);
     const made = await postDraft({ "x-country-code": "NL" });
@@ -229,9 +230,9 @@ describe("R03 attack: other entry points and header forms for a member whose sto
     expect({ status: res.status, job: row!.status, reserved: (await getBalance(nl.id)).reserved }).toEqual({ status: 451, job: "awaiting_confirmation", reserved: 0 });
   });
 
-  // HOLE (same root cause): the gate is only checked when the draft is priced, so a verification that
-  // lapses between the draft and the confirm does not stop the generation.
-  test.fails("HOLE: confirming a draft after the member's verification expired does not start a generation from GB", async () => {
+  // Was a hole (same root cause): the gate was only checked when the draft was priced, so a verification
+  // that lapsed between the draft and the confirm did not stop the generation.
+  it("confirming a draft after the member's verification expired does not start a generation from GB", async () => {
     const gb = await userIn("GB");
     await verifyThroughSandbox(gb);
     const draft = await createDraft(gb, draftBody(), { country: "GB" });
