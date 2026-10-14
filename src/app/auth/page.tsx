@@ -5,9 +5,25 @@ import { getCurrentUser } from "@/server/auth/session";
 
 export const metadata = { title: "Join or sign in" };
 
+/**
+ * A same-site path to land on after signing in. A browser reads a backslash as "/" and drops tabs and
+ * newlines, so next=/%5Cevil.example or next=/%09/evil.example would leave the site. The value is resolved
+ * the way a browser would, only a same-origin result is kept, and a path that normalizes to "//host" is refused.
+ */
+function landingPath(next: string | undefined): string {
+  const base = "https://hushloom.invalid";
+  try {
+    const url = new URL(next ?? "/", `${base}/auth`);
+    const path = `${url.pathname}${url.search}${url.hash}`;
+    return url.origin === base && !path.startsWith("//") ? path : "/";
+  } catch {
+    return "/";
+  }
+}
+
 export default async function AuthPage({ searchParams }: { searchParams: Promise<{ next?: string; mode?: string }> }) {
   const sp = await searchParams;
-  const next = sp.next?.startsWith("/") && !sp.next.startsWith("//") ? sp.next : "/";
+  const next = landingPath(sp.next);
   if (await getCurrentUser()) redirect(next);
   return (
     <div className="mx-auto grid max-w-5xl items-center gap-10 py-6 lg:grid-cols-2">

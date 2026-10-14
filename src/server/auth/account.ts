@@ -23,6 +23,7 @@ import {
 import { env } from "@/server/env";
 import { HttpError } from "@/server/http";
 import { purgeAssetsNow } from "@/server/media";
+import { rateLimit } from "@/server/redis";
 import { ADULT_AGE, ageOn } from "@/server/safety/policy";
 import { destroyAllSessions, hashPassword, verifyPassword } from "./session";
 
@@ -40,7 +41,14 @@ export const signupSchema = z.object({
     .max(24, "Handles are 3 to 24 characters.")
     .regex(/^[a-zA-Z0-9_]+$/, "Letters, numbers and underscores only."),
   displayName: z.string().trim().min(1).max(40),
-  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter your date of birth."),
+  dateOfBirth: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter your date of birth.")
+    // A day the calendar has (no 31 April or 13th month), which Postgres would otherwise reject on insert.
+    .refine((s) => {
+      const day = new Date(`${s}T00:00:00Z`);
+      return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === s;
+    }, "Enter a real date of birth."),
   acceptTerms: z.literal(true, { errorMap: () => ({ message: "Accept the terms to continue." }) }),
   confirmAdult: z.literal(true, { errorMap: () => ({ message: "You must confirm you are an adult." }) }),
 });
@@ -99,6 +107,15 @@ export async function registerUser(input: z.infer<typeof signupSchema>, opts: { 
 }
 
 let dummyHash: string | undefined;
+
+/**
+ * The password checks one account allows: ten per 15 minutes, whoever sends them. Sign-in and the re-check
+ * before deleting the account spend the same budget, so a stolen session gets no extra guesses and no
+ * account can drive unlimited bcrypt work. Keyed by the email as authenticate() matches it.
+ */
+export function passwordAttemptAllowed(email: string): Promise<boolean> {
+  return rateLimit(`login:email:${email.trim().toLowerCase()}`, 10, 900);
+}
 
 export async function authenticate(email: string, password: string) {
   const [user] = await getDb()
@@ -166,7 +183,9 @@ export async function deleteAccount(userId: string, password: string) {
       .update(users)
       .set({ status: "deleted", deletedAt: now, email: `deleted-${randomUUID()}@invalid`, passwordHash: "!", dateOfBirth: null })
       .where(eq(users.id, userId));
-    await tx.update(userProfiles).set({ handle: `deleted_${userId.slice(0, 8)}`, displayName: "Deleted account", bio: "" }).where(eq(userProfiles.userId, userId));
+    // The whole id: unique, and no one can take it first (chosen handles are at most 24 characters with no
+    // hyphens). A short prefix of the id, which creator cards show, could be claimed to block deletion.
+    await tx.update(userProfiles).set({ handle: `deleted_${userId}`, displayName: "Deleted account", bio: "" }).where(eq(userProfiles.userId, userId));
     // Held evidence (abuse-scan matches) survives account deletion; it is never served and never purged.
     await tx.update(mediaAssets).set({ deletedAt: now }).where(and(eq(mediaAssets.ownerId, userId), isNull(mediaAssets.deletedAt), eq(mediaAssets.legalHold, false)));
     await tx.update(generationOutputs).set({ deletedAt: now }).where(eq(generationOutputs.userId, userId));

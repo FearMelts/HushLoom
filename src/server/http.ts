@@ -106,6 +106,10 @@ export function route<C>(handler: (req: NextRequest, ctx: C) => Promise<Response
       if (isBadIdentifier(err)) {
         return NextResponse.json({ error: { code: "not_found", message: "Not found." } }, { status: 404 });
       }
+      if (hasPgCode(err, "22021")) {
+        // A NUL character, which Postgres refuses in any text: the client sent it.
+        return NextResponse.json({ error: { code: "invalid_input", message: "Some fields need attention." } }, { status: 422 });
+      }
       logger.error("unhandled route error", { path: req.nextUrl.pathname, err });
       return NextResponse.json({ error: { code: "internal", message: "Something went wrong on our side." } }, { status: 500 });
     }
@@ -114,8 +118,13 @@ export function route<C>(handler: (req: NextRequest, ctx: C) => Promise<Response
 
 /** Postgres rejects a malformed uuid with 22P02. To a client that is simply a missing record. */
 function isBadIdentifier(err: unknown): boolean {
+  return hasPgCode(err, "22P02");
+}
+
+/** Whether the error, or one it wraps (Drizzle wraps the driver's), carries this SQLSTATE. */
+function hasPgCode(err: unknown, code: string): boolean {
   for (let e: unknown = err, depth = 0; e && depth < 3; e = (e as { cause?: unknown }).cause, depth++) {
-    if ((e as { code?: unknown }).code === "22P02") return true;
+    if ((e as { code?: unknown }).code === code) return true;
   }
   return false;
 }

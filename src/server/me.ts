@@ -97,13 +97,21 @@ export async function settingsFor(userId: string, ctx: AgeContext = { country: n
   };
 }
 
+const handleTaken = () => new HttpError(409, "handle_taken", "That handle is taken.", { fieldErrors: { handle: ["That handle is taken."] } });
+
 export async function updateProfile(userId: string, input: z.infer<typeof profileSchema>) {
   const [taken] = await getDb()
     .select({ id: userProfiles.userId })
     .from(userProfiles)
     .where(and(sql`lower(${userProfiles.handle}) = ${input.handle.toLowerCase()}`, ne(userProfiles.userId, userId)));
-  if (taken) throw new HttpError(409, "handle_taken", "That handle is taken.", { fieldErrors: { handle: ["That handle is taken."] } });
-  await getDb().update(userProfiles).set({ ...input, updatedAt: new Date() }).where(eq(userProfiles.userId, userId));
+  if (taken) throw handleTaken();
+  try {
+    await getDb().update(userProfiles).set({ ...input, updatedAt: new Date() }).where(eq(userProfiles.userId, userId));
+  } catch (e) {
+    // Two claims of one handle at once both pass the check above; the unique index turns the later one away.
+    if (/user_profiles_handle_uq/.test(String((e as { cause?: { message?: string } }).cause?.message ?? ""))) throw handleTaken();
+    throw e;
+  }
   await audit(userId, "profile.update", "user", userId, { handle: input.handle });
 }
 
