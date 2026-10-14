@@ -224,10 +224,10 @@ describe("R08 attack: getting a taken-down creation back up", () => {
     expect(copy.storageKey.startsWith("purged/")).toBe(true);
   });
 
-  // HOLE (R08): the same race on a CSAM takedown. The source is held as evidence and the owner is
-  // suspended and signed out, yet the request already past requireUser writes a fresh public copy
-  // marked clean and not held, and a published template that shows it.
-  it.fails("a publish in flight while a CSAM takedown is actioned does not make the held file public", async () => {
+  // Was a hole (R08): the same race on a CSAM takedown. The source is held as evidence and the owner
+  // is suspended and signed out, yet the request already past requireUser wrote a fresh public copy
+  // marked clean and not held, and a published template that showed it. Closed by the same re-check.
+  it("a publish in flight while a CSAM takedown is actioned does not make the held file public", async () => {
     const admin = await makeUser({ role: "admin" });
     const creator = await makeUser({ credits: 50 });
     const job = await finished(creator);
