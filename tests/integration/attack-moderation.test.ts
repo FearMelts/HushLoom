@@ -175,10 +175,11 @@ describe("R08 attack: getting a taken-down creation back up", () => {
     expect((await templateRow(tb.id)).status).not.toBe("published");
   });
 
-  // HOLE (R08): publishTemplate checks the job and its output, copies the bytes, and only then
-  // writes, in a transaction that re-checks nothing. A publish in flight while the takedown commits
-  // (the window is the storage copy) creates a new live template from the deleted source.
-  it.fails("a publish in flight while an NCII takedown is actioned does not create a live copy", async () => {
+  // Was a hole (R08): publishTemplate checked the job and its output, copied the bytes, and only then
+  // wrote, in a transaction that re-checked nothing. A publish in flight while the takedown committed
+  // (the window is the storage copy) created a new live template from the deleted source. Closed: the
+  // checks run again in the transaction, under a lock on the file that the takedown also takes.
+  it("a publish in flight while an NCII takedown is actioned does not create a live copy", async () => {
     const admin = await makeUser({ role: "admin" });
     const creator = await makeUser({ credits: 50 });
     const job = await finished(creator);
@@ -192,6 +193,35 @@ describe("R08 attack: getting a taken-down creation back up", () => {
     expect((await sourceOf(job.id)).out.deletedAt).not.toBeNull();
     expect(result).toBeInstanceOf(Error);
     expect(await liveTemplates(creator.id)).toHaveLength(0);
+  });
+
+  // The other order of the same race: the publish is already writing its new copy (parked on its
+  // template_versions insert, inside its transaction) when the takedown is actioned. The takedown
+  // waits on the file's lock, then finds the committed copy and takes it down with the rest.
+  it("a takedown actioned while a publish of the same file is mid-write also takes the new copy down", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const creator = await makeUser({ credits: 50 });
+    const job = await finished(creator);
+    const t = await publish(creator, job.id);
+    const req = await takedown("template", t.id, "ncii");
+
+    let publishing!: Promise<unknown>;
+    let taking!: Promise<unknown>;
+    await getDb().transaction(async (tx) => {
+      await tx.execute(sql`lock table template_versions in access exclusive mode`);
+      publishing = publish(creator, job.id, "Mid-write").catch((e: unknown) => e);
+      await lockWaiters(1);
+      taking = action(admin.id, req.id).catch((e: unknown) => e);
+      // The takedown either queues behind the publish or (without the lock) runs to the end at once.
+      await Promise.race([taking, lockWaiters(2)]);
+    });
+    const [published, taken] = await Promise.all([publishing, taking]);
+    expect(published).toMatchObject({ title: "Mid-write" });
+    expect(taken).toBeUndefined();
+    expect(await liveTemplates(creator.id)).toHaveLength(0);
+    const copy = (await getDb().select().from(mediaAssets).where(eq(mediaAssets.id, (published as { posterAssetId: string }).posterAssetId)))[0]!;
+    expect(copy.deletedAt).not.toBeNull();
+    expect(copy.storageKey.startsWith("purged/")).toBe(true);
   });
 
   // HOLE (R08): the same race on a CSAM takedown. The source is held as evidence and the owner is

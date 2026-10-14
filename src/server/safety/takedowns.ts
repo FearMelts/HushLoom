@@ -262,6 +262,8 @@ async function takeDownCopies(tx: Tx, assetIds: string[], now: Date): Promise<st
   if (!assetIds.length) return [];
   const named = await tx.selectDistinct({ sha256: mediaAssets.sha256 }).from(mediaAssets).where(inArray(mediaAssets.id, assetIds));
   if (!named.length) return [];
+  // A publish of the same file in flight has either committed its new copy (found below) or waits and then sees this takedown.
+  await lockContent(tx, named.map((n) => n.sha256));
   const rows = await tx.select({ id: mediaAssets.id }).from(mediaAssets).where(inArray(mediaAssets.sha256, named.map((n) => n.sha256)));
   const same = new Set(rows.map((r) => r.id));
   if (!same.size) return [];
@@ -282,6 +284,16 @@ async function takeDownCopies(tx: Tx, assetIds: string[], now: Date): Promise<st
   for (const o of outs) [o.assetId, o.posterAssetId].forEach((id) => id && same.add(id));
   for (const p of tpls) [p.posterAssetId, p.previewAssetId].forEach((id) => id && same.add(id));
   return [...same].filter((id) => !assetIds.includes(id));
+}
+
+/**
+ * A lock on a file's bytes until the transaction ends. A takedown takes it before it looks for
+ * copies, and publishTemplate before its last checks and its new public copy, so the two never
+ * interleave: whichever comes second sees what the first committed. Files are locked in sorted
+ * order, so two transactions that each lock several never wait on each other in a cycle.
+ */
+export async function lockContent(tx: Tx, sha256s: string[]) {
+  for (const sha256 of [...new Set(sha256s)].sort()) await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${sha256}, 0))`);
 }
 
 /**
