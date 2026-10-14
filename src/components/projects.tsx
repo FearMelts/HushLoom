@@ -23,7 +23,7 @@ type ProjectSummary = {
   updatedAt: string;
   scenes: number;
   clips: number;
-  cover: { kind: "image" | "video"; url: string | null; posterUrl: string | null } | null;
+  cover: { kind: "image" | "video"; url: string | null; posterUrl: string | null; isDemo: boolean } | null;
 };
 
 function Media({ output, className }: { output: { kind: "image" | "video"; url: string | null; posterUrl?: string | null } | null; className?: string }) {
@@ -77,6 +77,12 @@ export function ProjectsIndex({ projects }: { projects: ProjectSummary[] }) {
               <Link href={`/projects/${p.id}`} className="group block">
                 <div className="petal relative aspect-video overflow-hidden hairline">
                   <Media output={p.cover} className="absolute inset-0 size-full transition-transform duration-[var(--duration-slow)] group-hover:scale-[1.03]" />
+                  {/* The 16:9 crop cuts the placeholder's own band, so the tile says Demo itself, like a Library thumbnail. */}
+                  {p.cover?.isDemo ? (
+                    <div className="pointer-events-none absolute left-2 top-2 flex gap-1">
+                      <Badge tone="demo">Demo</Badge>
+                    </div>
+                  ) : null}
                 </div>
                 <div className="mt-2.5 px-0.5">
                   <p className="font-display text-xl">{p.title}</p>
@@ -259,7 +265,10 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
                   className={cn("petal relative block aspect-video w-full overflow-hidden hairline text-left", s.id === active?.id && "ring-2 ring-ember-500")}
                 >
                   <Media output={take?.creation.output ?? null} className="absolute inset-0 size-full" />
-                  <span className="absolute left-2 top-2 font-mono text-[11px] text-bone-50 drop-shadow">{String(i + 1).padStart(2, "0")}</span>
+                  <span className="pointer-events-none absolute left-2 top-2 flex items-center gap-1.5">
+                    <span className="font-mono text-[11px] text-bone-50 drop-shadow">{String(i + 1).padStart(2, "0")}</span>
+                    {take?.creation.isDemo && take.creation.output ? <Badge tone="demo">Demo</Badge> : null}
+                  </span>
                 </button>
                 <div className="mt-1.5 flex items-center justify-between gap-1">
                   <p className="truncate text-[13px] text-bone-200">{s.title}</p>
@@ -311,7 +320,14 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
                 <div className="grid grid-cols-2 gap-3">
                   {compared.map((v) => (
                     <figure key={v.id}>
-                      <Media output={v.creation.output} className="aspect-video w-full rounded-xl" />
+                      <div className="relative">
+                        <Media output={v.creation.output} className="aspect-video w-full rounded-xl" />
+                        {v.creation.isDemo && v.creation.output ? (
+                          <div className="pointer-events-none absolute left-2 top-2 flex gap-1">
+                            <Badge tone="demo">Demo</Badge>
+                          </div>
+                        ) : null}
+                      </div>
                       <figcaption className="mt-1 font-mono text-[11px] text-bone-500" suppressHydrationWarning>
                         {v.branchLabel} · {relativeTime(v.createdAt)}
                       </figcaption>

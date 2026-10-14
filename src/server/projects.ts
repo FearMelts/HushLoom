@@ -86,7 +86,12 @@ export async function listProjects(userId: string, access: MediaAccess) {
   // One cover per project: the newest finished creation in it.
   const covers = rows.length
     ? await db
-        .selectDistinctOn([generationJobs.projectId], { projectId: generationJobs.projectId, asset: mediaAssets, posterAssetId: generationOutputs.posterAssetId })
+        .selectDistinctOn([generationJobs.projectId], {
+          projectId: generationJobs.projectId,
+          asset: mediaAssets,
+          posterAssetId: generationOutputs.posterAssetId,
+          isDemo: generationOutputs.isDemo,
+        })
         .from(generationJobs)
         .innerJoin(generationOutputs, and(eq(generationOutputs.jobId, generationJobs.id), isNull(generationOutputs.deletedAt)))
         .innerJoin(mediaAssets, eq(mediaAssets.id, generationOutputs.assetId))
@@ -108,8 +113,8 @@ export async function listProjects(userId: string, access: MediaAccess) {
         updatedAt: r.updatedAt.toISOString(),
         cover: c
           ? access.explicitAllowed
-            ? { kind: c.asset.kind, url: await assetUrl(c.asset, userId), posterUrl: await assetUrlById(c.posterAssetId, userId), mediaWithheld: false }
-            : { kind: c.asset.kind, url: null, posterUrl: null, mediaWithheld: true }
+            ? { kind: c.asset.kind, url: await assetUrl(c.asset, userId), posterUrl: await assetUrlById(c.posterAssetId, userId), mediaWithheld: false, isDemo: c.isDemo }
+            : { kind: c.asset.kind, url: null, posterUrl: null, mediaWithheld: true, isDemo: c.isDemo }
           : null,
       };
     }),

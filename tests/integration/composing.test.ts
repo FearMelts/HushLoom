@@ -115,7 +115,7 @@ describe("Remix and Reuse settings", () => {
 });
 
 describe("the project list", () => {
-  it("counts each project's own scenes and finished takes", async () => {
+  it("counts each project's own scenes and finished takes, and says when its cover is demo media", async () => {
     const member = await makeUser({ credits: 50 });
     const project = await createProject(member.id, { title: "Golden hour series", description: "" });
     const [opening] = await getDb().select().from(projectScenes).where(eq(projectScenes.projectId, project.id));
@@ -125,10 +125,13 @@ describe("the project list", () => {
     const other = await createProject(member.id, { title: "Empty", description: "" });
 
     const list = await listProjects(member.id, { explicitAllowed: true });
-    expect(list.find((p) => p.id === project.id)).toMatchObject({ scenes: 2, clips: 1, cover: { kind: "image", mediaWithheld: false } });
+    expect(list.find((p) => p.id === project.id)).toMatchObject({ scenes: 2, clips: 1, cover: { kind: "image", isDemo: true, mediaWithheld: false } });
     expect(list.find((p) => p.id === project.id)!.cover!.url).toBeTruthy();
     expect(list.find((p) => p.id === other.id)).toMatchObject({ scenes: 1, clips: 0, cover: null });
 
+    // Withheld media still says it is a demo, so the tile can be labelled without a URL.
+    const withheld = await listProjects(member.id, { explicitAllowed: false });
+    expect(withheld.find((p) => p.id === project.id)!.cover).toEqual({ kind: "image", url: null, posterUrl: null, mediaWithheld: true, isDemo: true });
   });
 });
 
