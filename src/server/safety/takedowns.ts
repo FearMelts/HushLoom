@@ -93,16 +93,26 @@ export type TakedownItem = {
 };
 
 const URGENT: TakedownCategory[] = ["csam", "ncii", "likeness"];
+export const TAKEDOWN_PAGE = 100;
 
-export async function listTakedowns(opts: { status: "open" | "closed"; limit?: number }): Promise<TakedownItem[]> {
+const statusFilter = (status: "open" | "closed") => (status === "open" ? eq(takedownRequests.status, "open") : sql`${takedownRequests.status} <> 'open'`);
+
+/**
+ * Open requests come most harmful first (CSAM, intimate images, likeness), then oldest first. The
+ * order is applied in the query, before the page is cut, so no number of older low-priority
+ * requests can push a new urgent one off the page. Closed requests come newest first.
+ */
+export async function listTakedowns(opts: { status: "open" | "closed"; limit?: number; offset?: number }): Promise<TakedownItem[]> {
   const db = getDb();
+  const urgentFirst = sql`case when ${inArray(takedownRequests.category, URGENT)} then 0 else 1 end`;
   const rows = await db
     .select({ t: takedownRequests, handle: userProfiles.handle })
     .from(takedownRequests)
     .leftJoin(userProfiles, eq(userProfiles.userId, takedownRequests.requesterId))
-    .where(opts.status === "open" ? eq(takedownRequests.status, "open") : sql`${takedownRequests.status} <> 'open'`)
-    .orderBy(opts.status === "open" ? takedownRequests.createdAt : desc(takedownRequests.resolvedAt))
-    .limit(opts.limit ?? 100);
+    .where(statusFilter(opts.status))
+    .orderBy(...(opts.status === "open" ? [urgentFirst, takedownRequests.createdAt, takedownRequests.id] : [desc(takedownRequests.resolvedAt), takedownRequests.id]))
+    .limit(opts.limit ?? TAKEDOWN_PAGE)
+    .offset(opts.offset ?? 0);
   const items = await Promise.all(
     rows.map(async ({ t, handle }) => {
       let targetLabel: string | null = null;
@@ -128,8 +138,13 @@ export async function listTakedowns(opts: { status: "open" | "closed"; limit?: n
       };
     }),
   );
-  // The most harmful categories first; within each, oldest first.
-  return opts.status === "open" ? items.sort((a, b) => Number(URGENT.includes(b.category)) - Number(URGENT.includes(a.category))) : items;
+  return items;
+}
+
+/** How many requests are open (or closed), so the queue can say how many lie beyond the page. */
+export async function countTakedowns(status: "open" | "closed"): Promise<number> {
+  const [row] = await getDb().select({ n: sql<number>`count(*)::int` }).from(takedownRequests).where(statusFilter(status));
+  return row?.n ?? 0;
 }
 
 export const takedownActionSchema = z.object({ action: z.enum(["action", "dismiss"]), note: z.string().trim().max(500).default("") });

@@ -1,5 +1,19 @@
-import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { NextRequest } from "next/server";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+
+// Route handlers read the session cookie through next/headers; the tests stand in for the request scope.
+const requestScope = vi.hoisted(() => ({ token: null as string | null }));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) => (name === "hl_session" && requestScope.token ? { name, value: requestScope.token } : undefined),
+    set: () => undefined,
+    delete: () => undefined,
+  }),
+  headers: async () => new Headers(),
+}));
+
+import { GET as adminTakedownsRoute } from "@/app/api/admin/takedowns/route";
 import { suspendUser } from "@/server/admin";
 import { createSession, userForToken, type SessionUser } from "@/server/auth/session";
 import { closeDb, getDb, type Tx } from "@/server/db";
@@ -21,7 +35,7 @@ import { purgeDeletedMedia } from "@/server/media";
 import { closeRedis } from "@/server/redis";
 import { resolveEscalation } from "@/server/safety/review";
 import { recordVerdict } from "@/server/safety/scan";
-import { resolveTakedown, type TakedownCategory } from "@/server/safety/takedowns";
+import { countTakedowns, listTakedowns, resolveTakedown, type TakedownCategory } from "@/server/safety/takedowns";
 import { publishTemplate, updateTemplate } from "@/server/templates/publish";
 import { key, makeUser, resetDb } from "../helpers";
 
@@ -62,6 +76,7 @@ const sourceOf = async (jobId: string) => {
 
 beforeEach(async () => {
   await resetDb();
+  requestScope.token = null;
 });
 
 afterAll(async () => {
@@ -309,5 +324,37 @@ describe("R24 an abuse suspension takes down the account's other live templates"
     await resolveTakedown(admin.id, req!.id, { action: "action", note: "" });
     expect(await statusOf(reported.id)).toBe("removed");
     expect(await statusOf(unrelated.id)).toBe("unpublished");
+  });
+});
+
+describe("R26 the takedown queue puts urgent requests first before it pages", () => {
+  async function flood(n: number) {
+    const start = Date.now() - 86_400_000;
+    await getDb()
+      .insert(takedownRequests)
+      .values(Array.from({ length: n }, (_, i) => ({ requesterEmail: "spam@example.test", targetType: "url" as const, targetRef: `https://elsewhere.example/${i}`, category: "other" as const, createdAt: new Date(start + i * 1000) })));
+  }
+
+  it("shows a new intimate-image request first even behind 150 older junk requests, and pages through the rest", async () => {
+    await flood(150);
+    const [urgent] = await getDb().insert(takedownRequests).values({ requesterEmail: "me@example.test", targetType: "url", targetRef: "https://elsewhere.example/me", category: "ncii" }).returning();
+
+    const first = await listTakedowns({ status: "open" });
+    expect(first).toHaveLength(100);
+    expect(first[0]!.id).toBe(urgent!.id);
+    // Then oldest first.
+    expect(first[1]!.targetRef).toBe("https://elsewhere.example/0");
+    expect(first[99]!.targetRef).toBe("https://elsewhere.example/98");
+
+    const second = await listTakedowns({ status: "open", offset: 100 });
+    expect(second.map((t) => t.targetRef)).toEqual(Array.from({ length: 51 }, (_, i) => `https://elsewhere.example/${i + 99}`));
+    expect(await countTakedowns("open")).toBe(151);
+
+    const admin = await makeUser({ role: "admin" });
+    requestScope.token = (await createSession(admin.id, null)).token;
+    const res = await adminTakedownsRoute(new NextRequest("http://localhost/api/admin/takedowns?status=open&offset=100"), undefined as never);
+    const body = await res.json();
+    expect(body).toMatchObject({ total: 151, offset: 100 });
+    expect(body.takedowns).toHaveLength(51);
   });
 });

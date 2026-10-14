@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui";
 import { getCurrentUser } from "@/server/auth/session";
 import { scanSettings } from "@/server/safety/scan";
 import { listEscalations } from "@/server/safety/review";
-import { listTakedowns } from "@/server/safety/takedowns";
+import { countTakedowns, listTakedowns, TAKEDOWN_PAGE } from "@/server/safety/takedowns";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Abuse review" };
@@ -20,15 +20,35 @@ function Panel({ title, hint, children }: { title: string; hint?: string; childr
   );
 }
 
-export default async function AbuseReviewPage() {
+/** Where this page of open takedown requests sits in the whole queue, with links to the pages either side. */
+function TakedownPager({ offset, total }: { offset: number; total: number }) {
+  const link = (to: number, label: string) => (
+    <Link href={to ? `/admin/review?takedowns=${to}` : "/admin/review"} className="text-ember-300 underline">
+      {label}
+    </Link>
+  );
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-bone-400">
+      <span>
+        {total ? `${Math.min(offset + 1, total)}–${Math.min(offset + TAKEDOWN_PAGE, total)}` : "0"} of {total} open
+      </span>
+      {offset > 0 ? link(Math.max(0, offset - TAKEDOWN_PAGE), "Previous") : null}
+      {offset + TAKEDOWN_PAGE < total ? link(offset + TAKEDOWN_PAGE, "Next") : null}
+    </div>
+  );
+}
+
+export default async function AbuseReviewPage({ searchParams }: { searchParams: Promise<{ takedowns?: string }> }) {
   const user = await getCurrentUser();
   // Same 404 as a missing page for everyone else, like /admin.
   if (user?.role !== "admin") notFound();
-  const [open, closed, takedowns, closedTakedowns] = await Promise.all([
+  const offset = Math.min(1_000_000, Math.max(0, Number.parseInt((await searchParams).takedowns ?? "", 10) || 0));
+  const [open, closed, takedowns, closedTakedowns, openTakedowns] = await Promise.all([
     listEscalations({ status: "open" }),
     listEscalations({ status: "resolved", limit: 20 }),
-    listTakedowns({ status: "open" }),
+    listTakedowns({ status: "open", offset }),
     listTakedowns({ status: "closed", limit: 20 }),
+    countTakedowns("open"),
   ]);
   const scanner = scanSettings();
   return (
@@ -68,6 +88,7 @@ export default async function AbuseReviewPage() {
       </Panel>
       <Panel title="Takedown requests" hint="Intimate images shared without consent come first. “Take it down” removes what the request points at; dismissing needs a note.">
         <TakedownQueue items={takedowns} />
+        {offset > 0 || openTakedowns > TAKEDOWN_PAGE ? <TakedownPager offset={offset} total={openTakedowns} /> : null}
       </Panel>
       <Panel title="Recently closed">
         <ClosedList escalations={closed} takedowns={closedTakedowns} />
