@@ -33,6 +33,19 @@ describe("clientIp (R05)", () => {
     expect(clientIp(req("203.0.113.9"))).toBe("203.0.113.9");
   });
 
+  it("keys an IPv6 client by its /64, the block one subscriber or VM is routed", async () => {
+    const clientIp = await clientIpWith("1");
+    expect(clientIp(req("2001:db8:42:7::1"))).toBe("2001:db8:42:7::/64");
+    expect(clientIp(req("6.6.6.6, 2001:DB8:42:7:ffff:1:2:3"))).toBe("2001:db8:42:7::/64");
+    expect(clientIp(req("2001:0db8:0042:0007:0000:0000:0000:0009"))).toBe("2001:db8:42:7::/64");
+    expect(clientIp(req("2001:db8:42:8::1"))).toBe("2001:db8:42:8::/64");
+    expect(clientIp(req("::1"))).toBe("0:0:0:0::/64");
+    // IPv4 clients of a dual-stack listener appear as IPv4-mapped addresses: each is its own IPv4 address, not one shared /64.
+    expect(clientIp(req("::ffff:203.0.113.9"))).toBe("203.0.113.9");
+    expect(clientIp(req("::FFFF:cb00:7109"))).toBe("203.0.113.9");
+    expect(clientIp(req("203.0.113.9"))).toBe("203.0.113.9");
+  });
+
   it("bounds the bucket key", async () => {
     const clientIp = await clientIpWith("0");
     expect(clientIp(req("x".repeat(500))).length).toBe(64);

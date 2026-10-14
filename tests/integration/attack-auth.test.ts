@@ -157,24 +157,23 @@ describe("R05 attack: the per-IP limits behind one appending proxy", () => {
     expect(statuses).toEqual([...Array(10).fill(422), 429]);
   });
 
-  // HOLE: clientIp() keys on the full IPv6 address. One IPv6 subscriber or cloud VM is routed a /64 (2^64
-  // addresses), so it can give every request a new source address and a fresh per-IP bucket. Sign-up
-  // (account farming, the 409 membership probe), signed-out takedowns (flooding the human review queue) and
-  // the per-IP sign-in limit (credential stuffing across accounts, bcrypt CPU) are all unlimited from one
-  // IPv6 connection. IPv6 clients need to be keyed by their /64 (or wider) prefix.
-  it.fails("sign-up: one IPv6 /64 gets one sign-up bucket, not one per address", async () => {
+  // Was a hole (R05-H1, fixed): clientIp() keyed on the full IPv6 address. One IPv6 subscriber or cloud VM is
+  // routed a /64 (2^64 addresses), so it could give every request a new source address and a fresh per-IP
+  // bucket, leaving sign-up, signed-out takedowns and the per-IP sign-in limit unlimited from one IPv6
+  // connection. IPv6 clients are now keyed by their /64.
+  it("sign-up: one IPv6 /64 gets one sign-up bucket, not one per address", async () => {
     const statuses: number[] = [];
     for (let i = 1; i <= 11; i++) statuses.push((await call(signupRoute, "POST", "/api/auth/signup", {}, viaProxy(`2001:db8:42:7::${i.toString(16)}`))).status);
     expect(statuses).toEqual([...Array(10).fill(422), 429]);
   });
 
-  it.fails("signed-out takedowns: one IPv6 /64 gets one takedown bucket, not one per address", async () => {
+  it("signed-out takedowns: one IPv6 /64 gets one takedown bucket, not one per address", async () => {
     const statuses: number[] = [];
     for (let i = 1; i <= 11; i++) statuses.push((await call(takedownRoute, "POST", "/api/takedowns", {}, viaProxy(`2001:db8:42:9:${i.toString(16)}::1`))).status);
     expect(statuses).toEqual([...Array(10).fill(422), 429]);
   });
 
-  it.fails("sign-in: one IPv6 /64 gets one per-IP bucket, so it cannot spray guesses across thirty-one accounts", async () => {
+  it("sign-in: one IPv6 /64 gets one per-IP bucket, so it cannot spray guesses across thirty-one accounts", async () => {
     // A different (unknown) email each time keeps the per-account bucket out of it; each attempt still runs bcrypt.
     const statuses: number[] = [];
     for (let i = 1; i <= 31; i++) statuses.push((await login(`member${i}@example.test`, "Summer2026!", viaProxy(`2001:db8:42:8::${i.toString(16)}`))).status);
