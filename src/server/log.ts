@@ -10,11 +10,17 @@ export function redactQueryParams(text: string | undefined): string | undefined 
   return text?.replace(/\nparams: [\s\S]*?(?=\n\s+at |$)/, "\nparams: [redacted]");
 }
 
+/** The direct cause's name and message (a wrapped query error's real reason, such as ECONNREFUSED). */
+export function causeOf(err: Error): { name: string; message: string } | undefined {
+  const cause: unknown = err.cause;
+  return cause instanceof Error ? { name: cause.name, message: redactQueryParams(cause.message) } : undefined;
+}
+
 function serialize(meta: Record<string, unknown> | undefined) {
   if (!meta) return {};
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(meta)) {
-    out[k] = v instanceof Error ? { name: v.name, message: redactQueryParams(v.message), stack: redactQueryParams(v.stack) } : v;
+    out[k] = v instanceof Error ? { name: v.name, message: redactQueryParams(v.message), stack: redactQueryParams(v.stack), cause: causeOf(v) } : v;
   }
   return out;
 }

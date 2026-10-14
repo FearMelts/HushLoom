@@ -86,16 +86,21 @@ describe("error webhook", () => {
   it("redacts Drizzle query parameters in the event and in the stdout line", async () => {
     const { fetch, calls } = fakeFetch();
     setErrorSink(createErrorWebhook({ url: URL_, source: "worker", fetch }));
-    const err = new Error(`Failed query: insert into "generation_jobs" ("prompt") values ($1)\nparams: ${PROMPT}`);
+    const err = new Error(`Failed query: insert into "generation_jobs" ("prompt") values ($1)\nparams: ${PROMPT}`, {
+      cause: new Error("connect ECONNREFUSED 127.0.0.1:5432"),
+    });
     logger.error("queue job crashed", { jobId: "job-2", err });
     await flush();
 
     expect(String(calls[0]!.init.body)).not.toContain(PROMPT);
     expect(stderr.join("\n")).not.toContain(PROMPT);
-    const sentError = calls[0]!.event.error as { message: string; stack: string };
+    const sentError = calls[0]!.event.error as { message: string; stack: string; cause: unknown };
     expect(sentError.message).toBe(`Failed query: insert into "generation_jobs" ("prompt") values ($1)\nparams: [redacted]`);
     expect(sentError.stack).toContain("params: [redacted]");
     expect(sentError.stack).toMatch(/\n\s+at /);
+    // The wrapped reason travels too, in the event and on stdout.
+    expect(sentError.cause).toEqual({ name: "Error", message: "connect ECONNREFUSED 127.0.0.1:5432" });
+    expect(JSON.parse(stderr[0]!).err.cause).toEqual({ name: "Error", message: "connect ECONNREFUSED 127.0.0.1:5432" });
   });
 
   it("returns at once and survives a monitor that hangs, rejects, answers 500 or throws", async () => {

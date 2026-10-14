@@ -1,5 +1,5 @@
 import { env } from "@/server/env";
-import { logger, redactQueryParams, setErrorSink, type ErrorSink } from "@/server/log";
+import { causeOf, logger, redactQueryParams, setErrorSink, type ErrorSink } from "@/server/log";
 
 /**
  * Error monitoring hook (spec part VI, audit gap G8). Every logger.error entry is a JSON line on
@@ -21,7 +21,7 @@ export type ErrorEvent = {
   source: ErrorSource;
   time: string;
   message: string;
-  error?: { name: string; message: string; stack?: string; digest?: string };
+  error?: { name: string; message: string; stack?: string; digest?: string; cause?: { name: string; message: string } };
   route?: string;
   path?: string;
   method?: string;
@@ -45,11 +45,13 @@ export function pathOnly(value: unknown): string | undefined {
 function errorOf(value: unknown): ErrorEvent["error"] {
   if (value instanceof Error) {
     const digest = (value as { digest?: unknown }).digest;
+    const cause = causeOf(value);
     return {
       name: value.name,
       message: clip(redactQueryParams(value.message), MAX_MESSAGE),
       stack: value.stack ? clip(redactQueryParams(value.stack), MAX_STACK) : undefined,
       digest: typeof digest === "string" ? digest : undefined,
+      cause: cause ? { name: cause.name, message: clip(cause.message, MAX_MESSAGE) } : undefined,
     };
   }
   if (typeof value === "string" && value) return { name: "Error", message: clip(redactQueryParams(value), MAX_MESSAGE) };
