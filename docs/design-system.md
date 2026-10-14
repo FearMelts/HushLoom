@@ -1,83 +1,85 @@
 # Hushloom Design System
 
-Deliverable B, describing Hushloom at commit `c52f843` (14 October 2026) with all seven build tracks merged. Every value comes from the code; anything unlabeled is built. Labels: **Demo** or **sandbox** (runs and is labeled on screen, without the outside service), **Unverified** (written from public documentation, never run against the real service) and **Unseen** (typechecked and linted, never rendered in a browser).
+Deliverable B: Hushloom at commit `342afb4` (14 October 2026), with all build tracks, the launch journey and review fixes merged. Values come from the code; anything unlabeled is built. Labels: **Demo** or **sandbox** (runs, labeled on screen, without the outside service), **Unverified** (written from public documentation, never run against the real service), **Unseen** (not exercised by any test).
 
-Most interface work from the two fix tracks is Unseen: the sheet exit, the phone make bar, toast offsets, grid arrow keys, radio-group keys, the You sheet and the offline guards (`track-reports/fixes-ui.json`, `fixes-core.json`). The Playwright layout check (no sideways scroll at 390, 820 and 1440 px) and the skip-link check last passed at `0686f87`, before that track merged.
+Evidence: vitest passes 503 tests in 44 files; Playwright passed 36 of 36 on a production build at `ce84bff`, whose code `342afb4` keeps (`notes/evidence/e2e-ce84bff.log`, screenshots in `/mnt/project-files/playbox-2/evidence/journey/`).
 
 ## Visual principles
 
-1. **Content first.** Media fills the card. The caption is a title and a handle. Controls are small pills on the media.
-2. **A dark room with warm light.** Aubergine-black surfaces (`ink`), warm off-white text (`bone`), a faint ember glow behind the top right. Dark only.
-3. **One color, one meaning.** Ember is action, focus, favorite and the current page. Brass is VIP, credits and caution. Sage is new and success. Iris is demo and sandbox (filled) and video (text only). Danger is failure.
-4. **The petal.** The signature shape: cards round two opposite corners large and two small.
-5. **Three type voices.** A display serif names things, a sans carries reading and controls, a mono carries counts, handles and small labels.
-6. **Motion reports state, then stops.** No progress percentages: the pipeline has none to report.
-7. **Honesty is visible.** Anything simulated carries an iris label saying what it is not.
-8. **Its own look.** Playbox informs structure only: gallery-first discovery, template cards, rail and tab bar. `notes/plan.md` records the choice to avoid the reference's neutral black with blue and pink.
+1. **Content first.** Media fills the card; controls are small pills on it.
+2. **A dark room with warm light.** Aubergine-black `ink`, off-white `bone` text, a faint ember glow top right. Dark only.
+3. **One color, one meaning.** Ember is action, focus, favorite and the current page. Brass is VIP, credits and caution. Sage is new and success. Iris is simulated (fills and notices) and video (badge text). Danger is failure. Exception: iris-300 also marks two real Create-panel notes (`create-panel.tsx:516, 555`).
+4. **The petal.** Cards round two opposite corners large and two small.
+5. **Three type voices.** Serif names things; sans carries reading and controls; mono carries counts, handles and small labels.
+6. **Motion reports state.** A loop means pending work (shimmer, spinner, thread bar) or a playing preview. Status words, not percentages, carry progress.
+7. **Honesty is visible.** Simulated output is labeled, mostly with an iris badge or notice; Labeling rules lists the exceptions.
+8. **Its own look.** Playbox informs structure only: gallery-first discovery, template cards, rail and tab bar. `notes/plan.md` rules out its neutral black with blue and pink.
 
 ## Tokens
 
-Tokens live in the `@theme` block of `src/app/globals.css` (Tailwind 4.3.3, no config file). Components use the generated classes, never hex. Exceptions: `themeColor` `#0f0a0d` in `layout.tsx` and the manifest (mirrors ink-950), the hashed gradient of `Avatar` and `bg-black` behind the project player.
+Tokens live in the `@theme` block of `src/app/globals.css` (Tailwind 4.3.3). Components use generated classes, never hex. Exceptions: `themeColor` `#0f0a0d` in `layout.tsx` and the manifest, `Avatar`'s hashed gradient, `bg-black` behind the project player.
+
+**Cascade rule.** `globals.css` leaves `:focus-visible`, `.petal`, `.panel`, `.hairline`, `.tag` and `.skeleton` unlayered, so they beat Tailwind's layered utilities: `.hairline` replaces `ring-*` and `shadow-*`, `:focus-visible` beats `focus:outline-none`, `.tag` beats `text-[…]`, `.skeleton` beats `absolute`. The fix is `@layer components`.
 
 ### Color
 
-| Token | Value | Intent |
-| --- | --- | --- |
-| `ink-950` | `#0f0a0d` | Page; dark text on fills; translucent bars and pills |
-| `ink-900` | `#160f13` | Panels, inputs, sheets, hero |
-| `ink-850` | `#1c1419` | Card media base, skeletons, job tray |
-| `ink-800` | `#241a20` | Hover and current-page surfaces, toasts |
-| `ink-700` | `#33252d` | Toggle and progress tracks |
-| `ink-600` | `#47353f` | Defined, unused |
-| `bone-50` | `#f7efe7` | Primary text; bone button and active chip fill |
-| `bone-100` | `#efe5de` | Emphasized values in lists |
-| `bone-200` | `#e3d6cf` | Field labels, plain badge text |
-| `bone-300` | `#c8b7b1` | Secondary copy, inactive nav and chips |
-| `bone-400` | `#a8958f` | Tertiary copy, handles |
-| `bone-500` | `#958480` | Hints, timestamps, placeholders, tab labels |
-| `ember-200` | `#ffc4ad` | Link hover |
-| `ember-300` | `#ffa98c` | Italic heading emphasis, inline links |
-| `ember-400` | `#ff8a66` | Focus outline, kickers, current-page icon, ember hover |
-| `ember-500` | `#ff6a4d` | Primary fill, favorite heart, selection ring |
-| `ember-600` | `#e6503a` | Ember button pressed, hero glow |
-| `ember-700` | `#b83a29` | Page glow, glow shadow; never text |
-| `brass-300` | `#f0cf96` | Warnings, offline banner |
-| `brass-400` | `#e2b46d` | VIP fill, credit coin, stars |
-| `sage-300` | `#bcdcbf` | Success text |
-| `sage-400` | `#9cc5a1` | New fill, success dot, checks |
-| `iris-300` | `#cdbfff` | Video badge text, demo notice text |
-| `iris-400` | `#b39dff` | Demo and Sandbox fill; notice tint |
-| `danger-400` | `#ff6b81` | Errors, failed state, danger button |
+| Token | Value | Intent | Text on ink-950 / 900 |
+| --- | --- | --- | --- |
+| `ink-950` | `#0f0a0d` | Page; text on fills; translucent bars and pills |  |
+| `ink-900` | `#160f13` | Panels, inputs, sheets, hero |  |
+| `ink-850` | `#1c1419` | Card media base, skeletons, job tray, rail hover |  |
+| `ink-800` | `#241a20` | Hover and current-page surfaces, toasts |  |
+| `ink-700` | `#33252d` | Toggle and progress tracks |  |
+| `ink-600` | `#47353f` | Defined, unused |  |
+| `bone-50` | `#f7efe7` | Primary text; bone button, active chip | 17.26 / 16.60 |
+| `bone-100` | `#efe5de` | Emphasized values in lists | 15.83 / 15.23 |
+| `bone-200` | `#e3d6cf` | Field labels, plain badge text | 13.82 / 13.30 |
+| `bone-300` | `#c8b7b1` | Secondary copy, inactive nav and chips | 10.16 / 9.77 |
+| `bone-400` | `#a8958f` | Tertiary copy, handles | 6.88 / 6.62 |
+| `bone-500` | `#958480` | Hints, timestamps, placeholders, tab labels | 5.51 / 5.30 |
+| `ember-200` | `#ffc4ad` | Link hover | 12.86 / 12.37 |
+| `ember-300` | `#ffa98c` | Heading italics, inline links | 10.57 / 10.17 |
+| `ember-400` | `#ff8a66` | Focus outline, kickers, current-page icon, ember hover | 8.49 / 8.17 |
+| `ember-500` | `#ff6a4d` | Primary fill, favorite heart, sort underline, thread bar |  |
+| `ember-600` | `#e6503a` | Ember button pressed, hero glow |  |
+| `ember-700` | `#b83a29` | Page glow, glow shadow, withheld gradient; never text |  |
+| `brass-300` | `#f0cf96` | Warnings, offline banner | 13.16 / 12.66 |
+| `brass-400` | `#e2b46d` | VIP fill, credit coin, stars | 10.27 / 9.88 |
+| `sage-300` | `#bcdcbf` | Success text | 13.21 / 12.71 |
+| `sage-400` | `#9cc5a1` | New fill, success dot, checks | 10.21 / 9.82 |
+| `iris-300` | `#cdbfff` | Video badge text, demo notice text | 11.68 / 11.24 |
+| `iris-400` | `#b39dff` | Demo and Sandbox fill; notice tint | 8.59 / 8.26 |
+| `danger-400` | `#ff6b81` | Errors, failed state, danger button | 7.17 / 6.90 |
 
-On `:root`, `--line` (bone-50 at 9%, mixed in oklab) draws every hairline through `.hairline`, an inset 1px shadow. `--line-strong` (16%) draws the dashed upload zone.
+`--line` on `:root` (bone-50 at 9% in oklab) draws every `.hairline`, an inset 1px shadow; `--line-strong` (16%) draws the dashed upload zone.
 
 ### Type families
 
 | Token | Value | Intent |
 | --- | --- | --- |
-| `--font-display` | Fraunces Variable, ui-serif, Georgia, serif | Headings, card titles, wordmark |
+| `--font-display` | Fraunces Variable, ui-serif, Georgia, serif | Headings, card titles, wordmark (22px italic) |
 | `--font-sans` | Manrope Variable, ui-sans-serif, system-ui, sans-serif | Body and controls |
 | `--font-mono` | JetBrains Mono Variable, ui-monospace, monospace | Handles, counts, credits, `.tag` |
 
-All three are self-hosted through `@fontsource-variable`; no font request leaves the site.
+All three are self-hosted (`@fontsource-variable`).
 
 ### Radius and elevation
 
 | Token | Value | Intent |
 | --- | --- | --- |
 | `--radius-petal`, `--radius-pin` | 20px, 5px | `.petal` (20 5 20 5): cards, empty states, gate screens |
-| `--radius-panel`, `--radius-panel-pin` | 24px, 8px | `.panel` (24 8 24 8): create panel, project guide; `rounded-panel` (24px all round): sheets |
-| `--shadow-float` | `0 25px 50px -12px rgb(0 0 0 / 0.55)` | Toasts, job tray |
+| `--radius-panel`, `--radius-panel-pin` | 24px, 8px | `.panel` (24 8 24 8): the template page's Create panel, project guide; `rounded-panel` (24px all round): sheets |
+| `--shadow-float` | `0 25px 50px -12px rgb(0 0 0 / 0.55)` | Toasts and job tray, which also carry `.hairline`, so it never renders |
 | `--shadow-glow` | `0 10px 15px -3px` and `0 4px 6px -4px`, ember-700 at 30% | Create tab, make bar |
 
-Outside the tokens: hero 28/8, Create tab 16/5, avatars 40%/12%, badges 4px, inputs 12px, toasts 16px, buttons and chips full pills. Eight sections still inline `rounded-[24px_8px_24px_8px]` instead of `.panel`.
+Outside the tokens: hero 28/8, Create tab 16/5, avatars 40%/12%, badges 4px, inputs 12px, toasts 16px, buttons and chips fully round.
 
 ### Motion
 
 | Token | Value | Intent |
 | --- | --- | --- |
-| `--ease-weave` | `cubic-bezier(0.2, 0.8, 0.2, 1)` | The one curve |
-| `--duration-quick` | 140ms | Color changes, sheet exit |
+| `--ease-weave` | `cubic-bezier(0.2, 0.8, 0.2, 1)` | Keyframes, backdrop, card lift, Make pill, Toggle knob |
+| `--duration-quick` | 140ms | Button and chip color changes, sheet exit |
 | `--duration-base` | 220ms | Card lift, preview fade, Make reveal, toggle |
 | `--duration-slow` | 360ms | Entrances, cover zoom |
 | `--animate-thread` | `thread` 1.8s, `--ease-weave`, infinite | Shimmer, weaving bar |
@@ -87,28 +89,15 @@ Outside the tokens: hero 28/8, Create tab 16/5, avatars 40%/12%, badges 4px, inp
 
 ### Contrast
 
-`tests/unit/contrast.test.ts` computes WCAG ratios from the token hex values and fails below 4.5:1. It checks bone-500 on ink-950, 900, 850 and 800 (5.51, 5.30, 5.06, 4.74), every text token on ink-950 and ink-900, and ink-950 text on seven fills. Two more tests check the formula against WCAG reference values and fail when a class names an undefined shade. The suite passed, 258/258, at the infra merge.
-
-| Text | ink-950 | ink-900 | Text | ink-950 | ink-900 |
-| --- | --- | --- | --- | --- | --- |
-| bone-50 | 17.26 | 16.60 | bone-100 | 15.83 | 15.23 |
-| bone-200 | 13.82 | 13.30 | bone-300 | 10.16 | 9.77 |
-| bone-400 | 6.88 | 6.62 | bone-500 | 5.51 | 5.30 |
-| ember-200 | 12.86 | 12.37 | ember-300 | 10.57 | 10.17 |
-| ember-400 | 8.49 | 8.17 | brass-300 | 13.16 | 12.66 |
-| brass-400 | 10.27 | 9.88 | sage-300 | 13.21 | 12.71 |
-| sage-400 | 10.21 | 9.82 | iris-300 | 11.68 | 11.24 |
-| iris-400 | 8.59 | 8.26 | danger-400 | 7.17 | 6.90 |
-
-ink-950 on fills: ember-500 6.94, ember-400 8.49, brass-400 10.27, sage-400 10.21, iris-400 8.59, bone-50 17.26, bone-200 13.82.
+`tests/unit/contrast.test.ts` computes WCAG ratios from token hex values and fails below 4.5:1. It checks bone-500 on ink-950, 900, 850 and 800 (lowest 4.74, on ink-800), every text token on ink-950 and ink-900, and ink-950 text on seven fills. Ratios sit in the Color table, plus ink-950 on ember-500: 6.94.
 
 Not measured by any test:
 
-- Text on translucent surfaces over media (badges on `ink-950/70`, card pills on `/55` and `/60`). Over a pure white poster, iris-300 on `ink-950/70` computes to 4.48:1, just under AA.
-- Tinted notices (`iris-400/10`, `sage-400/10`, `danger-400/15`, `brass-300/15`), toasts on `ink-800/95`, panels on `ink-900/70`.
-- ink-950 on ember-600 (pressed; 5.21 computed) and the make bar's 10px demo tag.
-- Non-text contrast: the 9% hairline, toggle track and focus outline.
-- Real rendering: anti-aliasing and weight.
+- Translucent chrome: the 10.5px bone-500 tab labels on the `ink-950/90` tab bar, and the `ink-950/80` top bar over scrolled media (`shell.tsx:191, 224, 239`).
+- Over media: badges and pills (on a white poster, iris-300 on `ink-950/70` is 4.48:1, under AA); bone-100 on `WithheldMedia`'s ember gradient (`template-card.tsx:21-24`).
+- Tinted notices, toasts on `ink-800/95`, panels on `ink-900/70`; ink-950 on pressed ember-600 (5.21 computed); the make bar's 10.5px demo tag (`.tag` beats its `text-[10px]`).
+- Other text tokens on ink-850 and ink-800 (only bone-500 is tested there), such as bone-400 tray rows and bone-300 Create notes; all compute at 5.92:1 or better.
+- Non-text contrast: hairline, toggle track, focus outline.
 
 ## Typography hierarchy
 
@@ -116,59 +105,51 @@ Named sizes keep Tailwind's paired line heights; pixel sizes inherit 1.5. Fraunc
 
 | Role | Family | Size | Weight | Line height |
 | --- | --- | --- | --- | --- |
-| Hero (home; auth is 48px) | display | 30px, 48px from sm | 400; ember-300 italic emphasis | 1.05 |
-| Page title | display | 36px; template and sandbox pages 48px from sm | 400 | 40px, or 1.25 |
-| Gate title (age gate, offline) | display | 30px | 400 | 36px |
+| Hero (auth 48px) | display | 30px, 48px from sm | 400; ember-300 italic emphasis | 1.05 |
+| Page title | display | 36px; template and sandbox pages 48px from sm; gates 30px | 400 | 40px, or 1.25; gates 36px; creator 36px (`leading-none`) |
 | Section heading | display | 26px, 30px from sm | 400 | 1.25 |
 | Empty state, sheet title | display | 24px, 20px | 400 | 32px, 28px |
 | Card title | display | 17px, one line | 400 | 1.375 |
-| Wordmark | display italic | 22px, tight | 400 | 1.5 |
 | Lead | sans | 15px | 400 | 1.5 to 1.625 |
 | Body, inputs, md buttons | sans | 14px | 400; 600 on filled buttons | 20px |
-| Compact UI (chips, rows, nav) | sans | 13px to 14.5px | 400; 600 active chip | 1.5 |
+| Compact UI (chips, rows, nav) | sans | 13px to 15px | 400; 600 active chip | 1.5 |
 | Field label, hint, error | sans | 13px, 12.5px | 500 label, 400 | 1.5 |
-| Meta | mono | 11px to 11.5px | 400 | 1.5 |
+| Meta | mono | 11px to 12px | 400 | 1.5 |
 | `.tag` and tab labels | mono uppercase 0.08em; tabs sans | 10.5px | 400 | 1.5 |
-
-Credit balances use mono with tabular figures.
 
 ## Spacing and grid
 
-Spacing uses Tailwind's 4px unit, with no custom tokens. Breakpoints are Tailwind's defaults: `sm` 640px, `md` 768px, `lg` 1024px, `xl` 1280px, `2xl` 1536px.
+Spacing uses Tailwind's 4px unit; no custom tokens. Breakpoints are Tailwind's defaults: `sm` 640px, `md` 768px, `lg` 1024px, `xl` 1280px, `2xl` 1536px.
 
-Page gutters are 16px, then 24px from sm. Content is centered at most 1600px wide. The rail is 236px from lg. The top bar and tab bar are 64px plus safe areas. Main content pads 112px at the bottom below lg to clear the tab bar, 48px from lg. Home sections sit 48px apart; a section heading sits 16px above its content. Panels pad 20px, then 24px from sm.
+Gutters are 16px, 24px from sm, within 1600px. Main content pads 112px at the bottom below lg (tab bar), 48px from lg beside the 236px rail. Create panel wrappers pad 16px, 24px from sm.
 
 | Grid | Base | sm | md | lg | xl | 2xl | Gap x / y |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Template grid, skeleton | 2 | 3 | 4 | 4 | 5 | 6 | 12 (16 from sm) / 24 |
+| Template grid (also Favorites' Templates tab) | 2 | 3 | 4 | 4 | 5 | 6 | 12 (16 from sm) / 24 |
 | Library | 2 | 3 | 4 | 4 | 5 | 6 | 12 / 20 |
-| Favorites, creations | 2 | 3 | 3 | 4 | 5 | 5 | 16 |
+| Favorites' Your creations tab | 2 | 3 | 3 | 4 | 5 | 5 | 16 |
 | Train characters | 2 | 3 | 3 | 4 | 4 | 4 | 20 |
 | Projects | 1 | 2 | 2 | 2 | 3 | 3 | 20 |
 
-The template grid flows densely. On Home's Trending grid the first card and every eleventh after it span two columns and two rows from sm. Rails scroll sideways with snap points: cards are 42% of the viewport (max 220px) on phones and 200px from sm, and the rail bleeds to the screen edge. Cards are 4:5; project covers 16:9.
+The template grid flows densely. On Home's Trending grid the first card and every eleventh after it span two columns and rows from sm. Rails scroll sideways with snap points, edge to edge: cards are 42% of the viewport (max 220px) on phones, 200px from sm. Template cards are 4:5; creation tiles take the output's ratio (4:5 when unknown); project covers are 16:9.
 
-Two-column pages switch at lg: template page 1.05fr and 1fr with a 40px gap, creation detail 1.2fr and 1fr, project workspace 340px and the rest, auth two equal columns. Studio switches at xl, with a 320px side column.
+Two-column pages switch at lg: template 1.05fr/1fr with a 40px gap, creation detail 1.2fr/1fr, project workspace 340px/1fr, auth 1fr/1fr. Studio switches at xl (320px side column).
 
 ## Components and their states
 
-`src/components/ui.tsx` exports `buttonClass`, `Button`, `ButtonLink`, `Badge`, `Chip`, `Field`, `inputClass`, `Toggle`, `Sheet`, `radioGroupKeys`, `ToastProvider`, `useToast`, `Skeleton`, `EmptyState` and `SectionHeading`. `Button` adds a `busy` state; `Chip` reports `aria-pressed` unless given a role.
+`src/components/ui.tsx` exports `buttonClass`, `Button`, `ButtonLink`, `Badge`, `Chip`, `Field`, `inputClass`, `Toggle`, `Sheet`, `radioGroupKeys`, `ToastProvider`, `useToast`, `Skeleton`, `EmptyState` and `SectionHeading`.
 
-| Button | Default | Hover | Use |
-| --- | --- | --- | --- |
-| ember | ember-500 fill, ink-950 text, 600 | ember-400; pressed ember-600 | One primary action per view |
-| bone | bone-50 fill, ink-950 text, 600 | bone-200 | Create, Sign in, Follow |
-| ghost | hairline, bone-50 text | ink-800 | Secondary |
-| quiet | bone-300 text | bone-50 on ink-800 | Tertiary, Leave |
-| danger | hairline, danger-400 text | danger-400 at 10% | Destructive |
-
-Sizes: `sm` 32px (40px below 640px), `md` 40px, `lg` 48px.
+- **`Button`, `ButtonLink`, `buttonClass`** (`ButtonLink`: a Next `Link`, same variants and sizes): ember (primary: ember-500 fill, ink-950 text at 600; hover ember-400, pressed ember-600), bone (Create, Sign in: bone-50 fill; hover bone-200), ghost (hairline, bone-50 text; hover ink-800), quiet (bone-300 text; hover bone-50 on ink-800), danger (hairline, danger-400 text; hover a 10% tint). Sizes: `sm` 32px (40px below 640px), `md` 40px, `lg` 48px.
+- **`Chip`**: 13px pill, 32px tall (40px below sm). Off: hairline, bone-300; hover bone-50 on ink-800. On: bone-50 fill, ink-950 at 600. `aria-pressed` unless given a role.
+- **`Toggle`**: `role="switch"`, a 40 by 24px track, ink-700 off, ember-500 on; its 20px knob slides from 2px to 18px.
+- **`Field`, `inputClass`**: 13px bone-200 label, 12.5px bone-500 hint; inputs ink-900 with a hairline and 12px radius.
+- **`SectionHeading`**: an ember-400 `.tag` kicker over the title, an optional action at bottom right.
 
 | Badge tone | Look | Use |
 | --- | --- | --- |
 | plain | bone-200 on ink-950/70 | 4K, category, status |
 | vip | ink-950 on brass-400 | VIP |
-| new | ink-950 on sage-400 | New, Ready |
+| new | ink-950 on sage-400 | New, Ready, Take |
 | video | iris-300 on ink-950/70 | Video, duration |
 | demo | ink-950 on iris-400 | Demo, Sandbox, dev scanner |
 | warn | brass-300 on brass-300/15 | Draft, scanner warnings |
@@ -176,30 +157,28 @@ Sizes: `sm` 32px (40px below 640px), `md` 40px, `lg` 48px.
 
 ### States
 
-| State | Rule |
-| --- | --- |
-| Default | Token colors; inactive chips and ghost buttons carry a hairline |
-| Hover | Surface steps to ink-800 or text to bone-50. Cards lift 4px |
-| Focus-visible | 2px ember-400 outline, 2px offset. Inputs use a 2px ember-400/70 ring instead |
-| Active | `aria-current`, ink-800 surface, ember-400 icon. Selected chip: bone-50 fill |
-| Disabled | 45% opacity, no pointer events. `OfflineGuard` disables Make, Confirm, Retry and Buy offline |
-| Busy | Spinner, disabled, `aria-busy` |
-| Error | `Field` swaps the hint for danger-400 text in `role="alert"`. Page errors read "A thread snapped" with Try again and the digest |
-| Empty | `EmptyState`: petal outline, display title, one sentence, one action |
-| Loading | A root `loading.tsx` plus eight route-level ones: the real heading when known, then a shimmer shaped like the content |
-| Withheld | A viewer who must verify their age gets no media URL: a shield and "Verify your age to see previews" |
+- **Default.** Token colors; inactive chips and ghost buttons carry a hairline.
+- **Hover.** Surface steps to ink-800 (rail: ink-850) or text to bone-50. Cards lift 4px.
+- **Focus-visible.** 2px ember-400 outline, 2px offset; inputs too (no ring renders). Clipping: see Accessibility.
+- **Active.** `aria-current`, ink-800 surface, ember-400 icon; selected chip bone-50. No selection ring renders: a selected Library tile shows only its check icon, the chosen take a 5% ember tint and Take badge, the active scene nothing.
+- **Disabled.** `buttonClass` controls: 45% opacity, no pointer events. A disabled `Toggle` dims its whole row to 50%. `OfflineGuard` disables Make, Confirm, Retry and Buy offline.
+- **Busy.** `Button busy`: spinner, disabled, `aria-busy`.
+- **Error.** `Field` swaps the hint for danger-400 text in `role="alert"`. Error pages: "A thread snapped", Try again, the digest.
+- **Empty.** `EmptyState`: petal outline, display title, one sentence, one action.
+- **Loading.** Skeletons for Home, Explore, Favorites, Library and Projects; other routes have none, so 404s and redirects survive. A poster-less card's skeleton renders 0px tall; a running Library tile's shimmer covers only its text.
+- **Withheld.** No media URL is sent; a shield and "Verify your age to see previews" stand in on templates ("Sign in and verify…" signed out), "…to see this" in Library and detail (no Download), "…this photo" in Train. Gaps: project covers, the scene strip and project compare show a bare clapperboard; creation detail's Versions strip shows the status word ("Ready").
 
 ### Composites
 
-**Template card.** A 4:5 petal: poster, then a muted preview that fades in on hover or focus. Badges top left (VIP, New, 4K, Demo); a 36px favorite with `aria-pressed` top right, which pops on save and reverts with an error toast on failure. Bottom: Preview (or Verify now) and the ember Make pill. From lg, Make waits for hover or focus.
+**Template card.** A 4:5 petal: poster, plus its muted preview clip, if any, on hover or focus. Badges top left (VIP, New, 4K, Demo); a favorite top right pops on save, reverting with a toast on error. Bottom left: Verify now (signed out: Sign in) when withheld, else a Preview pill on video cards. Bottom right: the ember Make pill, hidden until hover or focus from lg.
 
-**Sheet.** `showModal()` gives the focus trap and focus return. Escape, backdrop and Close call `onClose`; the sheet keeps its last content while it sinks out. 480px wide, or 880px when `wide`; at most 92dvh tall.
+**Sheet.** `showModal()` gives the focus trap and return. Escape, backdrop and Close call `onClose`; content stays while it sinks out. 480px wide (880px `wide`), at most 92dvh.
 
 **Toasts.** A polite live region; up to four stack, each clearing after 5 seconds. Tones: plain, success (sage dot), error (danger text); optional ember link.
 
-**Job tray.** Shown only while something runs: an ember thread bar, "N weaving", collapsible. Rows give the prompt, the real status, elapsed time and "· demo" where it applies. Offline, the bar stops and a brass line explains. It is the only poller: 3 seconds visible, 15 seconds in a background tab.
+**Job tray.** Shown only while something runs: a thread bar, "N weaving", collapsible rows with prompt, status, elapsed time and "· demo". Offline, the bar stops and a brass line explains.
 
-**Make bar** (Unseen). Below lg, a 48px ember link to `#make` floats while the Create panel is off screen: "Make it · N credits", "VIP template · see options" or "Make your own", with a Demo tag on demo models. Only the panel's button starts a creation.
+**Make bar.** Below lg, a 48px ember link to `#make` floats while the Create panel is off screen ("Make it · N credits", "VIP template · see options" or "Make your own", plus a Demo tag unless locked). It scrolls; only the panel starts a run.
 
 ## Responsive behavior
 
@@ -209,67 +188,65 @@ Sizes: `sm` 32px (40px below 640px), `md` 40px, `lg` 48px.
 | 640 to 1023px | Tab bar, top-bar search | Sheets center |
 | 1024px up | Rail | Tab bar and make bar hidden; two-column pages |
 
-The tab bar holds Discover, Search, a 48px ember Create button, Library, and You (or Sign in). The rail adds Train, a "Go deeper" group (Projects, Studio, Favorites), credits, Settings, Admin and sign-out.
+The tab bar holds Discover, Search, a 48px ember Create button, Library, and You (or Sign in). The rail adds Train, Projects, Studio, Favorites, credits, Settings, Admin, sign-out, and Pricing and Policies links for everyone. A member's You tab opens a Sheet (Unseen) with every rail page the tab bar lacks, as 48px rows. Signed out below lg, no navigation entry reaches Pricing or Policies. Top bar and tab bar are 64px plus safe areas.
 
-You (Unseen) opens a Sheet: profile, credits, then Favorites, Projects, Studio, Train, Settings, Pricing, Content policy & privacy and Admin as 48px rows, then sign-out for this device. Nothing in the rail is desktop-only.
-
-Safe areas: `viewport-fit=cover`. The top bar pads by the top inset; the tab bar and phone sheets by the bottom inset. Below lg, floating layers stack upward (Unseen): the make bar sits 4.75rem plus the inset up, the job tray adds the bar's height (`--dock-h`), and toasts add the tray's height too (`--tray-h`). From lg the tray sits 20px from the bottom right and toasts sit above it; from xl toasts sit 24px up.
+Safe areas: `viewport-fit=cover`; the top bar pads by the top inset, the tab bar and phone sheets by the bottom one. Below lg the make bar sits 4.75rem plus the inset up, the job tray above it (`--dock-h`), toasts above both (`--tray-h`; stacking Unseen). From lg the tray sits 20px from the bottom right.
 
 ## Motion principles
 
-- One curve, three durations. Exits beat entrances: a sheet rises in 360ms and sinks in 140ms; its backdrop fades in over 220ms and out over 140ms.
-- Sheet exit sets `data-closing`, runs `sink`, then closes after the computed duration plus 20ms, so it works without overlay support.
-- The thread bar and pulsing dots appear only while a job runs. Status words carry the meaning.
-- Previews are muted. Autoplay on Home's Trending grid is a member preference, off by default.
-- Reduced motion: a global rule cuts every animation and transition to 1ms and one run, and turns smooth scrolling off. Shimmers stop and sheets close in about 21ms. The make bar checks the preference before scrolling.
-- Gaps: grid arrow keys always scroll smoothly, and hover still plays previews under reduced motion.
+- **Exits beat entrances.** Sheets rise in 360ms and sink in 140ms (backdrop 220ms in, 140ms out). Closing sets `data-closing` and calls `close()` 20ms after the animation, so no overlay support is needed.
+- **Easing.** The custom keyframes (thread, rise, pop, sink, veil-in, veil-out) use `--ease-weave`. Buttons, chips, the Toggle track and the preview fade keep Tailwind's default `cubic-bezier(0.4, 0, 0.2, 1)`; rail links, the auth switch, the card's favorite and the tray chevron also keep its 150ms. Spinners use Tailwind's `animate-spin` (1s, linear), processing dots `animate-pulse` (2s, `cubic-bezier(0.4, 0, 0.6, 1)`).
+- **Reduced motion.** A global rule cuts every animation and transition to 1ms, plays each once and turns smooth scrolling off, so sheets close in about 21ms. The make bar checks the preference before scrolling.
+- **Gaps.** Under reduced motion, grid arrow keys still scroll smoothly and hover still plays looping previews.
 
 ## Accessibility
 
-**Contrast.** Every text token meets 4.5:1 on page and panel surfaces, enforced by test.
+**Contrast.** Tested pairs pass 4.5:1; Tokens lists them and the unmeasured ones.
 
-**Focus.** Every focusable element shows the ember outline; inputs show a ring. Hidden Make pills appear on focus, and focus plays a card's preview.
+**Focus.** Everything focusable gets the ember outline, inputs included, but a parent that clips overflow hides it. A card's link fills its `overflow-hidden` petal, so a focused card shows no ring; nor does the job tray's header. Chips and category links in sideways-scrolling rows keep only the ring's sides. Focus still reveals Make pills and plays previews.
 
 **Skip link.** "Skip to content" is the first Tab stop and lands on `<main id="main">`.
 
 **Patterns.**
 
-- Roving-tabindex radio groups (Unseen): the auth switch and Explore's sort. Only the checked radio is tabbable; Arrows, Home and End move and select, wrapping (`radioGroupKeys`).
-- The Create panel's "What to make" chips are radios without roving or arrows. Rating stars are too, on purpose, so arrowing never posts a rating per key.
-- Template grids (Unseen): Left and Right step, Up and Down jump to the nearest card on screen. Tab still reaches every control; the duplicate title link is out of the Tab order.
-- `aria-pressed` on toggles, `role="switch"` with `aria-checked`, `aria-current="page"`, `aria-expanded` on the tray.
-- Toasts and route loading are polite `role="status"` regions; errors use `role="alert"`.
+- Roving-tabindex radio groups: the auth switch and Explore's sort. Only the checked radio is tabbable; Arrows, Home and End move and select, wrapping (`radioGroupKeys`, keys Unseen).
+- Create's "What to make" chips and the rating stars are radios without arrow keys (stars on purpose: each arrow would post a rating).
+- Template grids: Left and Right step, Up and Down jump to the nearest card on screen (Unseen). Duplicate title links are out of the Tab order.
+- `aria-pressed`, `role="switch"` with `aria-checked`, `aria-current="page"`, `aria-expanded` on the tray. Route loading and toasts are polite `role="status"` regions; errors use `role="alert"`.
 
-**Labels.** `Field` ties `<label>` to its control but sets no `aria-invalid` or `aria-describedby`; callers must (the takedown form does). Icon-only buttons carry `aria-label`; decorative icons are hidden. Card links name the title, creator and ", demo media".
+**Labels.** `Field` ties `<label>` to its control. Only the takedown form sets `aria-invalid`, and nothing sets `aria-describedby`, so no hint or error is tied to a field. Icon-only buttons carry `aria-label`. Card links name the title, creator and ", demo media".
 
-**Touch targets.** Below 640px, small buttons, chips, category links, Favorites tabs, the auth switch, stars, Report and filter pills grow to 40px. Tab cells are 64px tall, You rows 48px. Still under 40px on phones: the card's favorite, Preview, Make and Verify pills, the sheet Close button and the credit pill (all 36px), and the Library's Retry text button.
+**Touch targets.** Below 640px, small buttons, chips, category links, Favorites tabs, the auth switch, stars, Report and filter pills reach 40px. Still under 40px on phones (code scan, possibly incomplete):
+
+- 36px: the card's favorite, Preview, Make and Verify pills, sheet Close, the credit pill, Remove upload, Studio's delete preset, scene move arrows. Explore's sort radios: about 38px.
+- 32px at every width: the Library's Status, Model, Folder and Sort selects; Train's remove-character button.
+- 24px: the template page's tag pills; 28px: the Policies section links.
+- Text or bare icon, about 14 to 20px: Home's Tune, All saved, Explore all and See all; card creator handles; toast actions; Library's Retry; Create's suggestion Apply and Dismiss; creation detail's Library link and Close comparison icon; the template page's Manage template and Remix of links.
 
 ## Labeling rules for demo and sandbox
 
-With no accounts or keys, AI generation is a labeled demo; payments, age verification and scanning run in labeled sandbox or dev modes; push stays off until VAPID keys are set. The live adapters (CCBill, Segpay, Yoti, PhotoDNA, Replicate) are Unverified, so screens such as "Payments are handled by CCBill" have never shown a real result.
+Without accounts or keys, AI generation is a labeled demo; payments, age verification and scanning run in labeled sandbox or dev modes; push is off without VAPID keys. The live adapters (CCBill, Segpay, Stripe, Yoti, PhotoDNA, Cloudflare edge scanning, Replicate) are Unverified.
 
-1. Iris means simulated. `Badge tone="demo"` is the only iris fill.
-2. Say what it is not: "not AI-generated", "No money moves", "proves nothing", "not live".
-3. Label every touchpoint, not one.
-4. The server backs the label: the payment sandbox and dev scanner refuse a live deployment, and `/verify/sandbox` returns 404 there.
+1. An iris fill means simulated; `Badge tone="demo"` is the only one.
+2. Say what it is not, where there is room: "not AI-generated", "No money moves", "proves nothing", "not live". Badges say only "Demo".
+3. Label every touchpoint, not one. Gaps: project covers, the scene strip, project "Side by side" and creation detail's Versions strip carry no Demo badge, only the burned-in watermark.
+4. The server backs the label: the payment sandbox refuses a live deployment, as does the dev scanner while fail-closed is on; `/verify/sandbox` returns 404 there.
 
-| System | Labels |
-| --- | --- |
-| AI generation (Demo) | "Demo" badges on cards and Library; "Demo media"; "Demo model"; models "Demo Still (not AI)" and "Demo Motion (not AI)"; "Demo creation ready."; tray "· demo"; the creation note; the pixel watermark "DEMO OUTPUT · NOT AI-GENERATED" |
-| Payments (sandbox) | "Sandbox · no money moves" on Pricing; Buy tagged "· sandbox"; `/pricing/sandbox` titled "This is a sandbox. No money moves." |
-| Age verification (sandbox) | Settings "Sandbox" badge and "a labeled demo that proves nothing"; `/verify/sandbox` footer "Demo · not age verification"; "(simulated)" toasts |
-| Scanning (dev) | `/admin/review`: "Development scanner · not live" on an iris panel |
-| Push | Not a demo. Without VAPID keys the toggle is disabled: "Push is not configured on this server." |
+On screen today:
+
+- **AI generation (Demo):** "Demo" badges on cards and Library; models "Demo Still (not AI)" and "Demo Motion (not AI)"; plain "· demo" text in the tray and Studio; a dark make bar Demo tag (not iris); the watermark "DEMO OUTPUT · NOT AI-GENERATED".
+- **Payments (sandbox):** "Sandbox · no money moves" on Pricing; Buy tagged "· sandbox"; `/pricing/sandbox`: "This is a sandbox. No money moves."
+- **Age verification (sandbox):** Settings "Sandbox" badge, "a labeled demo that proves nothing"; `/verify/sandbox` footer "Demo · not age verification"; "(simulated)" toasts.
+- **Scanning (dev):** `/admin/review`: "Development scanner · not live".
+- **Push:** Not a demo. Without VAPID keys the toggle is disabled: "Push is not configured on this server." (asserted in e2e). Real delivery is Unverified.
 
 ## Do and don't examples
 
 | Do | Don't |
 | --- | --- |
-| One `variant="ember"` button per view | Two ember buttons side by side |
-| `text-bone-500` for the quietest text | A new grey hex or an undefined shade |
 | `Badge tone="demo"` beside anything simulated | Iris fills on real features |
-| `className="panel"` | Another inline `rounded-[24px_8px_24px_8px]` |
-| `Sheet` for confirmations | `window.prompt` (admin suspend still uses it) |
-| `radioGroupKeys` with a roving tabindex | `role="radio"` chips without arrow keys |
+| New custom classes in `@layer components` | `ring-*` or `shadow-*` beside `.hairline` |
+| `className="panel"` | Another inline `rounded-[24px_8px_24px_8px]` (eight remain) |
+| `Sheet` for confirmations | `window.prompt` (admin suspend and Clear flag still use it) |
 | `size="sm"`, which grows on phones | New 36px tap targets |
-| `--duration-*` and `--ease-weave` | Fixed milliseconds, motion that ignores the preference |
+| `--duration-*` with `ease-[var(--ease-weave)]` | A missing easing, motion that ignores the preference |
