@@ -13,7 +13,8 @@ Every result uses exactly one of four statuses:
 | blocked | It cannot be run without something this build does not have (an account, a key, a daemon). |
 | not done | Not built. |
 
-Scope: the branch `claude/playbox-2-foundation-q7fpbs` at {{HEAD}} in FearMelts/HushLoom. The single
+Scope: the branch `claude/playbox-2-foundation-q7fpbs` in FearMelts/HushLoom. The code was verified at
+commit 09a436e on 2026-10-14; later commits on the branch change only documents and notes. The single
 tracker with every step, decision and open issue is `notes/progress.md`. Nothing is deployed, nothing
 is merged into `main`, and no pull request is open.
 
@@ -21,12 +22,12 @@ is merged into `main`, and no pull request is open.
 
 | Check | Command | Result | Evidence |
 | --- | --- | --- | --- |
-| Clean install | `npm ci` in a fresh worktree | {{CI}} | `notes/evidence/clean-verify-{{HEAD}}.log` |
-| Typecheck | `npm run typecheck` (`tsc --noEmit`, strict) | {{TC}} | same log |
-| Lint | `npm run lint` (zero warnings allowed) | {{LINT}} | same log |
-| Unit and integration tests | `npx vitest run` against Postgres 16 and Redis 7 | {{VITEST}} | same log |
-| Production build | `next build` (standalone output) | {{BUILD}} | same log |
-| Browser tests | `npm run test:e2e` (fresh database, production build, standalone server and worker) | {{E2E}} | `notes/evidence/e2e-{{HEAD}}.log` |
+| Clean install | `npm ci` in a fresh worktree | exit 0, 462 packages | `notes/evidence/clean-verify-09a436e.log` |
+| Typecheck | `npm run typecheck` (`tsc --noEmit`, strict) | exit 0, no errors | same log |
+| Lint | `npm run lint` (zero warnings allowed) | exit 0, no warnings or errors | same log |
+| Unit and integration tests | `npx vitest run` against Postgres 16 and Redis 7 | 45 files, 507 tests, all passed (302 s) | same log |
+| Production build | `next build` (standalone output) | exit 0 | same log |
+| Browser tests | `npm run test:e2e` (fresh database, production build, standalone server and worker) | 72 tests: 40 passed, 32 skipped (the visual captures), 0 failed (5.6 min), exit 0 | `notes/evidence/e2e-09a436e.log` |
 
 The browser run includes the launch journey (`tests/e2e/journey.spec.ts`, `tests/e2e/launch.spec.ts`)
 and the always-on layout guard (`tests/e2e/layout.spec.ts`). The 32 visual-capture tests in
