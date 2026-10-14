@@ -1,3 +1,4 @@
+import { inspect } from "node:util";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logger, setErrorSink } from "@/server/log";
@@ -242,6 +243,32 @@ describe("instrumentation", () => {
     const sent = String(calls[0]!.init.body);
     expect(sent).not.toContain("TOKEN");
     expect(stderr.join("\n")).not.toContain("share=TOKEN");
+  });
+
+  it("leaves no query parameters for Next.js's own error printer, which prints the same error next (I02)", async () => {
+    vi.stubEnv("NEXT_RUNTIME", "nodejs");
+    const { onRequestError } = await import("@/instrumentation");
+    const search = "masked strangers in a hotel corridor";
+    const query = `select "id", "title" from "templates" where "title" ilike $1 limit $2`;
+    const timeout = () => new Error("canceling statement due to statement timeout");
+    const direct = new DrizzleQueryError(query, [`%${search}%`, 24], timeout());
+    const wrapped = new Error("render failed", { cause: new DrizzleQueryError(query, [`%${search}%`, 24], timeout()) });
+    for (const err of [direct, wrapped]) {
+      await onRequestError(
+        err,
+        { path: "/explore", method: "GET", headers: {} },
+        { routerKind: "App Router", routePath: "/explore", routeType: "render", revalidateReason: undefined },
+      );
+      // In production NextServer.instrumentationOnRequestError awaits this hook, then hands the same
+      // error object to console.error (next/dist/server/next-server.js), which prints it with inspect.
+      const printed = inspect(err);
+      expect(printed).not.toContain(search);
+      // inspect indents a cause's lines, so the query and its redacted parameters are checked apart.
+      expect(printed).toContain(query);
+      expect(printed).toMatch(/\n\s*params: \[redacted\]\n/);
+      expect(printed).toMatch(/\n\s+at .*observability\.test\.ts/);
+    }
+    expect(stderr.join("\n")).not.toContain(search);
   });
 
   it("does nothing in the Edge runtime", async () => {

@@ -25,6 +25,21 @@ export function redactStack(err: Error): string | undefined {
   return at >= 0 ? stack.slice(0, at) + redacted + stack.slice(at + message.length) : redactQueryParams(stack);
 }
 
+/**
+ * Redacts, in place, the query parameters an error and its causes carry: message, stack and Drizzle's
+ * own `params` field. For an error that other code prints after the app has logged it: Next.js's
+ * production server prints every error it reports to instrumentation with console.error.
+ */
+export function scrubQueryParams(err: unknown): void {
+  for (let e: unknown = err, depth = 0; e instanceof Error && depth < 5; e = e.cause, depth++) {
+    const message = redactQueryParams(e.message);
+    if (message === e.message) continue;
+    e.stack = redactStack(e);
+    e.message = message;
+    if (Object.hasOwn(e, "params")) (e as { params?: unknown }).params = "[redacted]";
+  }
+}
+
 /** The direct cause's name and message (a wrapped query error's real reason, such as ECONNREFUSED). */
 export function causeOf(err: Error): { name: string; message: string } | undefined {
   const cause: unknown = err.cause;
