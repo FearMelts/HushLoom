@@ -382,14 +382,13 @@ describe("attack R12 (upload entry point): the same evidence on the upload path"
     expect(await storedBytes(asset.storageKey)).not.toBeNull();
   });
 
-  // HOLE (regression introduced by the R12 fix): recordVerdict now takes SELECT ... FOR UPDATE on
-  // the owner's users row before the asset row (scan/index.ts:162). withdrawConsent locks the
-  // upload's asset row (UPDATE media_assets) and then inserts its audit row, whose actor_id foreign
-  // key takes FOR KEY SHARE on the same users row, which conflicts with FOR UPDATE. The two now
-  // deadlock, and Postgres aborts the match transaction: the upload request fails with a 500, no
-  // escalation is opened, the owner is not suspended, and the withdrawal then purges the bytes.
-  // With the pre-fix order (asset first) the match waited for the withdrawal and was recorded.
-  test.fails("HOLE: the new users-first lock deadlocks the upload's match with a concurrent consent withdrawal", async () => {
+  // Was a hole (R12-H1, a regression from the R12 fix): recordVerdict took SELECT ... FOR UPDATE on
+  // the owner's users row before the asset row. withdrawConsent locks the upload's asset row
+  // (UPDATE media_assets) and then inserts its audit row, whose actor_id foreign key takes FOR KEY
+  // SHARE on the same users row, which conflicts with FOR UPDATE. The two deadlocked and Postgres
+  // aborted the match transaction: no escalation, no suspension, and the withdrawal purged the
+  // bytes. The users row is now locked FOR NO KEY UPDATE, which a foreign-key check does not wait on.
+  it("an upload's match recorded during a consent withdrawal on that upload waits for it instead of deadlocking", async () => {
     const u = await makeUser({ credits: 50 });
     const scan = pausedScanner(MATCH);
     const upload = acceptUpload(u.id, { bytes: await png(), declaredMime: "image/png" }, { statement: "x", subjectLabel: null }, "source").then(
