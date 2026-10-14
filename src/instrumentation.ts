@@ -6,9 +6,11 @@ import type { Instrumentation } from "next";
  * register() installs the optional error webhook (ERROR_WEBHOOK_URL, src/server/observability.ts).
  * onRequestError() reports what Next.js catches itself: server component renders, server actions and
  * handlers that throw past route(). Errors route() turns into a 500 are logged there already, so none
- * is reported twice; notFound() and redirects never reach this hook. In production Next.js prints each
- * error it reports here with console.error, after this hook returns, so the hook redacts the error's
- * query parameters in place first (scrubQueryParams in src/server/log.ts).
+ * is reported twice; notFound() and redirects never reach this hook. In production Next.js also prints
+ * each error it reports here with console.error: for App Router pages and route handlers before this
+ * hook runs (RouteModule.onRequestError), elsewhere after it. A Drizzle error scrubs its query
+ * parameters itself when printed (scrubWhenInspected, installed by src/server/db), and the hook redacts
+ * the reported error in place too (scrubQueryParams in src/server/log.ts), wrappers included.
  *
  * Both only act in the Node.js runtime. The imports sit inside the runtime check so the Edge bundle
  * (middleware) never pulls in the server modules.
@@ -31,8 +33,8 @@ export const onRequestError: Instrumentation.onRequestError = async (err, reques
       route: context.routePath,
       routeType: context.routeType,
     });
-    // In production Next.js then prints this same error object itself, unredacted, so its query
-    // parameters (search text, prompts, emails) are removed from it here first.
+    // Next.js may print this same error object again after this hook, so its query parameters (search
+    // text, prompts, emails) are removed from it here too.
     scrubQueryParams(err);
   }
 };

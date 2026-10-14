@@ -46,6 +46,29 @@ export function scrubQueryParams(err: unknown): void {
   }
 }
 
+const INSPECT = Symbol.for("nodejs.util.inspect.custom");
+
+/**
+ * Makes every instance of `errorClass` scrub itself (scrubQueryParams) whenever util.inspect formats it,
+ * as console.error does, directly or as another error's cause. Next.js prints an App Router page's or
+ * route handler's error before it calls instrumentation's onRequestError (RouteModule.onRequestError),
+ * so the hook's scrub comes too late for that print. The error is then formatted as before, by the
+ * inspect Error.prototype carries (Next.js's production server installs one) or natively.
+ */
+export function scrubWhenInspected(errorClass: { prototype: Error }): void {
+  const parent = Object.getPrototypeOf(errorClass.prototype) as Record<symbol, unknown>;
+  Object.defineProperty(errorClass.prototype, INSPECT, {
+    configurable: true,
+    writable: true,
+    value(this: Error, ...args: unknown[]) {
+      scrubQueryParams(this);
+      const inherited = parent[INSPECT];
+      // Returning the error itself has util.inspect format it natively.
+      return typeof inherited === "function" ? (inherited as (...a: unknown[]) => unknown).apply(this, args) : this;
+    },
+  });
+}
+
 /** The direct cause's name and message (a wrapped query error's real reason, such as ECONNREFUSED). */
 export function causeOf(err: Error): { name: string; message: string } | undefined {
   const cause: unknown = err.cause;

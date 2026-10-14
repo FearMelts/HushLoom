@@ -183,32 +183,38 @@ describe("I02: no query parameters reach Next.js's own error printer", () => {
   }
   const hookRan = () => printed.some((p) => p.includes(`"msg":"request error"`));
 
-  // HOLE (high, I02 not fixed for the App Router): in Next 15.5.27 every App Router page reports render
-  // errors through RouteModule.onRequestError: app-page.js:415 in next/dist/build/templates, and in the
-  // bundle the build emits (.next/server/app/explore/page.js of the main checkout:
+  // Was a hole (high, I02 not fixed for the App Router): in Next 15.5.27 every App Router page reports
+  // render errors through RouteModule.onRequestError: app-page.js:415 in next/dist/build/templates, and
+  // in the bundle the build emits (.next/server/app/explore/page.js of the main checkout:
   // "onInstrumentationRequestError:(b,c,d)=>L.onRequestError(a,b,d,ae)"). That method PRINTS the error
   // first, with routerServerContext.logErrorWithOriginalStack, which in production is `_log.error(err)`
   // (next/dist/server/lib/router-server.js:551), and only THEN awaits instrumentation.onRequestError
   // (next/dist/server/route-modules/route-module.js:261-271; the same order in
-  // next/dist/compiled/next-server/app-page.runtime.prod.js, which the build requires). So
-  // scrubQueryParams runs after the unredacted message, stack and `params` field are on stdout. The
-  // ordering the I02 fix relies on (NextServer.instrumentationOnRequestError, next-server.js:1439-1444)
-  // is not the path App Router pages and route handlers take (base-server.js:1406 hands them to the
-  // module's own handler).
-  test.fails("HOLE: a server component's query error is printed by Next.js before the hook can scrub it (App Router page, production)", async () => {
+  // next/dist/compiled/next-server/app-page.runtime.prod.js, which the build requires). So the hook's
+  // scrub came after the unredacted message, stack and `params` field were on stdout. A Drizzle error
+  // now scrubs itself whenever it is inspected (scrubWhenInspected, installed by src/server/db), so the
+  // print is redacted whoever makes it and whenever.
+  it("holds: a server component's query error is redacted when Next.js prints it before the hook (App Router page, production)", async () => {
     await hook();
-    const err = new DrizzleQueryError(browse, [`%${search}%`, 24], timeout());
     const routerServerContext = { logErrorWithOriginalStack: (e: unknown) => (require_("next/dist/build/output/log") as { error(...a: unknown[]): void }).error(e) };
-    await productionModule("app-page").onRequestError({ url: "/explore?q=masked", headers: {}, method: "GET" }, err, renderCtx, routerServerContext);
-    expect(hookRan()).toBe(true);
-    expect(printed.join("\n")).not.toContain(search);
+    const direct = new DrizzleQueryError(browse, [`%${search}%`, 24], timeout());
+    const wrapped = new Error("render failed", { cause: new DrizzleQueryError(browse, [`%${search}%`, 24], timeout()) });
+    for (const err of [direct, wrapped]) {
+      printed = [];
+      await productionModule("app-page").onRequestError({ url: "/explore?q=masked", headers: {}, method: "GET" }, err, renderCtx, routerServerContext);
+      expect(hookRan()).toBe(true);
+      expect(printed.join("\n")).not.toContain(search);
+      // Next's own print is still there, query and frames included, with the parameters redacted.
+      expect(printed[0]).toContain(browse);
+      expect(printed[0]).toMatch(/params: \[redacted\]\n\s+at /);
+    }
   });
 
-  // HOLE (same cause, route handlers): a handler that throws past route() is reported by app-route.js:372
-  // without a routerServerContext, so RouteModule.onRequestError falls back to console.error(err),
-  // again before the hook. src/app/api/media/route.ts is the one handler not wrapped by route() that can
-  // throw (health catches its own errors); its query binds the storage key, nothing more private.
-  test.fails("HOLE: an unwrapped route handler's query error is printed by Next.js before the hook can scrub it (production)", async () => {
+  // Was a hole (same cause, route handlers): a handler that throws past route() is reported by
+  // app-route.js:372 without a routerServerContext, so RouteModule.onRequestError falls back to
+  // console.error(err), again before the hook. src/app/api/media/route.ts is the one handler not wrapped
+  // by route() that can throw (health catches its own errors); its query binds the storage key.
+  it("holds: an unwrapped route handler's query error is redacted when Next.js prints it before the hook (production)", async () => {
     await hook();
     const key = "outputs/0f0f0f0f-0000-4000-8000-000000000000/SECRET_STORAGE_KEY.webp";
     const err = new DrizzleQueryError(`select * from "media_assets" where "media_assets"."storage_key" = $1`, [key], timeout());
@@ -219,6 +225,7 @@ describe("I02: no query parameters reach Next.js's own error printer", () => {
     );
     expect(hookRan()).toBe(true);
     expect(printed.join("\n")).not.toContain("SECRET_STORAGE_KEY");
+    expect(printed[0]).toContain("params: [redacted]");
   });
 
   it("holds (control): where Next.js prints after awaiting the hook (NextServer.instrumentationOnRequestError), the print is redacted", async () => {
@@ -334,6 +341,26 @@ describe("I02: no query parameters reach Next.js's own error printer", () => {
       scrubQueryParams(err);
       expect((err as Error).message).toMatch(/params: \[redacted\]$/);
       expect(format(err).toLowerCase()).not.toContain(user.email.toLowerCase());
+    });
+
+    it("holds: a real driver error from a page render is redacted, detail included, when Next.js prints it before the hook (App Router page, production)", async () => {
+      await hook();
+      const user = await makeUser();
+      let err: unknown;
+      try {
+        await getDb()
+          .insert(generationJobs)
+          .values({ userId: user.id, idempotencyKey: "attack-2", mode: "text_to_image", modelKey: "m", providerKey: "demo", isDemo: true, prompt: "two adults SECRET_PAGE_PRINT", params: {}, costCredits: -1 } as typeof generationJobs.$inferInsert);
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(DrizzleQueryError);
+      const routerServerContext = { logErrorWithOriginalStack: (e: unknown) => (require_("next/dist/build/output/log") as { error(...a: unknown[]): void }).error(e) };
+      await productionModule("app-page").onRequestError({ url: "/templates/x", headers: {}, method: "GET" }, err, { ...renderCtx, routePath: "/templates/[id]" }, routerServerContext);
+      expect(hookRan()).toBe(true);
+      expect(printed.join("\n")).not.toContain("SECRET_PAGE_PRINT");
+      expect(printed[0]).toContain("params: [redacted]");
+      expect(printed[0]).toContain("detail: '[redacted]'");
     });
   });
 });
