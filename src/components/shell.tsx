@@ -72,7 +72,7 @@ function CreditPill({ credits }: { credits: number }) {
   return (
     <Link
       href="/pricing"
-      className="inline-flex h-9 items-center gap-2 rounded-full bg-ink-850 pl-2 pr-3.5 text-sm hairline hover:bg-ink-800"
+      className="inline-flex h-10 items-center gap-2 rounded-full bg-ink-850 pl-2.5 pr-3.5 text-sm hairline hover:bg-ink-800"
       aria-label={`${credits} credits. Get more credits`}
     >
       <span className="grid size-5 place-items-center rounded-full bg-brass-400 text-[11px] font-bold text-ink-950" aria-hidden>
@@ -190,7 +190,7 @@ export function Shell({ user, children }: { user: ShellUser; children: ReactNode
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-ink-950/80 pt-[env(safe-area-inset-top)] backdrop-blur lg:pl-[236px]">
         <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-3 px-4 sm:px-6">
-          <Link href="/" className="lg:hidden" aria-label="Hushloom home">
+          <Link href="/" className="inline-flex h-10 items-center lg:hidden" aria-label="Hushloom home">
             <Wordmark />
           </Link>
           <SearchBox className="ml-auto hidden w-full max-w-md sm:block lg:ml-0" />
