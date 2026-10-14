@@ -30,7 +30,7 @@ import { checkoutItem, currencyFromNumeric, currencyToNumeric, hmacHex, md5, par
  *
  * What must be confirmed in CCBill's sandbox before go-live:
  *  1. That FlexForms echoes URL parameters prefixed "X-" back in webhooks (pass-through), and
- *     under which key spelling (this adapter reads "X-hlUser", "x-hluser" and "hlUser").
+ *     under which key spelling (this adapter reads only "X-hlUser", in any case; never the bare "hlUser").
  *  2. Whether the Refund / Chargeback / Return `transactionId` is the original sale's id or a
  *     new id (this adapter tries the transaction id first, then the subscriptionId).
  *  3. Whether the webhook URL keeps its own query string, which CCBILL_WEBHOOK_TOKEN relies on.
@@ -93,7 +93,12 @@ const field = (p: Record<string, string>, ...names: string[]) => {
   return undefined;
 };
 
-const passthrough = (p: Record<string, string>, name: string) => field(p, `X-${name}`, name);
+/**
+ * Pass-through values are read only under their documented "X-" spelling (any case). A bare "hlUser" would put the
+ * buyer's form parameters in the same namespace as CCBill's own fields, so an echoed X-billedInitialPrice could
+ * stand in for what CCBill billed. If CCBill turns out to strip the prefix, sales are not granted: fail closed.
+ */
+const passthrough = (p: Record<string, string>, name: string) => field(p, `X-${name}`);
 
 function parseDate(s: string | undefined): Date | undefined {
   if (!s) return undefined;

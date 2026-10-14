@@ -169,7 +169,8 @@ describe("attack R01: credits for less than the price", () => {
   // prefix. If CCBill does, a buyer who appends X-billedInitialPrice=59.99 to the Night Pass form gets a body with two
   // billedInitialPrice fields, and webhookParams keeps the last one: the echoed value wins over what CCBill billed, and the
   // R01 check passes for a $19.99 payment. Processor fields and buyer-echoed fields share one namespace.
-  it.fails("HOLE: a pass-through echoed without its X- prefix overrides CCBill's billedInitialPrice", async () => {
+  // Closed: pass-through values are read only under their X- spelling, so the bare pair is not ours and nothing is granted.
+  it("HOLE: a pass-through echoed without its X- prefix overrides CCBill's billedInitialPrice", async () => {
     const buyer = await makeUser();
     const res = await ccbillRaw("NewSaleSuccess", [
       ["subscriptionId", "4300000001"],
