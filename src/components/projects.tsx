@@ -285,7 +285,7 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
       </section>
 
       {active ? (
-        <div className="grid gap-8 lg:grid-cols-[340px_1fr]">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-8 lg:grid-cols-[340px_minmax(0,1fr)]">
           <SceneGuide key={active.id} scene={active} characters={characters} onSaved={() => router.refresh()} canDelete={data.scenes.length > 1} />
           <section aria-label="Versions">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">

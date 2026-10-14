@@ -10,8 +10,10 @@ import { pricing } from "../../src/config/pricing";
  * Visual review capture (phase 4). Full-page screenshots of every page and state at three viewports, each
  * with automated checks recorded next to it in a manifest:
  *
- *   - horizontal overflow: document.documentElement.scrollWidth > innerWidth, with up to five offending
- *     elements (the outermost ones whose right edge passes the viewport and that no fitting scroller clips);
+ *   - horizontal overflow: document.documentElement.scrollWidth > the configured viewport width (not innerWidth:
+ *     with isMobile, Chromium widens the layout viewport to fit wide content, so innerWidth grows with the
+ *     overflow), with up to five offending elements (the outermost ones whose right edge passes the viewport
+ *     and that no fitting scroller clips);
  *   - small targets: visible a, button, input, select, textarea, [role=button] and [tabindex] elements under
  *     40x40 px at 390 px wide, or under 24x24 px at any width. Elements that fail by design (an inline text
  *     link, a checkbox whose label is the target) are listed with the reason, not dropped;
@@ -71,6 +73,7 @@ type PageChecks = {
   overflow: {
     scrollWidth: number;
     innerWidth: number;
+    viewportWidth: number;
     overflows: boolean;
     offenders: { el: string; text: string; left: number; right: number; width: number }[];
     offenderCount: number;
@@ -152,7 +155,7 @@ function freshManifest(): Manifest {
       deviceScaleFactor: v.options.deviceScaleFactor ?? 1,
     })),
     checks: {
-      overflow: "document.documentElement.scrollWidth > window.innerWidth. offenders: up to five outermost elements whose right edge passes the viewport and that no fitting scroll or clip container hides (offenderCount is the full count).",
+      overflow: "document.documentElement.scrollWidth > the configured viewport width (viewportWidth; innerWidth is recorded too, and a phone context widens it to fit wide content). offenders: up to five outermost elements whose right edge passes the viewport and that no fitting scroll or clip container hides (offenderCount is the full count).",
       smallTargets:
         "Visible a, button, input, select, textarea, [role=button], [tabindex] (visually hidden .sr-only elements and hidden inputs skipped). At 390 px: smaller than 40x40 (under24 also marks those below 24x24); at other widths: smaller than 24x24. byDesign gives the reason when an element fails on purpose; flagged = failing - byDesign. items lists up to 80.",
       clippedText: "Elements with overflow-x hidden or clip, scrollWidth > clientWidth + 1, text-overflow not ellipsis, and text of their own (a text node, or only inline children with text). Inputs and visually hidden elements skipped. items lists up to 40.",
@@ -206,8 +209,10 @@ function slug(s: string) {
 // ── In-page checks ───────────────────────────────────────────────────────────────────────────────
 
 /** Runs in the page. Self-contained: Playwright serializes it. */
-function pageChecks(arg: { minTarget: number; scope: string | null; rule: string }): PageChecks {
-  const W = window.innerWidth;
+function pageChecks(arg: { minTarget: number; scope: string | null; rule: string; viewportWidth: number }): PageChecks {
+  // The configured width, not innerWidth: with isMobile, Chromium widens the layout viewport to fit content that
+  // overflows, so innerWidth would grow with the very overflow this measures.
+  const W = arg.viewportWidth;
   const docEl = document.documentElement;
   const scopeEl = arg.scope ? document.querySelector(arg.scope) : null;
   const root: Element = scopeEl ?? docEl;
@@ -347,7 +352,7 @@ function pageChecks(arg: { minTarget: number; scope: string | null; rule: string
   const scopeName = scopeEl ? `${arg.scope} (${clean(scopeEl.getAttribute("aria-label"), 60)})` : "document";
   return {
     h1: clean(document.querySelector("h1")?.textContent, 120) || null,
-    overflow: { scrollWidth, innerWidth: W, overflows, offenders, offenderCount },
+    overflow: { scrollWidth, innerWidth: window.innerWidth, viewportWidth: W, overflows, offenders, offenderCount },
     smallTargets: { rule: arg.rule, minSize: arg.minTarget, scope: scopeName, checked, failing, flagged: failing - byDesignCount, byDesign: byDesignCount, under24: under24Count, groups: Array.from(groups.values()).sort((a, b) => b.count - a.count), items, truncated: Math.max(0, failing - items.length) },
     clippedText: { scope: scopeName, count: clippedCount, items: clipped, truncated: Math.max(0, clippedCount - clipped.length) },
   };
@@ -560,7 +565,7 @@ class Shooter {
     const file = `${id}.png`;
     await page.screenshot({ path: path.join(SHOTS_DIR, file), fullPage, animations: "disabled", caret: "hide", timeout: 60_000 });
     const narrow = this.vp.width <= 390;
-    const checks = await page.evaluate(pageChecks, { minTarget: narrow ? 40 : 24, scope, rule: narrow ? "40x40 at 390 px wide" : "24x24 at any width" });
+    const checks = await page.evaluate(pageChecks, { minTarget: narrow ? 40 : 24, scope, rule: narrow ? "40x40 at 390 px wide" : "24x24 at any width", viewportWidth: this.vp.width });
     const contrast = await contrastCheck(page, scope);
     if (fullPage) await page.evaluate(() => window.scrollTo(0, 0));
     const errs = this.errors.get(page);
