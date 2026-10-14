@@ -1,6 +1,7 @@
 import sharp from "sharp";
 import { z } from "zod";
 import { env } from "@/server/env";
+import { untrustedImage } from "@/server/images";
 import type { ScanProvider, ScanVerdict } from "../types";
 
 /**
@@ -47,7 +48,7 @@ export async function photoDnaJpeg(bytes: Buffer): Promise<Buffer> {
     [1600, 80],
     [1200, 72],
   ] as const) {
-    const jpeg = await sharp(bytes).rotate().resize({ width: side, height: side, fit: "inside", withoutEnlargement: true }).flatten({ background: "#000" }).jpeg({ quality }).toBuffer();
+    const jpeg = await sharp(bytes, untrustedImage).rotate().resize({ width: side, height: side, fit: "inside", withoutEnlargement: true }).flatten({ background: "#000" }).jpeg({ quality }).toBuffer();
     if (jpeg.length <= MAX_BYTES) return jpeg;
   }
   throw new Error("image stays above the 4 MB PhotoDNA limit after downscaling");

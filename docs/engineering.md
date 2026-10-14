@@ -863,7 +863,7 @@ Local URLs are `/api/media?k=<key>&e=<expiry>&s=<sig>[&d=<name>]`, where the sig
 
 | Type | Limits | Processing |
 |---|---|---|
-| Image | 20 MB; JPEG, PNG or WebP | Re-encoded to WebP quality 92 with EXIF rotation applied, which strips EXIF and GPS. A short side under 512 px adds the warning `low_resolution`. |
+| Image | 20 MB and 40 megapixels (413 `too_large`, read from the header before anything is decoded); JPEG, PNG or WebP; only the first frame of an animated or multi-page file | Re-encoded to WebP quality 92 with EXIF rotation applied, which strips EXIF and GPS, flattened onto black, and downscaled to fit 4096 px. A short side under 512 px adds the warning `low_resolution`. Every decode of outside bytes (uploads, the PhotoDNA copy, provider outputs, poster frames) uses the same limits (`src/server/images.ts`). |
 | Video | 100 MB; must contain an `ftyp` box (else 415) | Metadata and chapters stripped with `ffmpeg -map_metadata -1 -map_chapters -1 -c copy`. Unreadable files get 415; a missing ffmpeg gets 503 `video_processing_unavailable`. |
 
 Stored under `uploads/<userId>/<uuid>.(webp|mp4)` with a consent record (`upload_subject`, or `likeness` for a character reference).

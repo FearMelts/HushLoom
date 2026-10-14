@@ -8,6 +8,7 @@ import { getDb } from "@/server/db";
 import { consentRecords, mediaAssets, uploads } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { HttpError } from "@/server/http";
+import { isPixelLimitError, MAX_IMAGE_PIXELS, MAX_IMAGE_SIDE, untrustedImage } from "@/server/images";
 import { logger } from "@/server/log";
 import { newStorageKey, sha256, storage } from "@/server/storage";
 import { MAX_SCANNED_VIDEO_S, probeVideo, scanAsset, scanFailClosed, type VideoInfo } from "@/server/safety/scan";
@@ -69,18 +70,32 @@ export async function acceptUpload(
     mime = "video/mp4";
   } else {
     if (file.bytes.length > MAX_IMAGE_BYTES) throw new HttpError(413, "too_large", "Images can be up to 20 MB.");
+    // The pixel limit is checked from the header, before anything is decoded (a small PNG can hold a huge image).
+    const unreadable = (err: unknown) =>
+      isPixelLimitError(err)
+        ? new HttpError(413, "too_large", `Images can be up to ${MAX_IMAGE_PIXELS / 1_000_000} megapixels.`)
+        : new HttpError(415, "unsupported_type", "That file is not an image we can read. Use JPG, PNG or WebP.");
     let meta: Awaited<ReturnType<ReturnType<typeof sharp>["metadata"]>>;
     try {
-      meta = await sharp(file.bytes).metadata();
-    } catch {
-      throw new HttpError(415, "unsupported_type", "That file is not an image we can read. Use JPG, PNG or WebP.");
+      meta = await sharp(file.bytes, untrustedImage).metadata();
+    } catch (err) {
+      throw unreadable(err);
     }
     if (!meta.width || !meta.height || !["jpeg", "png", "webp"].includes(meta.format ?? "")) {
       throw new HttpError(415, "unsupported_type", "Use a JPG, PNG or WebP image.");
     }
-    // Transparency is flattened onto black, as photoDnaJpeg flattens what it sends, so the stored file holds
-    // exactly the pixels the hash matcher sees: no alpha channel is kept to hide a picture from the scan.
-    body = await sharp(file.bytes).rotate().flatten({ background: "#000000" }).webp({ quality: 92 }).toBuffer();
+    try {
+      // Transparency is flattened onto black, as photoDnaJpeg flattens what it sends, so the stored file holds
+      // exactly the pixels the hash matcher sees: no alpha channel is kept to hide a picture from the scan.
+      body = await sharp(file.bytes, untrustedImage)
+        .rotate()
+        .resize({ width: MAX_IMAGE_SIDE, height: MAX_IMAGE_SIDE, fit: "inside", withoutEnlargement: true })
+        .flatten({ background: "#000000" })
+        .webp({ quality: 92 })
+        .toBuffer();
+    } catch (err) {
+      throw unreadable(err);
+    }
     const out = await sharp(body).metadata();
     kind = "image";
     mime = "image/webp";
