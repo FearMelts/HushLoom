@@ -1,0 +1,180 @@
+
+> hushloom@0.1.0 test:e2e
+> playwright test
+
+[2m[WebServer] [22mmigrations applied
+[2m[WebServer] [22mSeeded 24 templates, 5 creators.
+[2m[WebServer] [22mAccounts (password for all: $SEED_PASSWORD):
+[2m[WebServer] [22m  admin@hushloom.local (admin), demo@hushloom.local (member, 200 credits), lunavelour@hushloom.local, atelier_noir@hushloom.local, mx_ember@hushloom.local, softfocus@hushloom.local, nightcartographer@hushloom.local
+[2m[WebServer] [22mScanner: Development scanner (matches test hashes only); fail-closed on.
+[2m[WebServer] [22mScanned 0: 0 clean, 0 matched (held, escalated), 0 unavailable. Missing files: 0. Still pending: 0 with files, 0 purged (never served).
+[2m[WebServer] [22m   [1m[38;2;173;127;168m▲ Next.js 15.5.27[39m[22m
+[2m[WebServer] [22m
+[2m[WebServer] [22m [37m[1m [22m[39m Creating an optimized production build ...
+[2m[WebServer] [22m [32m[1m✓[22m[39m Compiled successfully in 25.0s
+[2m[WebServer] [22m [37m[1m [22m[39m Linting and checking validity of types ...
+[2m[WebServer] [22m [37m[1m [22m[39m Collecting page data ...
+[2m[WebServer] [22m [37m[1m [22m[39m Generating static pages (0/37) ...
+[2m[WebServer] [22m [37m[1m [22m[39m Generating static pages (9/37) 
+[2m[WebServer] [22m [37m[1m [22m[39m Generating static pages (18/37) 
+[2m[WebServer] [22m [37m[1m [22m[39m Generating static pages (27/37) 
+[2m[WebServer] [22m [32m[1m✓[22m[39m Generating static pages (37/37)
+[2m[WebServer] [22m [37m[1m [22m[39m Finalizing page optimization ...
+[2m[WebServer] [22m [37m[1m [22m[39m Collecting build traces ...
+[2m[WebServer] [22m
+[2m[WebServer] [22m[4mRoute (app)[24m                                       [4mSize[24m  [4mFirst Load JS[24m  [4m[24m  [4m[24m
+[2m[WebServer] [22m┌ ƒ /                                          2.67 kB         [37m[1m115 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /_not-found                                  271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /admin                                     2.96 kB         [37m[1m118 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /admin/review                                184 B         [37m[1m115 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/admin/credits                           271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/admin/flags                             271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/admin/models/[key]                      271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/admin/reports/[id]                      271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/admin/review                            271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/admin/review/[id]                       271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/admin/takedowns                         271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/admin/takedowns/[id]                    271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/admin/users/[id]/suspend                271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/age-gate                                271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/age-verification/return                 271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/age-verification/start                  271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/auth/login                              271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/auth/logout                             271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/auth/signup                             271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/characters                              271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/characters/[id]                         271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/checkout                                271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/favorites                               271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/folders                                 271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/folders/[id]                            271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/folders/[id]/items                      271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/follows                                 271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/generations                             271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/generations/[id]                        271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/generations/[id]/cancel                 271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/generations/[id]/confirm                271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/generations/[id]/derive                 271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/generations/[id]/download               271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/health                                  271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/me                                      271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/me/consents/[id]                        271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/me/history                              271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/me/preferences                          271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/me/sessions                             271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/media                                   271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/presets                                 271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/presets/[id]                            271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/pricing/sandbox                         271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/projects                                271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/projects/[id]                           271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/projects/[id]/scenes                    271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/push/public-key                         271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/push/subscriptions                      271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/scenes/[id]                             271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/scenes/[id]/select                      271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/takedowns                               271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/templates                               271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/templates/[id]                          271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/templates/[id]/rate                     271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/templates/[id]/report                   271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/uploads                                 271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/webhooks/age-verification/[provider]    271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/webhooks/payments/[provider]            271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/webhooks/replicate                      271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /api/webhooks/stripe                         271 B         [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /auth                                      5.25 kB         [37m[1m121 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /collection                                 1.8 kB         [37m[1m129 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /collection/[id]                           6.61 kB         [37m[1m129 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /creators/[id]                              2.5 kB         [37m[1m128 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /explore                                   4.99 kB         [37m[1m117 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /favorites                                   201 B         [37m[1m127 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /generate/[kind]                           3.98 kB         [37m[1m134 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /offline                                   3.97 kB         [37m[1m120 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /policies                                    166 B         [37m[1m106 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /policies/takedown                         6.88 kB         [37m[1m113 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /pricing                                   4.56 kB         [37m[1m120 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /pricing/sandbox                           6.64 kB         [37m[1m113 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /projects                                    180 B         [37m[1m135 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /projects/[id]                               180 B         [37m[1m135 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /settings                                  8.82 kB         [37m[1m120 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /studio                                    5.25 kB         [37m[1m136 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /templates/[id]                              217 B         [37m[1m140 kB[22m[39m
+[2m[WebServer] [22m├ ƒ /train                                      5.6 kB         [37m[1m118 kB[22m[39m
+[2m[WebServer] [22m└ ƒ /verify/sandbox                            5.61 kB         [37m[1m112 kB[22m[39m
+[2m[WebServer] [22m+ First Load JS shared by all                   [37m[1m103 kB[22m[39m
+[2m[WebServer] [22m  ├ chunks/1255-5cd2fe06309409a0.js            46.5 kB
+[2m[WebServer] [22m  ├ chunks/4bd1b696-f785427dddbba9fb.js        54.2 kB
+[2m[WebServer] [22m  └ other shared chunks (total)                1.93 kB
+[2m[WebServer] [22m
+[2m[WebServer] [22m
+[2m[WebServer] [22mƒ Middleware                                   [37m[1m34.5 kB[22m[39m
+[2m[WebServer] [22m
+[2m[WebServer] [22mƒ  (Dynamic)  server-rendered on demand
+[2m[WebServer] [22m
+[2m[WebServer] [22m   [1m[38;2;173;127;168m▲ Next.js 15.5.27[39m[22m
+[2m[WebServer] [22m   - Local:        http://localhost:3100
+[2m[WebServer] [22m   - Network:      http://0.0.0.0:3100
+[2m[WebServer] [22m
+[2m[WebServer] [22m [32m[1m✓[22m[39m Starting...
+[2m[WebServer] [22m [32m[1m✓[22m[39m Ready in 672ms
+
+Running 36 tests using 1 worker
+
+  ✓   1 [chromium] › tests/e2e/journey.spec.ts:42:1 › an adult signs up, makes a demo image from a template, and finds it in the Library (9.8s)
+  ✓   2 [chromium] › tests/e2e/journey.spec.ts:90:1 › another member cannot see that creation or its media (4.7s)
+  ✓   3 [chromium] › tests/e2e/journey.spec.ts:144:1 › missing and private pages answer 404, signed-out private pages redirect, and list pages still answer 200 (7.7s)
+  ✓   4 [chromium] › tests/e2e/journey.spec.ts:197:1 › an under-18 date of birth is refused (2.1s)
+  ✓   5 [chromium] › tests/e2e/journey.spec.ts:213:1 › the assistant blocks a prohibited prompt before anything is charged (3.0s)
+  ✓   6 [chromium] › tests/e2e/journey.spec.ts:233:3 › layout holds on mobile (5.4s)
+  ✓   7 [chromium] › tests/e2e/journey.spec.ts:233:3 › layout holds on tablet (6.5s)
+  ✓   8 [chromium] › tests/e2e/journey.spec.ts:233:3 › layout holds on desktop (6.8s)
+  ✓   9 [chromium] › tests/e2e/journey.spec.ts:251:1 › keyboard users can skip to content and reach navigation (2.3s)
+  ✓  10 [chromium] › tests/e2e/launch.spec.ts:153:3 › age verification in a covered jurisdiction (GB) › an anonymous GB visitor sees no template media on cards, the template page or a creator page (6.2s)
+  ✓  11 [chromium] › tests/e2e/launch.spec.ts:191:3 › age verification in a covered jurisdiction (GB) › a new GB member is still withheld and cannot make or upload; nothing is charged (7.1s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:17.972Z","level":"warn","msg":"age verification callback rejected","provider":"sandbox","reason":"unsigned"}
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:18.229Z","level":"warn","msg":"age verification callback rejected","provider":"sandbox","reason":"bad_signature"}
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:18.462Z","level":"warn","msg":"age verification callback rejected","provider":"sandbox","reason":"bad_signature"}
+  ✓  12 [chromium] › tests/e2e/launch.spec.ts:242:3 › age verification in a covered jurisdiction (GB) › Settings: the check is required and sandbox-labelled; a failed attempt, then verified (6.4s)
+  ✓  13 [chromium] › tests/e2e/launch.spec.ts:345:3 › age verification in a covered jurisdiction (GB) › after verification previews load and a demo image is made, charged and in the Library (4.2s)
+  ✓  14 [chromium] › tests/e2e/launch.spec.ts:377:3 › age verification in a covered jurisdiction (GB) › a visitor with no geo header is not covered and sees previews; no install prompt on first visit (3.7s)
+  ✓  15 [chromium] › tests/e2e/launch.spec.ts:396:3 › age verification in US states › US states follow the same rules: an anonymous Texas visitor is withheld, a California visitor is not (6.1s)
+  ✓  16 [chromium] › tests/e2e/launch.spec.ts:473:3 › payments in the labeled sandbox › pricing shows the sandbox label for the active processor (2.3s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:42.369Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_checkout_97c06e7c-009d-4a66-92fd-ea29be350eea","type":"purchase_completed","outcome":"processed"}
+  ✓  17 [chromium] › tests/e2e/launch.spec.ts:484:3 › payments in the labeled sandbox › a new member buys the smallest pack and gets exactly its credits (4.8s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:43.789Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_checkout_97c06e7c-009d-4a66-92fd-ea29be350eea","type":"purchase_completed","outcome":"duplicate"}
+  ✓  18 [chromium] › tests/e2e/launch.spec.ts:512:3 › payments in the labeled sandbox › the browser cannot grant itself credits: its own completion sent again, or the success page, adds nothing (1.4s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:45.598Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_checkout_b970f35e-daa1-4dbe-8767-183f8e17aa4b","type":"ignored","outcome":"ignored"}
+  ✓  19 [chromium] › tests/e2e/launch.spec.ts:534:3 › payments in the labeled sandbox › a simulated failure on a second checkout leaves the balance unchanged (1.6s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:48.015Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_refund_0d834578-8818-4b16-8680-519c69ccd580","type":"refund","outcome":"processed"}
+  ✓  20 [chromium] › tests/e2e/launch.spec.ts:545:3 › payments in the labeled sandbox › a simulated refund claws the credits back and the history shows it (2.8s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:50.071Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_checkout_620ebc4b-9960-4cf6-b891-d59338894cc9","type":"purchase_completed","outcome":"processed"}
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:51.216Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_chargeback_d800cd66-7af1-45c4-b94a-0a829970dbbc","type":"chargeback","outcome":"processed"}
+  ✓  21 [chromium] › tests/e2e/launch.spec.ts:560:3 › payments in the labeled sandbox › a chargeback flags the account and pauses checkout until an admin clears it (6.8s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:57.358Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_refund_0d8778b7-4b62-4188-b0de-6898da2f6dee","type":"refund","outcome":"processed"}
+  ✓  22 [chromium] › tests/e2e/launch.spec.ts:634:3 › payments in the labeled sandbox › a second reversal of a payment already charged back takes nothing more (2.5s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:58.956Z","level":"warn","msg":"payment webhook rejected","provider":"sandbox","reason":"unsigned"}
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:58.981Z","level":"warn","msg":"payment webhook rejected","provider":"sandbox","reason":"bad_signature"}
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:59.010Z","level":"warn","msg":"payment webhook rejected","provider":"sandbox","reason":"replayed"}
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:59.454Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_sale_e2e_lmv7xr78b","type":"purchase_completed","outcome":"processed"}
+[2m[WebServer] [22m{"t":"2026-10-14T09:57:59.476Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_sale_e2e_lmv7xr78b","type":"purchase_completed","outcome":"duplicate"}
+  ✓  23 [chromium] › tests/e2e/launch.spec.ts:657:3 › payments in the labeled sandbox › webhook replay protection: unsigned, forged or stale events are refused and a re-delivered event grants once (2.1s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:58:03.985Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_refund_43d54eb9-9665-4d53-b652-d2b175df4844","type":"refund","outcome":"processed"}
+  ✓  24 [chromium] › tests/e2e/launch.spec.ts:707:3 › payments in the labeled sandbox › a refund after some credits were spent takes back what is left and records the debt for an admin (6.2s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:58:11.262Z","level":"warn","msg":"scan.matched","assetId":"b226455a-8ce9-4e62-bb69-1114adddcc98","origin":"upload","provider":"dev","ref":"dev-hash:74e83d5d64abef0c","suspended":true}
+  ✓  25 [chromium] › tests/e2e/launch.spec.ts:766:3 › abuse scanning and takedowns › a scanner match gets a generic rejection and the uploader is suspended and signed out (7.1s)
+  ✓  26 [chromium] › tests/e2e/launch.spec.ts:804:3 › abuse scanning and takedowns › a clean upload by another member still works and its preview loads (5.1s)
+  ✓  27 [chromium] › tests/e2e/launch.spec.ts:826:3 › abuse scanning and takedowns › the admin sees the escalation and the matched file is never served (2.2s)
+  ✓  28 [chromium] › tests/e2e/launch.spec.ts:881:3 › abuse scanning and takedowns › the public takedown form works signed out and the admin dismisses it with a note (4.5s)
+  ✓  29 [chromium] › tests/e2e/launch.spec.ts:950:3 › installable web app › the manifest is installable: name, standalone, start_url and real 192 and 512 icons (57ms)
+  ✓  30 [chromium] › tests/e2e/launch.spec.ts:971:3 › installable web app › the service worker script is served fresh and may control the whole origin (24ms)
+  ✓  31 [chromium] › tests/e2e/launch.spec.ts:981:3 › installable web app › pages link the manifest and iOS icon, and Chromium's own installability check reports no errors (1.7s)
+  ✓  32 [chromium] › tests/e2e/launch.spec.ts:1004:3 › installable web app › the worker activates; offline, public pages show the offline page and private pages and the API are never cached (7.3s)
+  ✓  33 [chromium] › tests/e2e/launch.spec.ts:1068:3 › installable web app › Settings shows the install card and says push is not configured without VAPID keys (1.4s)
+  ✓  34 [chromium] › tests/e2e/launch.spec.ts:1087:3 › installable web app › at 390x844 offline: the banner shows on a loaded signed-in page and Make it is disabled (1.2s)
+  ✓  35 [chromium] › tests/e2e/launch.spec.ts:1112:1 › core flows at 390x844: screenshots with no unexpected errors (11.4s)
+[2m[WebServer] [22m{"t":"2026-10-14T09:58:53.719Z","level":"info","msg":"payment event","provider":"sandbox","id":"sbx_checkout_8561c214-4c09-4307-ad05-1d2c5ef1279b","type":"purchase_completed","outcome":"processed"}
+  ✓  36 [chromium] › tests/e2e/launch.spec.ts:1148:1 › with the device clock 10 minutes ahead, pages with relative times and dates hydrate without errors (13.4s)
+
+  36 passed (5.4m)
+exit=0
