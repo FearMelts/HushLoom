@@ -51,7 +51,8 @@ export default async function AdminPage() {
         <Stat label="Revenue 30d" value={`$${(stats.revenueCents30d / 100).toFixed(2)}`} hint={`${stats.creditsSold30d} credits sold`} />
         <Stat label="Open reports" value={stats.openReports} />
       </div>
-      <div className="grid gap-8 xl:grid-cols-2">
+      {/* items-start: the Reports panel is as tall as its rows, not as the column of panels beside it. */}
+      <div className="grid items-start gap-8 xl:grid-cols-2">
         <Panel title="Reports">
           <ReportQueue reports={reports} />
         </Panel>
