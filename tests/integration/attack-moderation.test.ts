@@ -345,11 +345,12 @@ describe("R11 attack: undoing a removal or suspension through a template edit", 
     return { admin, creator, t };
   }
 
-  // HOLE (R11): the creator_suspended check reads users.status without a lock, so it is a
+  // Was a hole (R11): the creator_suspended check read users.status without a lock, so it was a
   // check-then-act. A creator who has a template unpublished and asks to publish it at the moment
   // an admin suspends them: the suspension's "unpublish everything live" skips the row (it is not
-  // published yet), commits, and the edit then writes status=published for a suspended account.
-  it.fails("publishing an unpublished template in flight while an admin suspends the creator leaves nothing live", async () => {
+  // published yet), commits, and the edit then wrote status=published for a suspended account.
+  // Closed: the account is read last, under a share lock held until the edit commits.
+  it("publishing an unpublished template in flight while an admin suspends the creator leaves nothing live", async () => {
     const { admin, creator, t } = await setup();
     await updateTemplate(creator, t.id, { status: "unpublished" });
 
@@ -359,6 +360,30 @@ describe("R11 attack: undoing a removal or suspension through a template edit", 
     );
     expect(await userStatus(creator.id)).toBe("suspended");
     expect((await templateRow(t.id)).status).not.toBe("published");
+  });
+
+  // The other order: the edit has passed its creator check and is writing (parked on its
+  // template_versions read, inside its transaction) when the admin suspends. The suspension waits on
+  // the account's share lock, then its unpublish sees the edit's committed status and takes it down.
+  it("an admin suspension arriving while a publishing edit is mid-write still leaves nothing live", async () => {
+    const { admin, creator, t } = await setup();
+    await updateTemplate(creator, t.id, { status: "unpublished" });
+
+    let editing!: Promise<unknown>;
+    let suspending!: Promise<unknown>;
+    await getDb().transaction(async (tx) => {
+      await tx.execute(sql`lock table template_versions in access exclusive mode`);
+      editing = updateTemplate(creator, t.id, { status: "published", prompt: "an adult couple dancing by candlelight, warm film grain" }).catch((e: unknown) => e);
+      await lockWaiters(1);
+      suspending = suspendUser(admin.id, creator.id, "Harassment reports").catch((e: unknown) => e);
+      // The suspension either queues behind the edit or (without the lock) runs to the end at once.
+      await Promise.race([suspending, lockWaiters(2)]);
+    });
+    const [edited, suspended] = await Promise.all([editing, suspending]);
+    expect(edited).toMatchObject({ status: "published" });
+    expect(suspended).toMatchObject({ unpublishedTemplates: 1 });
+    expect(await userStatus(creator.id)).toBe("suspended");
+    expect((await templateRow(t.id)).status).toBe("unpublished");
   });
 
   // HOLE (R11): the same check-then-act against the abuse suspension (a scanner match on one of the

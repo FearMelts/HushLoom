@@ -197,14 +197,19 @@ export async function updateTemplate(user: SessionUser, templateId: string, inpu
     if (t.status === "removed") throw new HttpError(403, "removed", "This template was removed by moderation.");
     const verdict = checkPrompt(input.title ?? "", input.description ?? "", (input.tags ?? []).join(" "), input.prompt ?? "");
     if (!verdict.allowed) throw new HttpError(422, "policy_blocked", verdict.message);
-    if (input.status === "published") {
-      // A suspension unpublishes everything the account had live; nothing goes back up until it is lifted.
-      const [creator] = await tx.select({ status: users.status }).from(users).where(eq(users.id, t.creatorId));
-      if (creator?.status !== "active") throw new HttpError(403, "creator_suspended", "This account is suspended, so its templates stay unpublished.");
-    }
     const category = input.categorySlug
       ? (await tx.select().from(templateCategories).where(eq(templateCategories.slug, input.categorySlug)))[0]
       : undefined;
+    if (input.status === "published") {
+      // A suspension unpublishes everything the account had live; nothing goes back up until it is
+      // lifted. Its unpublish skips a template that is not live yet, so the account is read last,
+      // under a share lock held to the write: a suspension either committed first and is seen here,
+      // or waits for this edit and then takes the template down. A template already live needs no
+      // lock: that unpublish waits on this row's lock instead (and locking both could deadlock).
+      const account = tx.select({ status: users.status }).from(users).where(eq(users.id, t.creatorId));
+      const [creator] = t.status === "published" ? await account : await account.for("share");
+      if (creator?.status !== "active") throw new HttpError(403, "creator_suspended", "This account is suspended, so its templates stay unpublished.");
+    }
 
     let version = t.currentVersion;
     if (input.prompt) {
