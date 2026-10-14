@@ -46,7 +46,7 @@ async function multipart(fields: (f: FormData) => void, bytes: Buffer) {
 }
 
 const call = (handler: Handler, path: string, init: { body: BodyInit; headers: Record<string, string> }) =>
-  handler(new NextRequest(`http://localhost${path}`, { method: "POST", body: init.body, headers: init.headers, duplex: "half" } as RequestInit & { duplex: "half" }), undefined as never);
+  handler(new NextRequest(`http://localhost${path}`, { method: "POST", body: init.body, headers: init.headers, duplex: "half" } as ConstructorParameters<typeof NextRequest>[1]), undefined as never);
 
 beforeEach(async () => {
   await resetDb();
