@@ -53,7 +53,8 @@ describe("verdict and purge writes keep evidence (R42)", () => {
   it("the purge re-checks the hold on each asset just before it deletes the file", async () => {
     const u = await makeUser();
     const old = new Date(Date.now() - 40 * 86_400_000);
-    const assets = [await storedAsset(u.id, { deletedAt: old }), await storedAsset(u.id, { deletedAt: old })];
+    // Scanned clean: the purge leaves a file with no verdict yet (scan_status 'pending') for the backfill.
+    const assets = [await storedAsset(u.id, { deletedAt: old, scanStatus: "clean" }), await storedAsset(u.id, { deletedAt: old, scanStatus: "clean" })];
     // While the hourly purge works through its batch, an admin puts the not-yet-purged asset on hold.
     const del = storage().delete.bind(storage());
     let held: string[] = [];

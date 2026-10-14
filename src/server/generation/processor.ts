@@ -11,7 +11,7 @@ import { untrustedImage } from "@/server/images";
 import { logger } from "@/server/log";
 import { purgeAssetsNow } from "@/server/media";
 import { newStorageKey, sha256, storage } from "@/server/storage";
-import { recordDerivedScan, scanAsset, scanFailClosed } from "@/server/safety/scan";
+import { recordDerivedScan, recordMatch, recordVerdict, runScan, scanFailClosed, type ScanStatus, type ScanSubject } from "@/server/safety/scan";
 import { notifyJobFinished } from "@/server/push/notify";
 import { videoPoster } from "./poster";
 import { enqueueGeneration } from "./queue";
@@ -110,6 +110,21 @@ async function discardAfterFault(track: WriteTrack) {
 }
 
 /**
+ * Scans one stored output and records the verdict. The file joins `track` (removable after a fault)
+ * only with a verdict that is not a match: a matched file is evidence and nothing here deletes it
+ * (addendum §3). recordMatch retries a failed write and falls back to a legal hold, so the file is
+ * never served or purged and the scan backfill rescans it and opens the case.
+ */
+async function scanOutput(subject: ScanSubject, track: WriteTrack, log: Record<string, unknown>): Promise<ScanStatus> {
+  const verdict = await runScan({ bytes: subject.bytes, mime: subject.mime, kind: subject.kind, sha256: subject.sha256 });
+  if (verdict.status !== "matched") {
+    track.assetIds.push(subject.assetId);
+    return recordVerdict(subject, verdict);
+  }
+  return recordMatch(subject, verdict, "generation", log);
+}
+
+/**
  * The job's character reference, as a provider input. Only a reference whose likeness consent is
  * still on file and whose photo the abuse scanner cleared is ever sent; anything else fails the job
  * (refunded) rather than running it without the character the user paid for.
@@ -146,7 +161,8 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
   const claimed = await db.transaction(async (tx) => {
     const [job] = await tx.select().from(generationJobs).where(eq(generationJobs.id, jobId)).for("update");
     if (!job || job.status !== "queued") return null;
-    if (job.cancelRequested) {
+    // A job deleted while queued (a takedown, an account deletion) is cancelled like one the user stopped.
+    if (job.cancelRequested || job.deletedAt) {
       await releaseJob(tx, job.userId, job.id, job.costCredits, "cancelled before processing");
       await tx.update(generationJobs).set({ status: "cancelled", finishedAt: new Date(), updatedAt: new Date() }).where(eq(generationJobs.id, job.id));
       return null;
@@ -172,8 +188,8 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const cancelWatch = setInterval(async () => {
-    const [row] = await db.select({ c: generationJobs.cancelRequested }).from(generationJobs).where(eq(generationJobs.id, job.id));
-    if (row?.c) controller.abort();
+    const [row] = await db.select({ c: generationJobs.cancelRequested, d: generationJobs.deletedAt }).from(generationJobs).where(eq(generationJobs.id, job.id));
+    if (row?.c || row?.d) controller.abort();
   }, opts.cancelPollMs ?? 2000);
 
   let outputs: ProviderOutput[];
@@ -203,9 +219,9 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
   } catch (e) {
     clearTimeout(timer);
     clearInterval(cancelWatch);
-    const [row] = await db.select({ c: generationJobs.cancelRequested }).from(generationJobs).where(eq(generationJobs.id, job.id));
+    const [row] = await db.select({ c: generationJobs.cancelRequested, d: generationJobs.deletedAt }).from(generationJobs).where(eq(generationJobs.id, job.id));
     let err = e instanceof ProviderError ? e : new ProviderError("internal", (e as Error).message ?? String(e), false);
-    if (row?.c) err = new ProviderError("cancelled", "cancelled by user", false);
+    if (row?.c || row?.d) err = new ProviderError("cancelled", "cancelled by user", false);
     logger.warn("generation.provider_error", { ...log, code: err.code, retryable: err.retryable, message: err.message });
     await retryOrFail(job, err, opts);
     return;
@@ -280,10 +296,11 @@ async function storeAndSettle(job: ClaimedJob, outputs: ProviderOutput[], opts: 
         visibility: "private",
       })
       .returning({ id: mediaAssets.id });
-    recorded(key, asset!.id);
+    // The row now owns the file; scanOutput adds it to `track` once it knows the file is not evidence.
+    track.pendingKeys.delete(key);
     // Abuse scan of every output before it can be shown (addendum §3). The private file is never
     // served while pending; a non-clean verdict means no output row is ever created for it.
-    const verdict = await scanAsset({ assetId: asset!.id, bytes: out.bytes, mime: out.mime, kind, sha256: sha256(out.bytes), ownerId: job.userId, origin: "output", jobId: job.id });
+    const verdict = await scanOutput({ assetId: asset!.id, bytes: out.bytes, mime: out.mime, kind, sha256: sha256(out.bytes), ownerId: job.userId, origin: "output", jobId: job.id }, track, log);
     if (verdict === "matched") {
       // The matched file stays under legal hold as evidence; anything else this attempt wrote goes.
       await discardStored(storedSoFar());
@@ -325,7 +342,7 @@ async function storeAndSettle(job: ClaimedJob, outputs: ProviderOutput[], opts: 
       await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, storedIds));
       return false;
     }
-    if (current.cancelRequested) {
+    if (current.cancelRequested || current.deletedAt) {
       await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, storedIds));
       await releaseJob(tx, current.userId, current.id, current.costCredits, "cancelled during processing");
       await tx

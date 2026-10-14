@@ -16,7 +16,7 @@ import {
 import { listModelAvailability } from "@/server/ai/providers";
 import { audit } from "@/server/audit";
 import type { SessionUser } from "@/server/auth/session";
-import { releaseJob, reserveForJob } from "@/server/credits/ledger";
+import { lockAccount, releaseJob, reserveForJob } from "@/server/credits/ledger";
 import { getDb } from "@/server/db";
 import {
   type GenerationParams,
@@ -321,6 +321,9 @@ export async function confirmJob(user: SessionUser, jobId: string, expectedCost:
     if (job.costCredits !== expectedCost) {
       throw new HttpError(409, "cost_changed", `The cost is now ${job.costCredits} credits. Review and confirm again.`, { cost: job.costCredits });
     }
+    // Serialize this user's confirms on the account lock before counting: otherwise parallel confirms
+    // each count the same active jobs and all queue past the cap (a paid perk).
+    await lockAccount(tx, user.id);
     const [{ active }] = (await tx
       .select({ active: sql<number>`count(*)::int` })
       .from(generationJobs)
@@ -456,12 +459,19 @@ export async function getOwnedJob(userId: string, jobId: string): Promise<Job> {
 
 /** Soft-deletes a creation and its media. Running jobs must be cancelled first. */
 export async function deleteJob(user: SessionUser, jobId: string) {
-  const job = await getOwnedJob(user.id, jobId);
-  if (job.status === "queued" || job.status === "processing") {
-    throw new HttpError(409, "job_active", "Cancel this creation before deleting it.");
-  }
   const now = new Date();
   await getDb().transaction(async (tx) => {
+    // Locked and checked here, not before the transaction: a confirm committing in between would
+    // otherwise leave a hidden job that still runs and charges.
+    const [job] = await tx
+      .select()
+      .from(generationJobs)
+      .where(and(eq(generationJobs.id, jobId), eq(generationJobs.userId, user.id), isNull(generationJobs.deletedAt)))
+      .for("update");
+    if (!job) throw notFound();
+    if (job.status === "queued" || job.status === "processing") {
+      throw new HttpError(409, "job_active", "Cancel this creation before deleting it.");
+    }
     const outs = await tx
       .select({ assetId: generationOutputs.assetId, posterAssetId: generationOutputs.posterAssetId })
       .from(generationOutputs)

@@ -1,8 +1,10 @@
 /**
  * Scans every asset that has no verdict yet (scan_status = 'pending') through the configured
  * abuse scanner and records the result (addendum §3). Run it once on a database created before
- * scanning existed: until then those assets are never served. Safe to re-run; it only touches
- * pending rows (plus 'unavailable' ones with --include-unavailable).
+ * scanning existed: until then those assets are never served. Run it too after a
+ * *.match_record_failed or *.match_hold_failed alert: a pending file is never purged, even once
+ * deleted, until it has a verdict, and a match found here opens the case. Safe to re-run; it only
+ * touches pending rows (plus 'unavailable' ones with --include-unavailable).
  *
  *   npx tsx scripts/scan-backfill.ts [--include-unavailable]
  *

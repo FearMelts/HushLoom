@@ -259,11 +259,13 @@ export async function updateTemplate(user: SessionUser, templateId: string, inpu
 
 export async function rateTemplate(userId: string, templateId: string, score: number) {
   await getDb().transaction(async (tx) => {
+    // Lock the template first, so concurrent ratings run one at a time and each recount sees the others' rows.
+    await tx.select({ id: templates.id }).from(templates).where(eq(templates.id, templateId)).for("update");
     await tx.execute(sql`
       insert into template_ratings (user_id, template_id, score) values (${userId}, ${templateId}, ${score})
       on conflict (user_id, template_id) do update set score = excluded.score
     `);
-    // Recompute from the source rows so concurrent ratings can never drift the totals.
+    // Recompute from the source rows; with the template locked above, the totals cannot drift.
     await tx.execute(sql`
       update templates set
         rating_sum = coalesce((select sum(score) from template_ratings where template_id = ${templateId}), 0),
