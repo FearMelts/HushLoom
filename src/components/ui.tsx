@@ -255,7 +255,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             {t.tone === "success" ? <span className="size-2 rounded-full bg-sage-400" aria-hidden /> : null}
             <span className="flex-1">{t.message}</span>
             {t.action ? (
-              <Link href={t.action.href} className="font-semibold text-ember-400 hover:text-ember-300">
+              // A 40 px tap target; the negative margins keep the toast its compact height.
+              <Link href={t.action.href} className="-my-2.5 -mr-2 inline-flex min-h-10 shrink-0 items-center px-2 font-semibold text-ember-400 hover:text-ember-300">
                 {t.action.label}
               </Link>
             ) : null}
