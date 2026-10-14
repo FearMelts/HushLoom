@@ -5,6 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { crc32, deflateSync } from "node:zlib";
+import type { IncomingMessage } from "node:http";
+import type { NextConfigComplete } from "next/dist/server/config-shared";
+import { ImageOptimizerCache } from "next/dist/server/image-optimizer";
+import { imageConfigDefault } from "next/dist/shared/lib/image-config";
 import { NextRequest } from "next/server";
 import sharp from "sharp";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
@@ -18,6 +22,7 @@ import { closeRedis } from "@/server/redis";
 import { recordDerivedScan, recordVerdict, runScan } from "@/server/safety/scan";
 import type { ScanProvider } from "@/server/safety/scan/types";
 import { sha256, storage } from "@/server/storage";
+import nextConfig from "../../next.config";
 import { makeUser, resetDb } from "../helpers";
 
 const run = promisify(execFile);
@@ -264,6 +269,27 @@ describe("R13/R34 media serving — bypass attempts (local driver)", () => {
     expect((await getMedia(url)).status).toBe(404);
     const other = await createSession((await makeUser()).id, null);
     expect((await getMedia(url, other.token)).status).toBe(404);
+  });
+
+  // R13-image-cache: Next's image optimizer (/_next/image?url=<local path>) fetches a local URL once and
+  // keeps the optimized copy for at least images.minimumCacheTTL (60 s) in .next/cache/images, outside
+  // /api/media's per-request checks, so a takedown, unpublish or match would not reach it. Checked against
+  // this app's config through Next's own gate (next-server.js handleNextImageRequest: 404 when
+  // images.unoptimized is set or the loader is not the default) and Next's validateParams (400 for a URL
+  // that images.localPatterns does not allow). A live request needs the Next server (e2e).
+  it("Next's image optimizer will not fetch and cache /api/media links", async () => {
+    const images = { ...imageConfigDefault, ...nextConfig.images };
+    const optimizerServes = (url: string) => {
+      if (images.loader !== "default" || images.unoptimized) return false;
+      const req = { headers: { accept: "image/webp" } } as unknown as IncomingMessage;
+      const query = { url, w: String(images.deviceSizes[0]), q: "75" };
+      return !("errorMessage" in ImageOptimizerCache.validateParams(req, query, { images } as unknown as NextConfigComplete, false));
+    };
+    const u = await makeUser();
+    const { asset } = await publicAsset(u.id, true);
+    const link = new URL((await assetUrl(asset, null))!, "http://localhost");
+    expect(link.pathname).toBe("/api/media");
+    expect(optimizerServes(link.pathname + link.search)).toBe(false);
   });
 
   it("a signature for a key with no asset row is a 404, never a 500", async () => {

@@ -28,6 +28,11 @@ const config: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   serverExternalPackages: ["sharp", "bullmq", "ioredis", "postgres", "bcryptjs", "web-push"],
+  // Media is served only by /api/media, which checks the asset (scan verdict, deletion, template) on every
+  // request. Next's image optimizer (/_next/image) would fetch a /api/media link once and keep its own copy
+  // for at least a minute in .next/cache/images, outside those checks. Nothing uses next/image, so it is off
+  // and /_next/image answers 404.
+  images: { unoptimized: true },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }, ...appShellHeaders];
   },
