@@ -26,7 +26,8 @@ type Movement = {
 
 export type MovementResult = { applied: boolean; available: number; reserved: number };
 
-async function lockAccount(tx: Tx, userId: string) {
+/** Locks the user's credit account row, creating it if needed: the per-user lock every balance change takes. */
+export async function lockAccount(tx: Tx, userId: string) {
   await tx.insert(creditAccounts).values({ userId }).onConflictDoNothing();
   const [account] = await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).for("update");
   if (!account) throw new Error("credit account missing after upsert");

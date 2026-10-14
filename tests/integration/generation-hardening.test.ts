@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { SessionUser } from "@/server/auth/session";
 import { getBalance } from "@/server/credits/ledger";
 import { closeDb, getDb, getSql } from "@/server/db";
@@ -54,6 +54,16 @@ async function injectFault(name: string, table: string, when: string, times = 1_
   injected.push({ name, table });
 }
 let injected: { name: string; table: string }[] = [];
+
+/** Waits until `n` sessions are blocked on a lock, so a test can line up concurrent transactions. */
+async function lockWaiters(n: number) {
+  for (let i = 0; i < 250; i++) {
+    const [row] = await getDb().execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`);
+    if (row!.n >= n) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error(`fewer than ${n} sessions ever waited on a lock`);
+}
 async function clearFaults() {
   for (const f of injected) {
     await getDb().execute(sql.raw(`drop trigger if exists ${f.name} on ${f.table}`));
@@ -141,14 +151,6 @@ describe("R12: a fault while recording an output's scanner match", () => {
       .insert(mediaAssets)
       .values({ ownerId: u.id, kind: "image", storageKey: `outputs/${u.id}/${key()}.webp`, mime: "image/webp", bytes: bytes.length, sha256: sha256(bytes) })
       .returning();
-    const waitingOnLocks = async () => {
-      for (let i = 0; i < 100; i++) {
-        const [row] = await getDb().execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`);
-        if (row!.n > 0) return;
-        await new Promise((r) => setTimeout(r, 20));
-      }
-      throw new Error("the match transaction never waited on the owner's row");
-    };
     let outcome: Promise<unknown> = Promise.resolve();
     // The statements deleteAccount runs, in its order: the users row first, then the owner's media.
     await getSql().begin(async (a) => {
@@ -160,7 +162,7 @@ describe("R12: a fault while recording an output's scanner match", () => {
         (status) => status,
         (err: Error) => err,
       );
-      await waitingOnLocks();
+      await lockWaiters(1);
       await a`update media_assets set deleted_at = now() where owner_id = ${u.id} and legal_hold = false`;
     });
     expect(await outcome).toBe("matched");
@@ -185,5 +187,29 @@ describe("R12: a fault while recording an output's scanner match", () => {
     expect(asset!.storageKey).toMatch(/^outputs\//);
     expect((await storage().get(asset!.storageKey)).length).toBe(asset!.bytes);
     expect(await assetUrl(asset!, u.id)).toBeNull();
+  });
+});
+
+describe("R31: the active-jobs cap under parallel confirms", () => {
+  it("queues no more than the cap when several confirms arrive at once", async () => {
+    const user = await makeUser({ credits: 200 });
+    // The free cap is 3 (USER_MAX_ACTIVE_JOBS); two are already running.
+    await queuedJob(user);
+    await queuedJob(user);
+    const drafts = await Promise.all(Array.from({ length: 4 }, () => createDraft(user, draftInput(), ctx)));
+    // Hold the user's credit account (as any other ledger movement would) until all four confirms are in flight.
+    let confirms: Promise<PromiseSettledResult<unknown>[]> = Promise.resolve([]);
+    await getSql().begin(async (a) => {
+      await a`select 1 from credit_accounts where user_id = ${user.id} for update`;
+      confirms = Promise.allSettled(drafts.map((d) => confirmJob(user, d.id, d.costCredits)));
+      await lockWaiters(4);
+    });
+    const results = await confirms;
+
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const refused = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    expect(refused.map((r) => (r.reason as { code?: string }).code)).toEqual(["too_many_active", "too_many_active", "too_many_active"]);
+    const active = await getDb().select().from(generationJobs).where(and(eq(generationJobs.userId, user.id), inArray(generationJobs.status, ["queued", "processing"])));
+    expect(active).toHaveLength(3);
   });
 });
