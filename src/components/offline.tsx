@@ -1,6 +1,7 @@
 "use client";
 
 import { WifiOff } from "lucide-react";
+import Link from "next/link";
 import { useEffect, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { useOnline } from "@/lib/use-online";
@@ -63,9 +64,9 @@ export function OfflineScreen() {
           <a href="" className={buttonClass("ember", "lg")}>
             Try again
           </a>
-          <a href="/" className={buttonClass("quiet", "lg")}>
+          <Link href="/" className={buttonClass("quiet", "lg")}>
             Go to Discover
-          </a>
+          </Link>
         </div>
       </div>
     </main>
