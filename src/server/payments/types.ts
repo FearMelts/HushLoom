@@ -17,7 +17,17 @@ export type CheckoutResult = { url: string; providerRef?: string };
  * unique on provider + providerEventId). `metadata` is stored on the event row verbatim.
  */
 export type PaymentEvent = (
-  | { type: "purchase_completed"; providerEventId: string; userId: string; itemKey: string; amountCents: number; currency: string; transactionRef: string }
+  | {
+      type: "purchase_completed";
+      providerEventId: string;
+      userId: string;
+      itemKey: string;
+      amountCents: number;
+      currency: string;
+      transactionRef: string;
+      /** Set when the processor confirmed a payment whose terms do not match what was sold: recorded and held for manual review, never granted. */
+      review?: string;
+    }
   | {
       type: "subscription_started";
       providerEventId: string;
@@ -31,17 +41,30 @@ export type PaymentEvent = (
       currentPeriodEnd?: Date;
       /** True when this event is itself the charge for the first period (CCBill, Segpay, sandbox). Stripe sends a separate invoice. */
       grantsFirstPeriod?: boolean;
+      /** As on purchase_completed: held for manual review, no pass and no credits. */
+      review?: string;
     }
   | { type: "subscription_renewed"; providerEventId: string; providerSubscriptionId: string; amountCents: number; currency: string; transactionRef: string; currentPeriodEnd?: Date }
   | { type: "subscription_updated"; providerEventId: string; providerSubscriptionId: string; status: string; currentPeriodEnd?: Date }
-  | { type: "subscription_cancelled"; providerEventId: string; providerSubscriptionId: string; currentPeriodEnd?: Date }
+  | {
+      type: "subscription_cancelled";
+      providerEventId: string;
+      providerSubscriptionId: string;
+      currentPeriodEnd?: Date;
+      /** True for "stop rebilling" (CCBill Cancellation, Segpay Cancellation): the paid pass lasts until its period ends. Otherwise access ends now (Expiration, Disable). */
+      atPeriodEnd?: boolean;
+    }
   | {
       type: "refund";
       providerEventId: string;
       transactionRef: string;
       amountCents: number;
       currency: string;
-      /** The processor's subscription / purchase id, for processors whose refund carries a new transaction id. */
+      /**
+       * The processor's subscription / purchase id, only when transactionRef is the reversal's own new id: the reversal is
+       * then matched to that purchase's latest credited charge. A reversal whose transactionRef names the charge it reverses
+       * leaves this out, so one that overtakes its charge (a rebill) waits for it instead of taking another charge's credits.
+       */
       subscriptionRef?: string;
       /** True when amountCents is the total refunded so far (Stripe), false when it is this refund alone. */
       cumulative?: boolean;

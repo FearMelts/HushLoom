@@ -1,5 +1,4 @@
 import { env } from "@/server/env";
-import { logger } from "@/server/log";
 import type { PaymentEvent, PaymentProvider } from "../types";
 import { WebhookRejected } from "../types";
 import { checkoutItem, currencyFromNumeric, currencyToNumeric, hmacHex, md5, parseMoneyCents, safeEqual, toMoneyString, webhookParams } from "../util";
@@ -31,9 +30,11 @@ import { checkoutItem, currencyFromNumeric, currencyToNumeric, hmacHex, md5, par
  *
  * What must be confirmed in CCBill's sandbox before go-live:
  *  1. That FlexForms echoes URL parameters prefixed "X-" back in webhooks (pass-through), and
- *     under which key spelling (this adapter reads "X-hlUser", "x-hluser" and "hlUser").
+ *     under which key spelling (this adapter reads only "X-hlUser", in any case; never the bare "hlUser").
  *  2. Whether the Refund / Chargeback / Return `transactionId` is the original sale's id or a
- *     new id (this adapter tries the transaction id first, then the subscriptionId).
+ *     new id (this adapter tries the transaction id first, then the subscriptionId). If it is the
+ *     refunded charge's id, drop subscriptionRef from reversals, as Segpay does with relatedtranid:
+ *     otherwise a refund of a rebill that overtakes the rebill is taken from the pass's first charge.
  *  3. Whether the webhook URL keeps its own query string, which CCBILL_WEBHOOK_TOKEN relies on.
  *  4. The exact `timestamp` and `nextRenewalDate` formats (only the "YYYY-MM-DD HH:MM:SS" example is documented).
  *  5. `initialPeriod` for one-time packs (30 days here; CCBill allows 2–365).
@@ -44,15 +45,19 @@ const PACK_PERIOD_DAYS = 30;
 const PLAN_PERIOD_DAYS = 30;
 const PLAN_REBILLS = 99;
 
-type Cfg = { account: string; subaccount: string; flexId: string; salt: string; token: string | null };
+type Cfg = { account: string; subaccount: string; flexId: string; salt: string; token: string };
 
+/**
+ * The webhook token is required: refunds, chargebacks, renewals and cancellations carry no signature,
+ * so without it CCBill would take sales and silently drop every reversal. It stays off instead.
+ */
 function cfg(): Cfg | null {
   const e = env();
-  if (!e.CCBILL_ACCOUNT || !e.CCBILL_SUBACCOUNT || !e.CCBILL_FLEXFORM_ID || !e.CCBILL_SALT) return null;
-  return { account: e.CCBILL_ACCOUNT, subaccount: e.CCBILL_SUBACCOUNT, flexId: e.CCBILL_FLEXFORM_ID, salt: e.CCBILL_SALT, token: e.CCBILL_WEBHOOK_TOKEN ?? null };
+  if (!e.CCBILL_ACCOUNT || !e.CCBILL_SUBACCOUNT || !e.CCBILL_FLEXFORM_ID || !e.CCBILL_SALT || !e.CCBILL_WEBHOOK_TOKEN) return null;
+  return { account: e.CCBILL_ACCOUNT, subaccount: e.CCBILL_SUBACCOUNT, flexId: e.CCBILL_FLEXFORM_ID, salt: e.CCBILL_SALT, token: e.CCBILL_WEBHOOK_TOKEN };
 }
 
-const missing = () => (["CCBILL_ACCOUNT", "CCBILL_SUBACCOUNT", "CCBILL_FLEXFORM_ID", "CCBILL_SALT"] as const).filter((k) => !env()[k]);
+const missing = () => (["CCBILL_ACCOUNT", "CCBILL_SUBACCOUNT", "CCBILL_FLEXFORM_ID", "CCBILL_SALT", "CCBILL_WEBHOOK_TOKEN"] as const).filter((k) => !env()[k]);
 
 /** Binds the signed-in user to the item so a tampered pass-through pair is detected on the webhook. */
 export const passthroughSignature = (salt: string, userId: string, itemKey: string) => hmacHex(salt, `ccbill:${userId}:${itemKey}`);
@@ -90,7 +95,12 @@ const field = (p: Record<string, string>, ...names: string[]) => {
   return undefined;
 };
 
-const passthrough = (p: Record<string, string>, name: string) => field(p, `X-${name}`, name);
+/**
+ * Pass-through values are read only under their documented "X-" spelling (any case). A bare "hlUser" would put the
+ * buyer's form parameters in the same namespace as CCBill's own fields, so an echoed X-billedInitialPrice could
+ * stand in for what CCBill billed. If CCBill turns out to strip the prefix, sales are not granted: fail closed.
+ */
+const passthrough = (p: Record<string, string>, name: string) => field(p, `X-${name}`);
 
 function parseDate(s: string | undefined): Date | undefined {
   if (!s) return undefined;
@@ -103,11 +113,9 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
   if (!eventType) throw new WebhookRejected("malformed", "Missing eventType.");
   const account = field(p, "clientAccnum");
   if (account && !safeEqual(account, c.account)) throw new WebhookRejected("bad_signature", "Event is for another CCBill account.");
-  if (c.token) {
-    const given = field(p, "token");
-    if (!given) throw new WebhookRejected("unsigned", "Missing webhook token.");
-    if (!safeEqual(given, c.token)) throw new WebhookRejected("bad_signature", "Webhook token does not match.");
-  }
+  const given = field(p, "token");
+  if (!given) throw new WebhookRejected("unsigned", "Missing webhook token.");
+  if (!safeEqual(given, c.token)) throw new WebhookRejected("bad_signature", "Webhook token does not match.");
 
   const subscriptionId = field(p, "subscriptionId");
   const transactionId = field(p, "transactionId");
@@ -123,17 +131,18 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
     }
   } else if (digest) {
     if (!subscriptionId || !safeEqual(digest, validationDigest(c.salt, subscriptionId, true))) throw new WebhookRejected("bad_signature", "dynamicPricingValidationDigest does not match.");
-  } else if (!c.token) {
-    // Lifecycle events carry no digest. Without a shared token there is nothing to authenticate them with.
-    logger.warn("ccbill lifecycle event rejected: set CCBILL_WEBHOOK_TOKEN (and allowlist CCBill's IPs at the edge) to accept them", { eventType });
-    throw new WebhookRejected("unsigned", `CCBill ${eventType} events need CCBILL_WEBHOOK_TOKEN to be accepted.`);
   }
 
   const ref = transactionId ?? subscriptionId;
   if (!ref) throw new WebhookRejected("malformed", "Missing transactionId and subscriptionId.");
-  const providerEventId = `${eventType}:${ref}:${timestamp}`;
-  const meta = { eventType, subscriptionId, transactionId, timestamp, clientSubacc: field(p, "clientSubacc") };
-  const currency = (field(p, "billedCurrency", "currency") ?? currencyFromNumeric(field(p, "billedCurrencyCode", "currencyCode"), "usd")).toLowerCase();
+  // A sale is keyed on the one field its digest signs: one subscription is one sale, so a signed sale
+  // re-posted with another timestamp or transactionId is a duplicate, not a second grant.
+  const providerEventId = isSale ? `${eventType}:${subscriptionId}` : `${eventType}:${ref}:${timestamp}`;
+  const currencyCode = field(p, "billedCurrencyCode", "currencyCode");
+  const meta = { eventType, subscriptionId, transactionId, timestamp, clientSubacc: field(p, "clientSubacc"), currencyCode };
+  // A currency code this adapter does not know, or none, is never read as USD: it is recorded as ISO 4217 "XXX" (no
+  // currency), so a sale or renewal in it fails the price check and is held for review with the code in its metadata.
+  const currency = (field(p, "billedCurrency", "currency") ?? currencyFromNumeric(currencyCode) ?? "xxx").toLowerCase();
 
   switch (eventType) {
     case "NewSaleSuccess": {
@@ -144,7 +153,19 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
       if (!safeEqual(sig, passthroughSignature(c.salt, userId, itemKey))) throw new WebhookRejected("bad_signature", "Pass-through signature does not match.");
       const item = checkoutItem(itemKey);
       if (!item) return { type: "ignored", providerEventId, raw: `unknown item ${itemKey}`, metadata: meta };
-      const amountCents = parseMoneyCents(field(p, "billedInitialPrice", "accountingInitialPrice", "initialPrice")) ?? item.priceCents;
+      // The pass-through pair is not tied to the form's price, so a pair issued for one item can ride on another
+      // item's form. What CCBill billed decides: it must be exactly the item's price, and a pass needs recurring terms.
+      const billed = parseMoneyCents(field(p, "billedInitialPrice", "accountingInitialPrice", "initialPrice"));
+      const amountCents = billed ?? 0;
+      const nextRenewal = parseDate(field(p, "nextRenewalDate"));
+      const review =
+        billed === null
+          ? "CCBill sent no billed price"
+          : billed !== item.priceCents || currency !== item.currency
+            ? `billed ${toMoneyString(billed)} ${currency.toUpperCase()}, ${item.label} costs ${toMoneyString(item.priceCents)} ${item.currency.toUpperCase()}`
+            : item.kind === "plan" && !nextRenewal
+              ? `${item.label} was bought on a form without recurring terms`
+              : undefined;
       if (item.kind === "plan") {
         return {
           type: "subscription_started",
@@ -155,12 +176,13 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
           amountCents,
           currency,
           transactionRef: transactionId ?? subscriptionId!,
-          currentPeriodEnd: parseDate(field(p, "nextRenewalDate")),
+          currentPeriodEnd: nextRenewal,
           grantsFirstPeriod: true,
+          review,
           metadata: meta,
         };
       }
-      return { type: "purchase_completed", providerEventId, userId, itemKey, amountCents, currency, transactionRef: transactionId ?? subscriptionId!, metadata: { ...meta, subscriptionRef: subscriptionId } };
+      return { type: "purchase_completed", providerEventId, userId, itemKey, amountCents, currency, transactionRef: transactionId ?? subscriptionId!, review, metadata: { ...meta, subscriptionRef: subscriptionId } };
     }
     case "RenewalSuccess":
       return {
@@ -175,7 +197,8 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
       };
     case "Cancellation":
     case "Expiration":
-      return { type: "subscription_cancelled", providerEventId, providerSubscriptionId: subscriptionId ?? "", metadata: meta };
+      // Cancellation stops rebilling; the pass stays paid until its period ends, when CCBill sends Expiration.
+      return { type: "subscription_cancelled", providerEventId, providerSubscriptionId: subscriptionId ?? "", atPeriodEnd: eventType === "Cancellation", metadata: meta };
     case "Refund":
     case "Void":
     case "Return":

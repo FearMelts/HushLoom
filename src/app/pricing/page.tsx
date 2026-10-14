@@ -162,7 +162,7 @@ export default async function PricingPage({ searchParams }: { searchParams: Prom
                     <tr key={p.id} className="border-b border-bone-50/5">
                       <td className="py-2 text-bone-400">{relativeTime(p.createdAt)}</td>
                       <td className="py-2">
-                        {EVENT_LABEL[p.type] ?? p.type}
+                        {p.type === "subscription_cancelled" && p.metadata.status === "non_renewing" ? "Renewal stopped" : (EVENT_LABEL[p.type] ?? p.type)}
                         {typeof p.metadata.label === "string" ? <span className="text-bone-500"> · {p.metadata.label}</span> : null}{" "}
                         {p.provider === "sandbox" ? <Badge tone="demo">sandbox</Badge> : <span className="text-bone-500">· {PROVIDER_LABEL[p.provider] ?? p.provider}</span>}
                       </td>

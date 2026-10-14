@@ -2,17 +2,19 @@ import { createHash, createHmac } from "node:crypto";
 import Stripe from "stripe";
 import { NextRequest } from "next/server";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { POST as sandboxRoute } from "@/app/api/pricing/sandbox/route";
 import { POST as paymentsWebhook } from "@/app/api/webhooks/payments/[provider]/route";
 import { adjustCredits } from "@/server/admin";
+import { deleteAccount, registerUser } from "@/server/auth/account";
 import { createSession } from "@/server/auth/session";
 import { getBalance, listLedger } from "@/server/credits/ledger";
 import { closeDb, getDb } from "@/server/db";
-import { accountFlags, auditLogs, paymentEvents, subscriptions } from "@/server/db/schema";
+import { accountFlags, auditLogs, creditAccounts, paymentEvents, subscriptions } from "@/server/db/schema";
 import { paymentsStatus, providerByKey, startCheckout } from "@/server/payments";
 import { compactUserId } from "@/server/payments/providers/segpay";
 import { readSandboxToken, SANDBOX_SIGNATURE_HEADER, signSandboxBody, type SandboxBody } from "@/server/payments/providers/sandbox";
+import { activePlan, cancelJob, confirmJob, createDraft } from "@/server/generation/service";
 import { clearFlag, listFlags, openFlags } from "@/server/payments/service";
 import { closeRedis } from "@/server/redis";
 import { key, makeUser, resetDb } from "../helpers";
@@ -171,6 +173,60 @@ describe("sandbox provider", () => {
     expect(await getDb().select().from(auditLogs).where(eq(auditLogs.action, "flag.clear"))).toHaveLength(1);
   });
 
+  it("R38: a sale from a saved checkout link after a chargeback, or after the account was deleted, is held for review, not granted", async () => {
+    const u = await makeUser();
+    await sale(u.id);
+    await send({ kind: "chargeback", eventId: "sbx_cb_r38" });
+    await expect(startCheckout(u, "pack_small")).rejects.toMatchObject({ status: 403, code: "account_flagged" });
+    // The link saved before the chargeback still pays at the processor; the webhook must not grant it.
+    expect(await (await sale(u.id, "sbx_sale_r38", "pack_large", { amountCents: 8999, transactionRef: "sbx_txn_r38" })).json()).toMatchObject({ outcome: "ignored" });
+    expect(await (await sale(u.id, "sbx_plan_r38", "plan_member", { amountCents: 1999, transactionRef: "sbx_txn_r38p", subscriptionRef: "sbx_sub_r38" })).json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect(await getDb().select().from(subscriptions).where(eq(subscriptions.userId, u.id))).toHaveLength(0);
+    expect((await openFlags(u.id)).map((f) => f.kind).sort()).toEqual(["chargeback", "manual_review", "manual_review"]);
+
+    const gone = await registerUser({ email: "r38@example.test", password: "long-enough-pass", handle: "r38_gone", displayName: "G", dateOfBirth: "1990-05-05", acceptTerms: true, confirmAdult: true });
+    await deleteAccount(gone.id, "long-enough-pass");
+    expect(await (await sale(gone.id, "sbx_sale_r38g", "pack_small", { transactionRef: "sbx_txn_r38g" })).json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(gone.id)).available).toBe(0);
+  });
+
+  it("R18: two reversals of one payment processed at the same time claw the grant back once", async () => {
+    const u = await makeUser();
+    const admin = await makeUser({ role: "admin" });
+    await sale(u.id, "sbx_sale_c", "pack_medium", { amountCents: 4499, transactionRef: "sbx_txn_c" });
+    await adjustCredits(admin.id, { account: u.handle, amount: 450, reason: "credits from elsewhere", idempotencyKey: key() });
+    expect((await getBalance(u.id)).available).toBe(1000);
+
+    // Hold the account row so both reversals get as far as they can before either moves credits.
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => (locked = r));
+    const holder = getDb().transaction(async (tx) => {
+      await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, u.id)).for("update");
+      locked();
+      await released;
+    });
+    await isLocked;
+    const both = Promise.all([
+      send({ kind: "refund", eventId: "sbx_c_refund", transactionRef: "sbx_txn_c", amountCents: 4499 }),
+      send({ kind: "chargeback", eventId: "sbx_c_cb", transactionRef: "sbx_txn_c", amountCents: 4499 }),
+    ]);
+    const waiting = async () =>
+      (await getDb().execute<{ n: number }>(sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'`))[0]!.n;
+    for (let i = 0; i < 200 && (await waiting()) < 2; i++) await new Promise((r) => setTimeout(r, 25));
+    expect(await waiting()).toBe(2);
+    release();
+    await holder;
+    for (const res of await both) expect(res.status).toBe(200);
+
+    expect((await getBalance(u.id)).available).toBe(450);
+    const reversals = (await events("sandbox")).filter((e) => e.type === "refund" || e.type === "chargeback");
+    expect(reversals.reduce((sum, e) => sum + (e.credits ?? 0), 0)).toBe(-550);
+    expect((await flagsOf(u.id)).map((f) => f.kind)).toEqual(["chargeback"]);
+  });
+
   it("records a credit_debt flag when the refunded credits were already spent", async () => {
     const u = await makeUser();
     const admin = await makeUser({ role: "admin" });
@@ -188,6 +244,96 @@ describe("sandbox provider", () => {
     expect(flags[0]!.details).toMatchObject({ shortfall: 60, reversed: 40 });
     // A debt is for an operator to look at; it does not stop the person buying again.
     expect((await startCheckout(u, "pack_small")).url).toContain("/pricing/sandbox");
+  });
+
+  it("R17: credits a reversal could not take because jobs held them are taken back when those jobs are released, once", async () => {
+    const u = await makeUser();
+    await sale(u.id);
+    const confirmed = async () => {
+      const draft = await createDraft(u, { idempotencyKey: key(), mode: "text_to_image", modelKey: "demo-still", prompt: "two adults sharing a candlelit toast", negativePrompt: "", params: { aspectRatio: "4:5" }, inputAssetIds: [] }, { country: null });
+      await confirmJob(u, draft.id, draft.costCredits);
+      return draft;
+    };
+    const [a, b] = [await confirmed(), await confirmed()];
+    expect(await getBalance(u.id)).toEqual({ available: 92, reserved: 8 });
+
+    await send({ kind: "refund", eventId: "sbx_refund_held" });
+    expect(await getBalance(u.id)).toEqual({ available: 0, reserved: 8 });
+    const [debt] = await flagsOf(u.id);
+    expect(debt).toMatchObject({ kind: "credit_debt" });
+    expect(debt!.details).toMatchObject({ shortfall: 8, reversed: 92 });
+
+    // The refunded credits the jobs held do not come back to the person when the jobs are cancelled.
+    await cancelJob(u, a.id);
+    await cancelJob(u, a.id);
+    await cancelJob(u, b.id);
+    expect(await getBalance(u.id)).toEqual({ available: 0, reserved: 0 });
+    const reversals = (await listLedger(u.id)).filter((l) => l.kind === "refund");
+    expect(reversals.reduce((sum, l) => sum + l.availableDelta, 0)).toBe(-100);
+    const [after] = await flagsOf(u.id);
+    expect(after!.details).toMatchObject({ outstanding: 0, collected: 8 });
+    // The refund's row counts all it took back, so a later chargeback on the same payment owes nothing more.
+    expect((await events("sandbox")).find((e) => e.providerEventId === "sbx_refund_held")).toMatchObject({ credits: -100 });
+
+    // A job confirmed after the refund, with credits bought after it, is the person's own: released in full.
+    await sale(u.id, "sbx_sale_after", "pack_small", { transactionRef: "sbx_txn_after" });
+    const c = await confirmed();
+    await cancelJob(u, c.id);
+    expect(await getBalance(u.id)).toEqual({ available: 100, reserved: 0 });
+  });
+
+  it("R01: a payment short of the price or in another currency grants nothing, whatever the processor, and goes to manual review", async () => {
+    const u = await makeUser();
+    expect(await (await sale(u.id, "sbx_short_1", "pack_large", { amountCents: 999, transactionRef: "sbx_txn_s1" })).json()).toMatchObject({ outcome: "ignored" });
+    expect(await (await sale(u.id, "sbx_short_2", "plan_studio", { amountCents: 1999, transactionRef: "sbx_txn_s2", subscriptionRef: "sbx_sub_s2" })).json()).toMatchObject({ outcome: "ignored" });
+    expect(await (await sale(u.id, "sbx_short_3", "pack_small", { currency: "eur", transactionRef: "sbx_txn_s3" })).json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect(await getDb().select().from(subscriptions).where(eq(subscriptions.userId, u.id))).toHaveLength(0);
+    expect((await flagsOf(u.id)).map((f) => f.kind)).toEqual(["manual_review", "manual_review", "manual_review"]);
+    const held = (await events("sandbox")).find((e) => e.providerEventId === "sbx_short_1");
+    expect(held).toMatchObject({ userId: u.id, amountCents: 999, credits: null });
+    expect(held!.metadata).toMatchObject({ reason: "needs_review", itemKey: "pack_large" });
+
+    // A renewal paid short grants nothing either.
+    await sale(u.id, "sbx_plan_ok", "plan_member", { amountCents: 1999, transactionRef: "sbx_txn_ok", subscriptionRef: "sbx_sub_ok" });
+    expect((await getBalance(u.id)).available).toBe(400);
+    const shortRenewal = await send({ kind: "renewal", eventId: "sbx_renew_short", amountCents: 999, transactionRef: "sbx_txn_r", subscriptionRef: "sbx_sub_ok" });
+    expect(await shortRenewal.json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(u.id)).available).toBe(400);
+    expect((await flagsOf(u.id)).filter((f) => f.kind === "manual_review")).toHaveLength(4);
+  });
+
+  it("R10: a refund or chargeback that arrives before its purchase is kept and applied when the purchase lands, once", async () => {
+    const u = await makeUser();
+    const early = await send({ kind: "refund", eventId: "sbx_early_refund", transactionRef: "sbx_txn_e1" });
+    expect(early.status).toBe(200);
+    expect(await early.json()).toMatchObject({ outcome: "ignored" });
+    expect(await (await sale(u.id, "sbx_late_sale", "pack_small", { transactionRef: "sbx_txn_e1" })).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect((await listLedger(u.id)).find((l) => l.kind === "refund")).toMatchObject({ availableDelta: -100, idempotencyKey: "refund:sandbox:sbx_early_refund" });
+    const [refundRow] = (await events("sandbox")).filter((e) => e.type === "refund");
+    expect(refundRow).toMatchObject({ userId: u.id, credits: -100, amountCents: -999 });
+    expect(refundRow!.metadata).toMatchObject({ pending: false, creditsReversed: 100 });
+    // Redeliveries of either change nothing.
+    expect(await (await send({ kind: "refund", eventId: "sbx_early_refund", transactionRef: "sbx_txn_e1" })).json()).toMatchObject({ outcome: "duplicate" });
+    expect(await (await sale(u.id, "sbx_late_sale", "pack_small", { transactionRef: "sbx_txn_e1" })).json()).toMatchObject({ outcome: "duplicate" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect((await listLedger(u.id)).filter((l) => l.kind === "refund")).toHaveLength(1);
+
+    // A chargeback ahead of its sale flags the account once the sale is known.
+    const u2 = await makeUser();
+    await send({ kind: "chargeback", eventId: "sbx_early_cb", transactionRef: "sbx_txn_e3" });
+    await sale(u2.id, "sbx_late_sale_2", "pack_small", { transactionRef: "sbx_txn_e3" });
+    expect((await getBalance(u2.id)).available).toBe(0);
+    expect((await openFlags(u2.id)).map((f) => f.kind)).toEqual(["chargeback"]);
+    await expect(startCheckout(u2, "pack_small")).rejects.toMatchObject({ status: 403, code: "account_flagged" });
+
+    // A cancellation ahead of its pass start leaves the pass ended.
+    const u3 = await makeUser();
+    await send({ kind: "cancel", eventId: "sbx_early_cancel", subscriptionRef: "sbx_sub_e4" });
+    await sale(u3.id, "sbx_late_plan", "plan_member", { amountCents: 1999, transactionRef: "sbx_txn_e4", subscriptionRef: "sbx_sub_e4" });
+    const [sub] = await getDb().select().from(subscriptions).where(eq(subscriptions.userId, u3.id));
+    expect(sub!.status).toBe("canceled");
   });
 
   it("starts a pass, grants each renewal once, and ends it on cancellation", async () => {
@@ -234,6 +380,16 @@ describe("sandbox provider", () => {
     expect((await getBalance(u.id)).available).toBe(0);
     expect(await (await post({ action: "chargeback", transactionRef })).json()).toMatchObject({ outcome: "processed" });
     expect((await openFlags(u.id)).map((f) => f.kind)).toEqual(["chargeback"]);
+  });
+});
+
+describe("webhook route", () => {
+  it("R40: a path that names no processor is 404, including names inherited from Object.prototype", async () => {
+    for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty", "nope"]) {
+      const res = await webhook(name, "{}", { headers: { "content-type": "application/json" } });
+      expect({ name, status: res.status }).toEqual({ name, status: 404 });
+    }
+    expect(providerByKey("constructor")).toBeNull();
   });
 });
 
@@ -288,6 +444,29 @@ describe("stripe provider", () => {
     // Nothing was left to claw back after the refund, so no chargeback ledger row and no debt flag.
     expect((await listLedger(u.id)).filter((l) => l.kind === "chargeback")).toHaveLength(0);
   });
+
+  it("R39: a refund or dispute of a pass invoice finds that invoice's grant through its payment intent", async () => {
+    const u = await makeUser();
+    const start = { id: "evt_s0", object: "event", type: "checkout.session.completed", data: { object: { id: "cs_sub", object: "checkout.session", mode: "subscription", payment_status: "paid", amount_total: 1999, currency: "usd", subscription: "sub_1", customer: "cus_1", metadata: { userId: u.id, itemKey: "plan_member" } } } };
+    expect(await (await send(start)).json()).toMatchObject({ outcome: "processed" });
+    const invoicePaid = (eventId: string, invoice: Record<string, unknown>) => ({ id: eventId, object: "event", type: "invoice.paid", data: { object: { object: "invoice", subscription: "sub_1", amount_paid: 1999, currency: "usd", lines: { data: [] }, ...invoice } } });
+
+    // API versions before 2025-03-31 put the payment intent on the invoice.
+    expect(await (await send(invoicePaid("evt_i1", { id: "in_1", payment_intent: "pi_in_1" }))).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(400);
+    const refund = { id: "evt_ir1", object: "event", type: "charge.refunded", data: { object: { id: "ch_in_1", object: "charge", payment_intent: "pi_in_1", invoice: "in_1", amount: 1999, amount_refunded: 1999, currency: "usd" } } };
+    expect(await (await send(refund)).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(0);
+
+    // Later versions list the payments when the invoice includes them; a dispute names only the payment intent.
+    const payments = { object: "list", data: [{ object: "invoice_payment", id: "inpay_2", status: "paid", payment: { type: "payment_intent", payment_intent: "pi_in_2" } }] };
+    expect(await (await send(invoicePaid("evt_i2", { id: "in_2", payments }))).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(400);
+    const dispute = { id: "evt_id2", object: "event", type: "charge.dispute.created", data: { object: { id: "dp_2", object: "dispute", charge: "ch_in_2", payment_intent: "pi_in_2", amount: 1999, currency: "usd", reason: "fraudulent" } } };
+    expect(await (await send(dispute)).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect((await openFlags(u.id)).map((f) => f.kind)).toEqual(["chargeback"]);
+  });
 });
 
 // ── CCBill ───────────────────────────────────────────────────────────────────
@@ -335,7 +514,7 @@ describe("ccbill provider (digests computed locally from the documented formulas
     expect(await (await newSale(u.id, "pack_small", "1000000001", "0912191101000000159")).json()).toMatchObject({ outcome: "duplicate" });
     expect((await getBalance(u.id)).available).toBe(100);
     const [row] = await events("ccbill");
-    expect(row).toMatchObject({ providerEventId: "NewSaleSuccess:0912191101000000159:2026-10-12 20:15:00", transactionRef: "0912191101000000159", amountCents: 999, currency: "usd", credits: 100 });
+    expect(row).toMatchObject({ providerEventId: "NewSaleSuccess:1000000001", transactionRef: "0912191101000000159", amountCents: 999, currency: "usd", credits: 100 });
     expect(row!.metadata).toMatchObject({ subscriptionRef: "1000000001" });
   });
 
@@ -354,6 +533,97 @@ describe("ccbill provider (digests computed locally from the documented formulas
     await expectRejected(await post("NewSaleSuccess", { ...base, clientAccnum: "123456", subscriptionId: "1", transactionId: "2", dynamicPricingValidationDigest: md5(`11${CCBILL_SALT}`) }), "bad_signature");
     expect((await getBalance(u.id)).available).toBe(0);
     expect(await events("ccbill")).toHaveLength(0);
+  });
+
+  it("R01: a sale whose billed price or terms do not match the claimed item grants nothing and goes to manual review", async () => {
+    const u = await makeUser();
+    // Control: the Studio Pass bought on its own form.
+    const ok = await newSale(u.id, "plan_studio", "3000000000", "txn_r01_0", { billedInitialPrice: "59.99" });
+    expect(await ok.json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(1500);
+
+    // Each one is a real, digest-valid CCBill sale carrying a genuine pass-through pair this server issued for another item.
+    const buyer = await makeUser();
+    const spliced: { itemKey: string; sub: string; extra: Record<string, string> }[] = [
+      // Spark's one-time $9.99 form carrying the Studio Pass pair.
+      { itemKey: "plan_studio", sub: "3000000001", extra: { billedInitialPrice: "9.99", nextRenewalDate: "" } },
+      // The Night Pass's $19.99 monthly form carrying the Studio Pass pair.
+      { itemKey: "plan_studio", sub: "3000000002", extra: { billedInitialPrice: "19.99" } },
+      // Spark's $9.99 form carrying the Blaze pair.
+      { itemKey: "pack_large", sub: "3000000003", extra: { billedInitialPrice: "9.99" } },
+      // Blaze's one-time $89.99 form carrying the Studio Pass pair: paid more, but no recurring terms, so the pass would never end.
+      { itemKey: "plan_studio", sub: "3000000004", extra: { billedInitialPrice: "89.99", nextRenewalDate: "" } },
+      // No billed price at all.
+      { itemKey: "pack_small", sub: "3000000005", extra: { billedInitialPrice: "" } },
+    ];
+    for (const s of spliced) {
+      const res = await newSale(buyer.id, s.itemKey, s.sub, `txn_${s.sub}`, s.extra);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({ outcome: "ignored" });
+    }
+    expect((await getBalance(buyer.id)).available).toBe(0);
+    expect(await getDb().select().from(subscriptions).where(eq(subscriptions.userId, buyer.id))).toHaveLength(0);
+    const flags = await flagsOf(buyer.id);
+    expect(flags.map((f) => f.kind)).toEqual(spliced.map(() => "manual_review"));
+    expect(flags[0]!.details).toMatchObject({ provider: "ccbill", itemKey: expect.any(String) });
+  });
+
+  it("R20: without CCBILL_WEBHOOK_TOKEN CCBill reports itself unconfigured and takes no webhook, not sales without their refunds", async () => {
+    vi.stubEnv("CCBILL_WEBHOOK_TOKEN", undefined);
+    vi.stubEnv("PAYMENT_PROVIDER", "ccbill");
+    vi.resetModules();
+    try {
+      const { providerByKey: fresh } = await import("@/server/payments");
+      const { POST: freshWebhook } = await import("@/app/api/webhooks/payments/[provider]/route");
+      const c = fresh("ccbill")!;
+      expect(c.isConfigured()).toBe(false);
+      expect(c.webhookConfigured()).toBe(false);
+      expect(c.configurationProblem()).toMatch(/CCBILL_WEBHOOK_TOKEN/);
+
+      const u = await makeUser();
+      const digest = md5(`2000000077${"1"}${CCBILL_SALT}`);
+      const send = (eventType: string, fields: Record<string, string>) => {
+        const url = new URL("http://localhost/api/webhooks/payments/ccbill");
+        for (const [k, v] of Object.entries({ clientAccnum: "900000", clientSubacc: "0000", eventType })) url.searchParams.set(k, v);
+        return freshWebhook(new NextRequest(url, { method: "POST", body: form({ ...base, ...fields }), headers: FORM }), { params: Promise.resolve({ provider: "ccbill" }) });
+      };
+      const saleRes = await send("NewSaleSuccess", {
+        subscriptionId: "2000000077",
+        transactionId: "txn_r20_1",
+        billedInitialPrice: "19.99",
+        billedCurrencyCode: "840",
+        nextRenewalDate: "2026-11-11",
+        dynamicPricingValidationDigest: digest,
+        "X-hlUser": u.id,
+        "X-hlItem": "plan_member",
+        "X-hlSig": passSig(u.id, "plan_member"),
+      });
+      expect(saleRes.status).toBe(503);
+      // The sale's digest replayed on a lifecycle event in place of the token (R19) is refused too.
+      for (const timestamp of ["2026-11-11 00:00:00", "2026-12-11 00:00:00"]) {
+        const renewal = await send("RenewalSuccess", { subscriptionId: "2000000077", transactionId: `txn_${timestamp}`, billedAmount: "19.99", billedCurrencyCode: "840", timestamp, dynamicPricingValidationDigest: digest });
+        expect(renewal.status).toBe(503);
+      }
+      expect((await getBalance(u.id)).available).toBe(0);
+      expect(await events("ccbill")).toHaveLength(0);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it("R19: a signed sale re-posted with another timestamp or transaction id is the same sale, granted once", async () => {
+    const u = await makeUser();
+    expect(await (await newSale(u.id, "pack_small", "1000000019", "txn_r19_a")).json()).toMatchObject({ outcome: "processed" });
+    // Only subscriptionId is covered by the digest; timestamp and transactionId are not.
+    expect(await (await newSale(u.id, "pack_small", "1000000019", "txn_r19_a", { timestamp: "2026-10-13 09:00:00" })).json()).toMatchObject({ outcome: "duplicate" });
+    expect(await (await newSale(u.id, "pack_small", "1000000019", "txn_r19_b")).json()).toMatchObject({ outcome: "duplicate" });
+    expect((await getBalance(u.id)).available).toBe(100);
+    expect(await events("ccbill")).toHaveLength(1);
+    // The sale's digest on a lifecycle event does not stand in for the token.
+    const renewal = await post("RenewalSuccess", { subscriptionId: "1000000019", transactionId: "txn_r19_r", billedAmount: "9.99", billedCurrencyCode: "840", dynamicPricingValidationDigest: md5(`10000000191${CCBILL_SALT}`) }, {});
+    expect(renewal.status).toBe(400);
+    expect(await renewal.json()).toMatchObject({ error: { code: "unsigned" } });
   });
 
   it("Refund claws back by transaction id, Chargeback finds the sale by subscription id and flags", async () => {
@@ -377,6 +647,51 @@ describe("ccbill provider (digests computed locally from the documented formulas
     await post("Return", { subscriptionId: "1000000004", transactionId: "txn_sale_3", amount: "9.99", currencyCode: "840" });
     expect((await getBalance(u3.id)).available).toBe(0);
     expect(await flagsOf(u3.id)).toHaveLength(0);
+  });
+
+  it("R10: a Chargeback delivered before its NewSaleSuccess is applied when the sale lands", async () => {
+    const u = await makeUser();
+    const cb = await post("Chargeback", { subscriptionId: "1000000077", transactionId: "txn_cb_early", amount: "9.99", currencyCode: "840", reason: "fraud" });
+    expect(await cb.json()).toMatchObject({ outcome: "ignored" });
+    expect(await (await newSale(u.id, "pack_small", "1000000077", "txn_sale_77")).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect((await listLedger(u.id)).find((l) => l.kind === "chargeback")).toMatchObject({ availableDelta: -100 });
+    expect((await openFlags(u.id)).map((f) => f.kind)).toEqual(["chargeback"]);
+  });
+
+  it("R32: a Cancellation stops rebilling but keeps the paid pass until its period ends; Expiration ends it", async () => {
+    const u = await makeUser();
+    const periodEnd = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10);
+    await newSale(u.id, "plan_member", "2000000032", "txn_plan_32", { nextRenewalDate: periodEnd });
+    expect((await activePlan(u.id))?.key).toBe("plan_member");
+    expect(await (await post("Cancellation", { subscriptionId: "2000000032", timestamp: "2026-10-13 10:00:00" })).json()).toMatchObject({ outcome: "processed" });
+    expect((await activePlan(u.id))?.key).toBe("plan_member");
+    await post("Expiration", { subscriptionId: "2000000032", timestamp: "2026-11-02 00:00:00" });
+    expect(await activePlan(u.id)).toBeNull();
+    // A stop-rebilling notice that arrives late never reopens an ended pass.
+    await post("Cancellation", { subscriptionId: "2000000032", timestamp: "2026-10-13 10:00:01" });
+    expect(await activePlan(u.id)).toBeNull();
+    const [sub] = await getDb().select().from(subscriptions).where(eq(subscriptions.userId, u.id));
+    expect(sub!.status).toBe("canceled");
+  });
+
+  it("R33: deleting an account with a live pass puts its cancellation in front of an operator, and a renewal billed after that grants nothing", async () => {
+    const reg = await registerUser({ email: "r33@example.test", password: "long-enough-pass", handle: "r33_leaver", displayName: "L", dateOfBirth: "1990-05-05", acceptTerms: true, confirmAdult: true });
+    await newSale(reg.id, "plan_member", "2000000033", "txn_plan_33");
+    expect((await getBalance(reg.id)).available).toBe(400);
+    await deleteAccount(reg.id, "long-enough-pass");
+    const [sub] = await getDb().select().from(subscriptions).where(eq(subscriptions.userId, reg.id));
+    expect(sub!.status).toBe("canceled");
+    const flags = await openFlags(reg.id);
+    expect(flags.map((f) => f.kind)).toEqual(["manual_review"]);
+    expect(flags[0]!.details).toMatchObject({ provider: "ccbill", subscriptionRef: "2000000033", planKey: "plan_member" });
+
+    const renewal = await post("RenewalSuccess", { subscriptionId: "2000000033", transactionId: "txn_plan_33b", billedAmount: "19.99", billedCurrencyCode: "840", timestamp: "2026-11-11 00:00:00" });
+    expect(await renewal.json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(reg.id)).available).toBe(400);
+    expect((await openFlags(reg.id)).map((f) => f.kind)).toEqual(["manual_review", "manual_review"]);
+    const [after] = await getDb().select().from(subscriptions).where(eq(subscriptions.userId, reg.id));
+    expect(after!.status).toBe("canceled");
   });
 
   it("starts a pass on NewSaleSuccess, grants each RenewalSuccess once, and ends it on Expiration", async () => {
@@ -466,6 +781,50 @@ describe("segpay provider (postbacks built from the documented parameters; never
     expect(declined.headers.get("x-payment-outcome")).toBe("ignored");
     expect((await getBalance(u.id)).available).toBe(100);
     expect(await events("segpay")).toHaveLength(2);
+  });
+
+  it("R02: grants nothing unless the price point charged maps to exactly the item claimed", async () => {
+    const u = await makeUser();
+    // An edited x-eticketid with a price point the map does not know, on a postback that carries no price.
+    const unmapped = await sale(u.id, "pack_large", "T50", "P50", { eticketid: "100001:99999", price: "" });
+    expect(unmapped.status).toBe(200);
+    expect(unmapped.headers.get("x-payment-outcome")).toBe("ignored");
+    // A postback template without <eticketid>.
+    const noTicket = await sale(u.id, "pack_large", "T51", "P51", { eticketid: "", price: "89.99" });
+    expect(noTicket.headers.get("x-payment-outcome")).toBe("ignored");
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect((await flagsOf(u.id)).map((f) => f.kind)).toEqual(["manual_review", "manual_review"]);
+    // Control: Blaze's own price point and price.
+    const ok = await sale(u.id, "pack_large", "T52", "P52", { price: "89.99" });
+    expect(ok.headers.get("x-payment-outcome")).toBe("processed");
+    expect((await getBalance(u.id)).available).toBe(1200);
+  });
+
+  it("R02: refuses checkout for an item without its own price point (no shared fallback)", async () => {
+    vi.stubEnv("SEGPAY_PRICE_POINT_ID", "pack_small=20001,12345");
+    vi.resetModules();
+    try {
+      const { segpayProvider: fresh } = await import("@/server/payments/providers/segpay");
+      const user = { id: "33333333-3333-4333-8333-333333333333", email: "z@example.test" };
+      const item = (key: string, priceCents: number) => ({ key, kind: "pack" as const, label: key, priceCents, currency: "usd", credits: 1 });
+      await expect(fresh.createCheckout({ user, item: item("pack_large", 8999), successUrl: "http://s", cancelUrl: "http://c" })).rejects.toThrow(/price point/);
+      const small = new URL((await fresh.createCheckout({ user, item: item("pack_small", 999), successUrl: "http://s", cancelUrl: "http://c" })).url);
+      expect(small.searchParams.get("x-eticketid")).toBe("100001:20001");
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it("R32: a Cancellation postback keeps the paid pass until its period ends; Disable ends it", async () => {
+    const u = await makeUser();
+    const nextbilldate = new Date(Date.now() + 20 * 86_400_000).toISOString();
+    await sale(u.id, "plan_member", "T60", "P60", { nextbilldate });
+    expect((await activePlan(u.id))?.key).toBe("plan_member");
+    expect((await post({ action: "Cancellation", purchaseid: "P60" })).headers.get("x-payment-outcome")).toBe("processed");
+    expect((await activePlan(u.id))?.key).toBe("plan_member");
+    await post({ action: "Disable", purchaseid: "P60" });
+    expect(await activePlan(u.id)).toBeNull();
   });
 
   it("a Credit reverses the related sale, a Charge flags the account, a rebill grants per period", async () => {

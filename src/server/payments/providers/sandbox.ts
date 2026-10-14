@@ -127,10 +127,12 @@ export function sandboxEventFromBody(body: SandboxBody): PaymentEvent {
       };
     case "cancel":
       return { type: "subscription_cancelled", providerEventId: body.eventId, providerSubscriptionId: body.subscriptionRef ?? "", metadata: { sandbox: true } };
+    // A sandbox reversal always names the charge it reverses (its transactionRef), so it is matched to that charge alone
+    // and waits for it if it has not landed yet, never taken from another charge of the same pass.
     case "refund":
-      return { type: "refund", providerEventId: body.eventId, transactionRef: body.transactionRef, amountCents: body.amountCents, currency: body.currency, subscriptionRef: body.subscriptionRef, metadata: { sandbox: true } };
+      return { type: "refund", providerEventId: body.eventId, transactionRef: body.transactionRef, amountCents: body.amountCents, currency: body.currency, metadata: { sandbox: true } };
     case "chargeback":
-      return { type: "chargeback", providerEventId: body.eventId, transactionRef: body.transactionRef, amountCents: body.amountCents, currency: body.currency, subscriptionRef: body.subscriptionRef, metadata: { sandbox: true } };
+      return { type: "chargeback", providerEventId: body.eventId, transactionRef: body.transactionRef, amountCents: body.amountCents, currency: body.currency, metadata: { sandbox: true } };
     case "failure":
       return { type: "ignored", providerEventId: body.eventId, raw: "sandbox: simulated failed payment", metadata: { sandbox: true } };
   }

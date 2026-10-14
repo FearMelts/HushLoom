@@ -61,6 +61,10 @@ export function stripeEventToPayment(event: Stripe.Event): PaymentEvent {
       const itemKey = s.metadata?.itemKey;
       const item = itemKey ? checkoutItem(itemKey) : null;
       if (!userId || !item) return { type: "ignored", providerEventId, raw: "checkout.session.completed without Hushloom metadata" };
+      // What Stripe reports as charged is what was paid: a session without an amount or currency is never taken as the
+      // item's price (the price guard would then compare the price with itself). It is held for review as 0 in "XXX".
+      const amountCents = s.amount_total ?? 0;
+      const currency = s.currency ?? "xxx";
       if (s.mode === "payment" && item.kind === "pack") {
         if (s.payment_status !== "paid") return { type: "ignored", providerEventId, raw: `checkout ${s.id} ${s.payment_status}` };
         return {
@@ -68,8 +72,8 @@ export function stripeEventToPayment(event: Stripe.Event): PaymentEvent {
           providerEventId,
           userId,
           itemKey: item.key,
-          amountCents: s.amount_total ?? item.priceCents,
-          currency: s.currency ?? item.currency,
+          amountCents,
+          currency,
           transactionRef: idOf(s.payment_intent) ?? s.id,
           metadata: { sessionId: s.id },
         };
@@ -82,8 +86,8 @@ export function stripeEventToPayment(event: Stripe.Event): PaymentEvent {
           itemKey: item.key,
           providerSubscriptionId: s.subscription,
           providerCustomerId: idOf(s.customer),
-          amountCents: s.amount_total ?? item.priceCents,
-          currency: s.currency ?? item.currency,
+          amountCents,
+          currency,
           transactionRef: s.id,
           // Stripe bills the first period through invoice.paid, which grants the credits.
           grantsFirstPeriod: false,
@@ -93,17 +97,21 @@ export function stripeEventToPayment(event: Stripe.Event): PaymentEvent {
       return { type: "ignored", providerEventId, raw: `checkout ${s.id} mode ${s.mode}` };
     }
     case "invoice.paid": {
-      const inv = event.data.object as Stripe.Invoice & { subscription?: string | null };
+      const inv = event.data.object as Stripe.Invoice & { subscription?: string | null; payment_intent?: string | { id: string } | null };
       const subId = inv.subscription ?? (inv.parent?.subscription_details?.subscription as string | undefined) ?? null;
       if (!subId) return { type: "ignored", providerEventId, raw: `invoice ${inv.id} without subscription` };
       const line = inv.lines?.data?.[0];
+      // Refunds and disputes name the payment intent, so the grant is recorded under the one that paid this invoice:
+      // on the invoice before API version 2025-03-31, in its payments list (when included) after. Without either, the
+      // invoice id is all there is, and a reversal is kept pending for an operator.
+      const paidBy = idOf(inv.payment_intent) ?? idOf(inv.payments?.data?.find((p) => p.status === "paid")?.payment?.payment_intent);
       return {
         type: "subscription_renewed",
         providerEventId,
         providerSubscriptionId: String(subId),
         amountCents: inv.amount_paid,
         currency: inv.currency,
-        transactionRef: inv.id ?? providerEventId,
+        transactionRef: paidBy ?? inv.id ?? providerEventId,
         currentPeriodEnd: line?.period?.end ? new Date(line.period.end * 1000) : undefined,
         metadata: { invoiceId: inv.id },
       };

@@ -38,32 +38,34 @@ import { checkoutItem, hmacHex, parseMoneyCents, safeEqual, webhookParams } from
  *     `&hluser=<extra hluser>&hlitem=<extra hlitem>&hlsig=<extra hlsig>`), and whether the
  *     "all parameters" default includes them.
  *  2. Whether Segpay delivers postbacks as GET query strings or POST bodies (both are read here).
- *  3. The price point ids per pack / plan (SEGPAY_PRICE_POINT_ID map) and that their prices match
- *     src/config/pricing.ts; Segpay, not this app, decides the amount charged.
+ *  3. The price point ids per pack / plan (SEGPAY_PRICE_POINT_ID map, one per item) and that their prices
+ *     match src/config/pricing.ts; Segpay, not this app, decides the amount charged. The postback template
+ *     must carry <eticketid>, <price> and <currencycode>: a sale without them is held for manual review.
  *  4. The `transtime` format and the exact spelling of `trantype` values.
  */
 
 const PAY_PAGE = "https://secure2.segpay.com/billing/poset.cgi";
 
-type Cfg = { packageId: string; pricePoints: Map<string, string>; defaultPricePoint: string | null; secret: string; accessKey: string | null };
+type Cfg = { packageId: string; pricePoints: Map<string, string>; secret: string; accessKey: string | null };
 
-/** SEGPAY_PRICE_POINT_ID is "12345" (one price point for everything) or "pack_small=12345,plan_member=12346". */
-function parsePricePoints(raw: string): { map: Map<string, string>; fallback: string | null } {
+/**
+ * SEGPAY_PRICE_POINT_ID maps each pack / plan to its own price point: "pack_small=12345,plan_member=12346".
+ * The price point Segpay charged is how a postback proves which item was bought, so there is no shared
+ * fallback: an item without its own price point cannot be sold, and a bare value is ignored.
+ */
+function parsePricePoints(raw: string): Map<string, string> {
   const map = new Map<string, string>();
-  let fallback: string | null = null;
   for (const part of raw.split(",").map((s) => s.trim()).filter(Boolean)) {
     const [k, v] = part.split("=").map((s) => s.trim());
     if (k && v) map.set(k, v);
-    else if (k) fallback = k;
   }
-  return { map, fallback };
+  return map;
 }
 
 function cfg(): Cfg | null {
   const e = env();
   if (!e.SEGPAY_PACKAGE_ID || !e.SEGPAY_PRICE_POINT_ID || !e.SEGPAY_POSTBACK_SECRET) return null;
-  const { map, fallback } = parsePricePoints(e.SEGPAY_PRICE_POINT_ID);
-  return { packageId: e.SEGPAY_PACKAGE_ID, pricePoints: map, defaultPricePoint: fallback, secret: e.SEGPAY_POSTBACK_SECRET, accessKey: e.SEGPAY_USER_ACCESS_KEY ?? null };
+  return { packageId: e.SEGPAY_PACKAGE_ID, pricePoints: parsePricePoints(e.SEGPAY_PRICE_POINT_ID), secret: e.SEGPAY_POSTBACK_SECRET, accessKey: e.SEGPAY_USER_ACCESS_KEY ?? null };
 }
 
 const missing = () => (["SEGPAY_PACKAGE_ID", "SEGPAY_PRICE_POINT_ID", "SEGPAY_POSTBACK_SECRET"] as const).filter((k) => !env()[k]);
@@ -81,7 +83,7 @@ export function expandUserId(compact: string | undefined): string | null {
 export const passthroughSignature = (secret: string, userId: string, itemKey: string) => `s${hmacHex(secret, `segpay:${userId}:${itemKey}`).slice(0, 31)}`;
 
 export function segpayPricePoint(c: Cfg, itemKey: string): string | null {
-  return c.pricePoints.get(itemKey) ?? c.defaultPricePoint;
+  return c.pricePoints.get(itemKey) ?? null;
 }
 
 export function segpayCheckoutUrl(c: Cfg, user: { id: string; email: string }, itemKey: string, successUrl: string, cancelUrl: string): string | null {
@@ -159,13 +161,19 @@ export function segpayEventFromParams(c: Cfg, p: Record<string, string>, headers
     const sig = extra(p, "hlsig");
     if (!userId || !itemFromPass || !sig) return { type: "ignored", providerEventId, raw: "segpay sale without Hushloom values", metadata: meta };
     if (!safeEqual(sig, passthroughSignature(c.secret, userId, itemFromPass))) throw new WebhookRejected("bad_signature", "Pass-through signature does not match.");
-    // The price point Segpay charged is authoritative over the pass-through item when we know its mapping.
-    const pricePointId = eticket?.split(":")[1];
-    const mapped = pricePointId ? [...c.pricePoints.entries()].find(([, v]) => v === pricePointId)?.[0] : undefined;
+    // The price point Segpay charged decides the item: it must map to exactly the item the pass-through names.
+    // An edited x-eticketid, an unmapped price point or a postback without eticketid is never granted.
     if (eticket && !eticket.startsWith(`${c.packageId}:`)) return { type: "ignored", providerEventId, raw: "segpay sale for another package", metadata: meta };
-    if (mapped && mapped !== itemFromPass) throw new WebhookRejected("bad_signature", "Pass-through item does not match the price point charged.");
+    const pricePointId = eticket?.split(":")[1];
+    const mapped = pricePointId ? [...c.pricePoints.entries()].filter(([, v]) => v === pricePointId).map(([k]) => k) : [];
+    if (mapped.length === 1 && mapped[0] !== itemFromPass) throw new WebhookRejected("bad_signature", "Pass-through item does not match the price point charged.");
     const item = checkoutItem(itemFromPass);
     if (!item) return { type: "ignored", providerEventId, raw: `unknown item ${itemFromPass}`, metadata: meta };
+    const review = !pricePointId
+      ? "Segpay sent no price point (eticketid)"
+      : mapped.length !== 1
+        ? `price point ${pricePointId} is not mapped to exactly one item in SEGPAY_PRICE_POINT_ID`
+        : undefined;
     if (item.kind === "plan") {
       return {
         type: "subscription_started",
@@ -173,15 +181,16 @@ export function segpayEventFromParams(c: Cfg, p: Record<string, string>, headers
         userId,
         itemKey: item.key,
         providerSubscriptionId: purchaseId ?? tranId!,
-        amountCents: amountCents || item.priceCents,
+        amountCents,
         currency,
         transactionRef: tranId ?? purchaseId!,
         currentPeriodEnd: parseTime(field(p, "nextbilldate")),
         grantsFirstPeriod: true,
+        review,
         metadata: meta,
       };
     }
-    return { type: "purchase_completed", providerEventId, userId, itemKey: item.key, amountCents: amountCents || item.priceCents, currency, transactionRef: tranId ?? purchaseId!, metadata: { ...meta, subscriptionRef: purchaseId } };
+    return { type: "purchase_completed", providerEventId, userId, itemKey: item.key, amountCents, currency, transactionRef: tranId ?? purchaseId!, review, metadata: { ...meta, subscriptionRef: purchaseId } };
   }
 
   if (trantype === "sale") {
@@ -189,14 +198,18 @@ export function segpayEventFromParams(c: Cfg, p: Record<string, string>, headers
     if (approved === "no") return { type: "ignored", providerEventId: `declined:${tranId}`, raw: "segpay declined rebill", metadata: meta };
     return { type: "subscription_renewed", providerEventId: `rebill:${tranId}`, providerSubscriptionId: purchaseId ?? "", amountCents, currency, transactionRef: tranId!, currentPeriodEnd: parseTime(field(p, "nextbilldate")), metadata: meta };
   }
+  // relatedtranid names the charge a reversal reverses: it is matched to that charge alone and waits for it if it has not
+  // landed yet. Only a reversal without it is matched to the purchase's latest credited charge instead.
+  const reversed = relatedTranId ? { transactionRef: relatedTranId } : { transactionRef: tranId!, subscriptionRef: purchaseId };
   if (trantype === "credit" || trantype === "void") {
-    return { type: "refund", providerEventId: `${trantype}:${tranId}`, transactionRef: relatedTranId ?? tranId!, subscriptionRef: purchaseId, amountCents, currency, metadata: meta };
+    return { type: "refund", providerEventId: `${trantype}:${tranId}`, ...reversed, amountCents, currency, metadata: meta };
   }
   if (trantype === "charge") {
-    return { type: "chargeback", providerEventId: `chargeback:${tranId}`, transactionRef: relatedTranId ?? tranId!, subscriptionRef: purchaseId, amountCents, currency, metadata: meta };
+    return { type: "chargeback", providerEventId: `chargeback:${tranId}`, ...reversed, amountCents, currency, metadata: meta };
   }
   if (action === "disable" || action === "cancel" || action === "cancellation") {
-    return { type: "subscription_cancelled", providerEventId: `${action}:${purchaseId ?? tranId}`, providerSubscriptionId: purchaseId ?? "", metadata: meta };
+    // Cancellation stops rebilling; the pass stays paid until its period ends, when Segpay sends Disable.
+    return { type: "subscription_cancelled", providerEventId: `${action}:${purchaseId ?? tranId}`, providerSubscriptionId: purchaseId ?? "", atPeriodEnd: action !== "disable", metadata: meta };
   }
   // Inquiry, Reactivation, CB Reversal, RDRreversal and anything new: recorded, not acted on. An operator re-grants after a reversal by hand.
   return { type: "ignored", providerEventId: `${action || trantype}:${tranId ?? purchaseId}`, raw: `segpay ${action || trantype}`, metadata: meta };

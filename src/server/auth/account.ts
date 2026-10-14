@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { and, arrayOverlaps, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, arrayOverlaps, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "@/server/audit";
 import { applyMovement } from "@/server/credits/ledger";
 import { getDb } from "@/server/db";
 import {
+  accountFlags,
   characterReferences,
   consentRecords,
   creditAccounts,
@@ -12,6 +13,7 @@ import {
   generationJobs,
   generationOutputs,
   mediaAssets,
+  subscriptions,
   templates,
   uploads,
   userPreferences,
@@ -172,7 +174,22 @@ export async function deleteAccount(userId: string, password: string) {
     await tx.update(templates).set({ status: "removed", deletedAt: now }).where(eq(templates.creatorId, userId));
     await tx.delete(discoveryEvents).where(eq(discoveryEvents.userId, userId));
     await tx.update(consentRecords).set({ withdrawnAt: now }).where(and(eq(consentRecords.userId, userId), isNull(consentRecords.withdrawnAt)));
-    await audit(userId, "account.delete", "user", userId, {}, tx);
+    // A pass goes on billing at its processor until it is cancelled there, and this build has no processor
+    // cancel call: the pass ends here, and an operator is asked to cancel each one that would rebill.
+    const passes = await tx.select().from(subscriptions).where(and(eq(subscriptions.userId, userId), ne(subscriptions.status, "canceled"))).for("update");
+    if (passes.length) await tx.update(subscriptions).set({ status: "canceled", updatedAt: now }).where(inArray(subscriptions.id, passes.map((p) => p.id)));
+    const rebilling = passes.filter((p) => p.provider !== "sandbox" && p.status !== "non_renewing");
+    if (rebilling.length) {
+      await tx.insert(accountFlags).values(
+        rebilling.map((p) => ({
+          userId,
+          kind: "manual_review" as const,
+          reason: `Account deleted with a live ${p.provider} pass: cancel subscription ${p.providerSubscriptionId} at ${p.provider} so it is not billed again, and refund any charge after ${now.toISOString().slice(0, 10)}.`,
+          details: { reason: "account_deleted", provider: p.provider, subscriptionRef: p.providerSubscriptionId, planKey: p.planKey, status: p.status },
+        })),
+      );
+    }
+    await audit(userId, "account.delete", "user", userId, { passesEnded: passes.length }, tx);
   });
   await destroyAllSessions(userId);
 }

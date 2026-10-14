@@ -97,7 +97,10 @@ export type RequestContext = { country: string | null; region?: string | null };
 
 const ACTIVE: Job["status"][] = ["queued", "processing"];
 
-/** The user's best active plan, if any. A plan counts while Stripe reports it active or trialing and its period has not ended. */
+/**
+ * The user's best active plan, if any. A plan counts while it is active, trialing or non_renewing (rebilling stopped,
+ * paid through the period) and its period has not ended.
+ */
 export async function activePlan(userId: string) {
   const rows = await getDb()
     .select({ planKey: subscriptions.planKey })
@@ -105,7 +108,7 @@ export async function activePlan(userId: string) {
     .where(
       and(
         eq(subscriptions.userId, userId),
-        inArray(subscriptions.status, ["active", "trialing"]),
+        inArray(subscriptions.status, ["active", "trialing", "non_renewing"]),
         or(isNull(subscriptions.currentPeriodEnd), gt(subscriptions.currentPeriodEnd, new Date())),
       ),
     );
