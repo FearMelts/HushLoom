@@ -211,6 +211,39 @@ describe("sandbox provider", () => {
     expect((await flagsOf(u.id)).filter((f) => f.kind === "manual_review")).toHaveLength(4);
   });
 
+  it("R10: a refund or chargeback that arrives before its purchase is kept and applied when the purchase lands, once", async () => {
+    const u = await makeUser();
+    const early = await send({ kind: "refund", eventId: "sbx_early_refund", transactionRef: "sbx_txn_e1" });
+    expect(early.status).toBe(200);
+    expect(await early.json()).toMatchObject({ outcome: "ignored" });
+    expect(await (await sale(u.id, "sbx_late_sale", "pack_small", { transactionRef: "sbx_txn_e1" })).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect((await listLedger(u.id)).find((l) => l.kind === "refund")).toMatchObject({ availableDelta: -100, idempotencyKey: "refund:sandbox:sbx_early_refund" });
+    const [refundRow] = (await events("sandbox")).filter((e) => e.type === "refund");
+    expect(refundRow).toMatchObject({ userId: u.id, credits: -100, amountCents: -999 });
+    expect(refundRow!.metadata).toMatchObject({ pending: false, creditsReversed: 100 });
+    // Redeliveries of either change nothing.
+    expect(await (await send({ kind: "refund", eventId: "sbx_early_refund", transactionRef: "sbx_txn_e1" })).json()).toMatchObject({ outcome: "duplicate" });
+    expect(await (await sale(u.id, "sbx_late_sale", "pack_small", { transactionRef: "sbx_txn_e1" })).json()).toMatchObject({ outcome: "duplicate" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect((await listLedger(u.id)).filter((l) => l.kind === "refund")).toHaveLength(1);
+
+    // A chargeback ahead of its sale flags the account once the sale is known.
+    const u2 = await makeUser();
+    await send({ kind: "chargeback", eventId: "sbx_early_cb", transactionRef: "sbx_txn_e3" });
+    await sale(u2.id, "sbx_late_sale_2", "pack_small", { transactionRef: "sbx_txn_e3" });
+    expect((await getBalance(u2.id)).available).toBe(0);
+    expect((await openFlags(u2.id)).map((f) => f.kind)).toEqual(["chargeback"]);
+    await expect(startCheckout(u2, "pack_small")).rejects.toMatchObject({ status: 403, code: "account_flagged" });
+
+    // A cancellation ahead of its pass start leaves the pass ended.
+    const u3 = await makeUser();
+    await send({ kind: "cancel", eventId: "sbx_early_cancel", subscriptionRef: "sbx_sub_e4" });
+    await sale(u3.id, "sbx_late_plan", "plan_member", { amountCents: 1999, transactionRef: "sbx_txn_e4", subscriptionRef: "sbx_sub_e4" });
+    const [sub] = await getDb().select().from(subscriptions).where(eq(subscriptions.userId, u3.id));
+    expect(sub!.status).toBe("canceled");
+  });
+
   it("starts a pass, grants each renewal once, and ends it on cancellation", async () => {
     const u = await makeUser();
     await sale(u.id, "sbx_plan_1", "plan_member", { amountCents: 1999, transactionRef: "sbx_txn_p1", subscriptionRef: "sbx_sub_1" });
@@ -431,6 +464,16 @@ describe("ccbill provider (digests computed locally from the documented formulas
     await post("Return", { subscriptionId: "1000000004", transactionId: "txn_sale_3", amount: "9.99", currencyCode: "840" });
     expect((await getBalance(u3.id)).available).toBe(0);
     expect(await flagsOf(u3.id)).toHaveLength(0);
+  });
+
+  it("R10: a Chargeback delivered before its NewSaleSuccess is applied when the sale lands", async () => {
+    const u = await makeUser();
+    const cb = await post("Chargeback", { subscriptionId: "1000000077", transactionId: "txn_cb_early", amount: "9.99", currencyCode: "840", reason: "fraud" });
+    expect(await cb.json()).toMatchObject({ outcome: "ignored" });
+    expect(await (await newSale(u.id, "pack_small", "1000000077", "txn_sale_77")).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect((await listLedger(u.id)).find((l) => l.kind === "chargeback")).toMatchObject({ availableDelta: -100 });
+    expect((await openFlags(u.id)).map((f) => f.kind)).toEqual(["chargeback"]);
   });
 
   it("starts a pass on NewSaleSuccess, grants each RenewalSuccess once, and ends it on Expiration", async () => {

@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { pricing } from "@/config/pricing";
 import { audit } from "@/server/audit";
 import { applyMovement } from "@/server/credits/ledger";
@@ -36,11 +36,15 @@ export async function processPaymentEvent(provider: ProviderKey, event: PaymentE
     if (!row) return "duplicate" as const;
 
     const result = await apply(tx, provider, event, row);
+    const metadata = { ...row.metadata, ...(result.patch.metadata ?? {}) };
     await tx
       .update(paymentEvents)
-      .set({ ...result.patch, metadata: { ...row.metadata, ...(result.patch.metadata ?? {}) }, processedAt: new Date() })
+      .set({ ...result.patch, metadata, processedAt: new Date() })
       .where(eq(paymentEvents.id, row.id));
     await audit(null, `payment.${event.type}`, "payment_event", row.id, { provider, outcome: result.outcome, ...result.auditMeta }, tx);
+    if (result.outcome === "processed" && (result.patch.credits ?? 0) > 0) {
+      await applyPendingReversals(tx, provider, row.transactionRef, typeof metadata.subscriptionRef === "string" ? metadata.subscriptionRef : undefined);
+    }
     return result.outcome;
   });
   logger.info("payment event", { provider, id: event.providerEventId, type: event.type, outcome });
@@ -83,6 +87,7 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
           target: subscriptions.providerSubscriptionId,
           set: { status: "active", planKey: plan.key, provider, providerCustomerId: event.providerCustomerId ?? null, currentPeriodEnd: event.currentPeriodEnd ?? null, updatedAt: new Date() },
         });
+      await applyPendingCancellation(tx, provider, event.providerSubscriptionId, event.userId);
       const credits = event.grantsFirstPeriod ? plan.monthlyCredits : null;
       if (credits) await grant(tx, event.userId, credits, "subscription_grant", `${provider}:${event.providerEventId}`, row.id, `${plan.label} monthly credits`);
       return {
@@ -129,7 +134,8 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
         .set({ status, ...(event.currentPeriodEnd ? { currentPeriodEnd: event.currentPeriodEnd } : {}), updatedAt: new Date() })
         .where(eq(subscriptions.providerSubscriptionId, event.providerSubscriptionId))
         .returning({ userId: subscriptions.userId });
-      if (!sub) return { outcome: "ignored", patch: { metadata: { reason: "unknown_subscription", subscriptionRef: event.providerSubscriptionId } } };
+      // A cancellation can overtake the start of its pass; it is kept pending and applied when the pass starts.
+      if (!sub) return { outcome: "ignored", patch: { metadata: { reason: "unknown_subscription", subscriptionRef: event.providerSubscriptionId, status, pending: event.type === "subscription_cancelled" } } };
       return { outcome: "processed", patch: { userId: sub.userId, metadata: { subscriptionRef: event.providerSubscriptionId, status } }, auditMeta: { userId: sub.userId, status } };
     }
     case "refund":
@@ -193,8 +199,23 @@ async function findCreditedEvent(tx: Tx, provider: ProviderKey, transactionRef: 
 async function clawback(tx: Tx, provider: ProviderKey, event: Extract<PaymentEvent, { type: "refund" | "chargeback" }>, row: EventRow): Promise<Applied> {
   const original = await findCreditedEvent(tx, provider, event.transactionRef, event.subscriptionRef);
   if (!original || !original.userId || !original.credits) {
-    logger.warn("payment reversal without a matching purchase", { provider, id: event.providerEventId, transactionRef: event.transactionRef });
-    return { outcome: "ignored", patch: { metadata: { reason: "original_not_found", transactionRef: event.transactionRef } } };
+    // It may have overtaken its purchase (a sale retried after a 5xx, then voided the same day): kept
+    // pending and applied by applyPendingReversals when that purchase is credited.
+    logger.warn("payment reversal without a matching purchase; kept pending", { provider, id: event.providerEventId, transactionRef: event.transactionRef });
+    return {
+      outcome: "ignored",
+      patch: {
+        currency: event.currency,
+        metadata: {
+          reason: "original_not_found",
+          pending: true,
+          transactionRef: event.transactionRef,
+          subscriptionRef: event.subscriptionRef ?? null,
+          pendingAmountCents: event.amountCents,
+          cumulative: event.type === "refund" && event.cumulative === true,
+        },
+      },
+    };
   }
   const userId = original.userId;
   const granted = original.credits;
@@ -258,6 +279,65 @@ async function clawback(tx: Tx, provider: ProviderKey, event: Extract<PaymentEve
     },
     auditMeta: { userId, creditsReversed: reversed, shortfall, originalEventId: original.id },
   };
+}
+
+/**
+ * Reversals that arrived before the payment they reverse are applied in the transaction that credits
+ * that payment. They keep their own ledger key, so each still moves credits exactly once, and a
+ * redelivery of either event is a duplicate.
+ */
+async function applyPendingReversals(tx: Tx, provider: ProviderKey, transactionRef: string | null, subscriptionRef: string | undefined) {
+  const refs = [
+    ...(transactionRef ? [eq(paymentEvents.transactionRef, transactionRef)] : []),
+    ...(subscriptionRef ? [sql`${paymentEvents.metadata}->>'subscriptionRef' = ${subscriptionRef}`] : []),
+  ];
+  if (!refs.length) return;
+  const pending = await tx
+    .select()
+    .from(paymentEvents)
+    .where(and(eq(paymentEvents.provider, provider), inArray(paymentEvents.type, ["refund", "chargeback"]), sql`${paymentEvents.metadata}->>'pending' = 'true'`, or(...refs)))
+    .orderBy(paymentEvents.createdAt)
+    .for("update");
+  for (const row of pending) {
+    const m = row.metadata;
+    const base = {
+      providerEventId: row.providerEventId,
+      transactionRef: row.transactionRef ?? "",
+      amountCents: typeof m.pendingAmountCents === "number" ? m.pendingAmountCents : 0,
+      currency: row.currency ?? "",
+      subscriptionRef: typeof m.subscriptionRef === "string" ? m.subscriptionRef : undefined,
+    };
+    const reversal = row.type === "refund" ? { type: "refund" as const, ...base, cumulative: m.cumulative === true } : { type: "chargeback" as const, ...base };
+    const result = await clawback(tx, provider, reversal, row);
+    if (result.outcome !== "processed") continue;
+    await tx
+      .update(paymentEvents)
+      .set({ ...result.patch, metadata: { ...m, ...result.patch.metadata, reason: "applied_after_purchase", pending: false } })
+      .where(eq(paymentEvents.id, row.id));
+    await audit(null, `payment.${row.type}`, "payment_event", row.id, { provider, outcome: result.outcome, appliedAfterPurchase: true, ...result.auditMeta }, tx);
+  }
+}
+
+/** A cancellation that arrived before its pass started ends the pass as soon as it exists. */
+async function applyPendingCancellation(tx: Tx, provider: ProviderKey, providerSubscriptionId: string, userId: string) {
+  const ended = await tx
+    .update(paymentEvents)
+    .set({ userId, metadata: sql`${paymentEvents.metadata} || '{"pending": false}'::jsonb` })
+    .where(
+      and(
+        eq(paymentEvents.provider, provider),
+        eq(paymentEvents.type, "subscription_cancelled"),
+        sql`${paymentEvents.metadata}->>'pending' = 'true'`,
+        sql`${paymentEvents.metadata}->>'subscriptionRef' = ${providerSubscriptionId}`,
+      ),
+    )
+    .returning({ status: sql<string | null>`${paymentEvents.metadata}->>'status'`, createdAt: paymentEvents.createdAt });
+  const latest = ended.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  if (!latest) return;
+  await tx
+    .update(subscriptions)
+    .set({ status: latest.status ?? "canceled", updatedAt: new Date() })
+    .where(eq(subscriptions.providerSubscriptionId, providerSubscriptionId));
 }
 
 // ── Flags ──────────────────────────────────────────────────────────────────
