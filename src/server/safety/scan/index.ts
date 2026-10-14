@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, ne, or } from "drizzle-orm";
+import { z } from "zod";
 import { audit } from "@/server/audit";
 import { getDb, type Tx } from "@/server/db";
 import { accountFlags, mediaAssets, moderationEvents, sessions, templates, users } from "@/server/db/schema";
@@ -63,27 +64,207 @@ export function scanSettings() {
   return { provider: p.key, label: p.label, isDev: p.isDev, configured: p.isConfigured(), failClosed: scanFailClosed(), preStorage: p.capabilities.preStorage };
 }
 
-const KEYFRAME_FPS = 1;
-const KEYFRAME_MAX = 30;
+/** The longest clip the scan covers end to end. Longer clips are refused at upload and never cleared. */
+export const MAX_SCANNED_VIDEO_S = 60;
+/** The largest frame side the scan decodes. Larger clips are refused at upload and never cleared. */
+export const MAX_VIDEO_SIDE = 4096;
+/** Frames are scanned downscaled to fit this side (PhotoDNA hashes a much smaller grid), so each one stays a few MB. */
+const FRAME_SIDE = 1024;
+/**
+ * One frame for every second of the clip, plus every frame that differs sharply from the last one picked, up to
+ * these counts: 60 changes, or 3 for every second of a longer clip (steady camera motion picks one or two a second).
+ */
+const PERIODIC_MAX = MAX_SCANNED_VIDEO_S + 1;
+const CHANGES_MAX = 60;
+const CHANGES_PER_S = 3;
+/** Mean absolute difference, in percent (as ffmpeg scdet's mafd), that counts as a sharp change. Ordinary motion between two frames stays under 3; a cut is 15 or more. */
+const CHANGE_MAFD = 10;
+/** How far a frame short of a sharp change must be from the last frame picked, and the picture must then move from it, for it to be picked as a peak. */
+const APEX_MAFD = CHANGE_MAFD / 2;
+/** Every frame of a clip is compared for change at this size: plenty to tell what is on screen, small enough to read them all. */
+const CHANGE_SIDE = 128;
 
-/** Pulls up to 30 frames at one per second as PNG. Throws when ffmpeg is missing or the clip cannot be read. */
-export async function extractKeyframes(clip: Buffer): Promise<Buffer[]> {
+export type VideoInfo = { durationS: number; width: number; height: number };
+
+const probeSchema = z.object({
+  streams: z.array(z.object({ width: z.number().int().positive(), height: z.number().int().positive(), duration: z.coerce.number().optional() })).min(1),
+  format: z.object({ duration: z.coerce.number().optional() }).optional(),
+});
+
+/**
+ * Reads a clip's duration and frame size with ffprobe; the longer of the container and stream
+ * durations counts. Throws when the clip has no readable video stream, and an error with
+ * `code: "tool_unavailable"` when ffprobe is missing.
+ */
+export async function probeVideo(file: string): Promise<VideoInfo> {
+  const out = await new Promise<string>((resolve, reject) => {
+    const child = spawn("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration:format=duration", "-of", "json", file], {
+      stdio: ["ignore", "pipe", "ignore"],
+      signal: AbortSignal.timeout(30_000),
+    });
+    let stdout = "";
+    child.stdout.on("data", (d: Buffer) => (stdout = (stdout + d.toString()).slice(0, 65_536)));
+    child.on("error", (e) => reject(Object.assign(new Error(`ffprobe unavailable: ${e.name}`), { code: "tool_unavailable" })));
+    child.on("close", (code) => (code === 0 ? resolve(stdout) : reject(new Error(`ffprobe exited ${code}`))));
+  });
+  let parsed: z.infer<typeof probeSchema>;
+  try {
+    parsed = probeSchema.parse(JSON.parse(out));
+  } catch {
+    throw new Error("the clip has no readable video stream");
+  }
+  const s = parsed.streams[0]!;
+  const durations = [parsed.format?.duration, s.duration].filter((d): d is number => d !== undefined && Number.isFinite(d) && d > 0);
+  if (!durations.length) throw new Error("the clip has no readable duration");
+  return { durationS: Math.max(...durations), width: s.width, height: s.height };
+}
+
+function ffmpeg(args: string[]): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"], signal: AbortSignal.timeout(env().SCAN_TIMEOUT_S * 2000) });
+    let stderr = "";
+    child.stderr.on("data", (d: Buffer) => (stderr = (stderr + d.toString()).slice(-300)));
+    child.on("error", (e) => reject(new Error(`ffmpeg unavailable: ${e.name}`)));
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${stderr}`))));
+  });
+}
+
+/** Mean absolute difference of two frames of the same size, in percent of the 8-bit range, as ffmpeg scdet computes mafd. */
+function mafd(a: Buffer, b: Buffer): number {
+  let sad = 0;
+  for (let i = 0; i < a.length; i++) sad += Math.abs(a[i]! - b[i]!);
+  return (sad * 100) / a.length / 256;
+}
+
+/**
+ * Picks the frames of a clip the scan must see, given every frame in order (all the same size): the
+ * first frame, and each frame that differs by more than CHANGE_MAFD from the last frame picked, not
+ * merely from the frame before it. So a cut or an inserted frame is picked, and so is content that
+ * fades in too slowly to differ sharply from one frame to the next: every frame of the clip is within
+ * CHANGE_MAFD of a picked one. Short of that, the frame furthest from the last pick is picked too
+ * when it is over APEX_MAFD away and the picture then leaves it (comes back, or changes sharply to
+ * something else) or the clip ends, so a flash that fades in and out between picks is seen at its
+ * peak. Throws when more than `max` frames are picked (a strobe).
+ */
+async function pickChanges(frames: AsyncIterable<Buffer>, max: number): Promise<number[]> {
+  const picked: number[] = [];
+  let last: Buffer | null = null;
+  let apex: { n: number; d: number; frame: Buffer } | null = null;
+  const tooMany = () => new Error(`the clip changes sharply more than the ${max} times the scan samples`);
+  let n = 0;
+  for await (const frame of frames) {
+    let d: number = last ? mafd(last, frame) : Infinity;
+    if (apex && d <= CHANGE_MAFD && apex.d - d > APEX_MAFD) {
+      // The picture went part of the way towards something and came back.
+      picked.push(apex.n);
+      last = apex.frame;
+      apex = null;
+      d = mafd(last, frame);
+    }
+    if (d > CHANGE_MAFD) {
+      if (apex && mafd(apex.frame, frame) > APEX_MAFD) picked.push(apex.n);
+      picked.push(n);
+      last = Buffer.from(frame);
+      apex = null;
+    } else if (d > APEX_MAFD && d > (apex?.d ?? 0)) {
+      apex = { n, d, frame: Buffer.from(frame) };
+    }
+    if (picked.length > max) throw tooMany();
+    n++;
+  }
+  if (apex) picked.push(apex.n);
+  if (picked.length > max) throw tooMany();
+  return picked;
+}
+
+/** Splits a raw video stream into frames of `size` bytes. Each frame is yielded in the same buffer, refilled for the next. */
+async function* rawFrames(stream: AsyncIterable<Buffer>, size: number): AsyncGenerator<Buffer> {
+  const frame = Buffer.alloc(size);
+  let filled = 0;
+  for await (const chunk of stream) {
+    for (let at = 0; at < chunk.length; ) {
+      const take = Math.min(size - filled, chunk.length - at);
+      chunk.copy(frame, filled, at, at + take);
+      filled += take;
+      at += take;
+      if (filled === size) {
+        yield frame;
+        filled = 0;
+      }
+    }
+  }
+}
+
+/**
+ * Decodes the whole clip once: writes the frame on screen at every second (fps=1) into `dir` as
+ * p-NNNN.png, and reads every frame at CHANGE_SIDE for pickChanges. Returns the picked frame numbers.
+ */
+async function sampleClip(input: string, dir: string, fit: string, maxChanges: number): Promise<number[]> {
+  const child = spawn(
+    "ffmpeg",
+    [
+      // Two decoder threads at most, so one upload cannot take every core while it is scanned.
+      "-v", "error", "-y", "-threads", "2", "-i", input, "-filter_complex_threads", "1",
+      "-filter_complex", `[0:v]split=2[p][c];[p]fps=1,${fit}[po];[c]scale=${CHANGE_SIDE}:${CHANGE_SIDE},format=yuv420p[co]`,
+      "-map", "[po]", "-fps_mode", "passthrough", "-frames:v", String(PERIODIC_MAX + 1), path.join(dir, "p-%04d.png"),
+      "-map", "[co]", "-fps_mode", "passthrough", "-f", "rawvideo", "pipe:1",
+    ],
+    { stdio: ["ignore", "pipe", "pipe"], signal: AbortSignal.timeout(env().SCAN_TIMEOUT_S * 2000) },
+  );
+  let stderr = "";
+  child.stderr.on("data", (d: Buffer) => (stderr = (stderr + d.toString()).slice(-300)));
+  const exited = new Promise<number | null>((resolve, reject) => {
+    child.on("error", (e) => reject(new Error(`ffmpeg unavailable: ${e.name}`)));
+    child.on("close", resolve);
+  });
+  // Awaited below; this only keeps an early stop (a strobe) from leaving the rejection unhandled.
+  exited.catch(() => undefined);
+  let picked: number[];
+  try {
+    picked = await pickChanges(rawFrames(child.stdout, CHANGE_SIDE * CHANGE_SIDE * 1.5), maxChanges); // yuv420p
+  } catch (err) {
+    child.kill();
+    throw err;
+  }
+  const code = await exited;
+  if (code !== 0) throw new Error(`ffmpeg exited ${code}: ${stderr}`);
+  return picked;
+}
+
+/**
+ * Pulls frames as PNG across the whole clip: the frame on screen at every second (fps=1), plus every
+ * frame that differs sharply from the last frame picked (a cut, a flash, an inserted frame, or content
+ * that fades in), so a shot shorter than a second between two samples is still seen. Frames are
+ * downscaled to fit FRAME_SIDE and read from disk one at a time as the caller asks for them. Throws,
+ * so the verdict is "unavailable" and never clean, when ffmpeg is missing, the clip cannot be read, it
+ * runs longer than MAX_SCANNED_VIDEO_S or is larger than MAX_VIDEO_SIDE, or it holds more frames than
+ * the caps allow (frames past its stated duration, or more sharp changes than are sampled, such as a strobe).
+ */
+export async function* extractKeyframes(clip: Buffer): AsyncGenerator<{ frame: Buffer; index: number; total: number }> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "hl-scan-"));
   try {
     const input = path.join(dir, "in.mp4");
     await writeFile(input, clip);
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn("ffmpeg", ["-v", "error", "-y", "-i", input, "-vf", `fps=${KEYFRAME_FPS}`, "-frames:v", String(KEYFRAME_MAX), path.join(dir, "f-%03d.png")], {
-        stdio: ["ignore", "ignore", "pipe"],
-        signal: AbortSignal.timeout(env().SCAN_TIMEOUT_S * 2000),
-      });
-      let stderr = "";
-      child.stderr.on("data", (d: Buffer) => (stderr = (stderr + d.toString()).slice(-300)));
-      child.on("error", (e) => reject(new Error(`ffmpeg unavailable: ${e.name}`)));
-      child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${stderr}`))));
-    });
-    const names = (await readdir(dir)).filter((n) => n.startsWith("f-")).sort();
-    return Promise.all(names.map((n) => readFile(path.join(dir, n))));
+    const info = await probeVideo(input);
+    if (info.durationS > MAX_SCANNED_VIDEO_S) throw new Error(`the clip runs ${Math.ceil(info.durationS)} s, longer than the ${MAX_SCANNED_VIDEO_S} s the scan covers`);
+    if (Math.max(info.width, info.height) > MAX_VIDEO_SIDE) throw new Error(`the clip is ${info.width}x${info.height}, larger than the ${MAX_VIDEO_SIDE} px the scan reads`);
+    const fit = `scale=w='min(${FRAME_SIDE},iw)':h='min(${FRAME_SIDE},ih)':force_original_aspect_ratio=decrease`;
+    const picked = await sampleClip(input, dir, fit, Math.max(CHANGES_MAX, Math.ceil(info.durationS * CHANGES_PER_S)));
+    if (picked.length) {
+      // The second pass stops at the last picked frame.
+      await ffmpeg([
+        "-v", "error", "-y", "-threads", "2", "-i", input, "-filter_complex_threads", "1",
+        "-filter_complex", `[0:v]select='${picked.map((k) => `eq(n\\,${k})`).join("+")}',${fit}[co]`,
+        "-map", "[co]", "-fps_mode", "passthrough", "-frames:v", String(picked.length), path.join(dir, "c-%04d.png"),
+      ]);
+    }
+    const names = await readdir(dir);
+    const periodic = names.filter((n) => n.startsWith("p-")).sort();
+    const changes = names.filter((n) => n.startsWith("c-")).sort();
+    if (periodic.length > PERIODIC_MAX) throw new Error(`the clip has frames past the ${MAX_SCANNED_VIDEO_S} s the scan covers`);
+    if (changes.length !== picked.length) throw new Error(`the clip gave ${changes.length} of the ${picked.length} changed frames picked`);
+    const all = [...periodic, ...changes];
+    for (const [index, n] of all.entries()) yield { frame: await readFile(path.join(dir, n)), index, total: all.length };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -108,23 +289,33 @@ async function scanVideo(input: ScanInput, provider: ScanProvider): Promise<Scan
     const whole = await withTimeout(provider.scan(input), provider.key);
     if (whole.status !== "clean") return whole;
   }
-  let frames: Buffer[];
-  try {
-    frames = await extractKeyframes(input.bytes);
-  } catch (err) {
-    return unavailable(provider.key, `could not read keyframes: ${(err as Error).message.slice(0, 160)}`);
-  }
-  if (!frames.length) return unavailable(provider.key, "the video has no readable frames");
+  const frames = extractKeyframes(input.bytes);
+  let scanned = 0;
   let firstRef: string | undefined;
   let recordedProvider = provider.key as string;
-  for (const [i, frame] of frames.entries()) {
-    const v = await withTimeout(provider.scan({ bytes: frame, mime: "image/png", kind: "image", sha256: sha256(frame) }), provider.key);
-    if (v.status === "matched") return { ...v, detail: `keyframe at ${i}s${v.detail ? `: ${v.detail}` : ""}` };
-    if (v.status === "unavailable") return v;
-    firstRef ??= v.ref;
-    recordedProvider = v.provider;
+  try {
+    for (;;) {
+      let next: IteratorResult<{ frame: Buffer; index: number; total: number }>;
+      try {
+        next = await frames.next();
+      } catch (err) {
+        return unavailable(provider.key, `could not read keyframes: ${(err as Error).message.slice(0, 160)}`);
+      }
+      if (next.done) break;
+      const { frame, index, total } = next.value;
+      const v = await withTimeout(provider.scan({ bytes: frame, mime: "image/png", kind: "image", sha256: sha256(frame) }), provider.key);
+      if (v.status === "matched") return { ...v, detail: `keyframe ${index + 1} of ${total}${v.detail ? `: ${v.detail}` : ""}` };
+      if (v.status === "unavailable") return v;
+      scanned++;
+      firstRef ??= v.ref;
+      recordedProvider = v.provider;
+    }
+  } finally {
+    // Closes the generator when the scan stops early, which removes the frames from disk.
+    await frames.return(undefined);
   }
-  return { status: "clean", provider: recordedProvider, ref: `keyframes:${frames.length}${firstRef ? `;${firstRef}` : ""}`.slice(0, 200) };
+  if (!scanned) return unavailable(provider.key, "the video has no readable frames");
+  return { status: "clean", provider: recordedProvider, ref: `keyframes:${scanned}${firstRef ? `;${firstRef}` : ""}`.slice(0, 200) };
 }
 
 /** Runs the scanner on bytes. Never throws: any failure is an "unavailable" verdict. */
@@ -148,10 +339,18 @@ export async function recordVerdict(subject: Omit<ScanSubject, "bytes">, verdict
   const now = new Date();
   const log = { assetId: subject.assetId, origin: subject.origin, provider: verdict.provider };
   if (verdict.status !== "matched") {
-    await (tx ?? getDb())
+    // A match stands until a person clears it in the review queue: a later verdict for the same asset
+    // (a live scan that lost a race with the backfill, a retry) never overwrites it, and the caller is
+    // told the asset is matched, so nothing treats the held evidence as unscanned and discards it.
+    const [updated] = await (tx ?? getDb())
       .update(mediaAssets)
       .set({ scanStatus: verdict.status, scanProvider: verdict.provider, scanRef: verdict.status === "clean" ? (verdict.ref ?? null) : null, scannedAt: now })
-      .where(eq(mediaAssets.id, subject.assetId));
+      .where(and(eq(mediaAssets.id, subject.assetId), ne(mediaAssets.scanStatus, "matched")))
+      .returning({ id: mediaAssets.id });
+    if (!updated) {
+      const [row] = await (tx ?? getDb()).select({ status: mediaAssets.scanStatus }).from(mediaAssets).where(eq(mediaAssets.id, subject.assetId));
+      if (row?.status === "matched") return "matched";
+    }
     if (verdict.status === "unavailable") logger.warn("scan.unavailable", { ...log, detail: verdict.detail, failClosed: scanFailClosed() });
     return verdict.status;
   }
@@ -216,15 +415,21 @@ export async function recordVerdict(subject: Omit<ScanSubject, "bytes">, verdict
 
 /**
  * Records a derived asset (a clip's poster frame) with its parent's verdict, without a second
- * scan: the frame comes from a clip whose keyframes were already checked.
+ * scan: the frame comes from a clip whose keyframes were already checked. Like recordVerdict, it
+ * never overwrites a match on the child: held evidence stays matched, and the caller is told so.
  */
 export async function recordDerivedScan(childAssetId: string, parentAssetId: string, tx?: Tx): Promise<ScanStatus | "pending"> {
   const db = tx ?? getDb();
   const [parent] = await db.select({ status: mediaAssets.scanStatus, provider: mediaAssets.scanProvider }).from(mediaAssets).where(eq(mediaAssets.id, parentAssetId));
   if (!parent || parent.status === "pending" || parent.status === "matched") return "pending";
-  await db
+  const [updated] = await db
     .update(mediaAssets)
     .set({ scanStatus: parent.status, scanProvider: parent.provider, scanRef: `derived:${parentAssetId}`, scannedAt: new Date() })
-    .where(eq(mediaAssets.id, childAssetId));
+    .where(and(eq(mediaAssets.id, childAssetId), ne(mediaAssets.scanStatus, "matched")))
+    .returning({ id: mediaAssets.id });
+  if (!updated) {
+    const [child] = await db.select({ status: mediaAssets.scanStatus }).from(mediaAssets).where(eq(mediaAssets.id, childAssetId));
+    if (child?.status === "matched") return "matched";
+  }
   return parent.status;
 }

@@ -73,7 +73,7 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
       <>
         <p>
           Everything you make is private unless you publish it. Private media is served only through short-lived signed links, which the server issues to you after checking that it is
-          yours. A link lasts five minutes by default, and anyone who has it can open it until then, so share a download rather than a link. The app asks search engines not to index any page.
+          yours. A link lasts five minutes by default (at most half a minute more), and anyone who has it can open it until then, so share a download rather than a link. The app asks search engines not to index any page.
         </p>
         <p>
           Discovery uses the categories and tags of templates you saved, made or viewed, and the interests you pick. You can turn personalization or history off, and clear history at any time. Deleting your

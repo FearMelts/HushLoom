@@ -154,7 +154,7 @@ What the adapters do (`src/server/payments`, `src/server/age`, `src/server/safet
 | Return paths | `/auth?next=/path` must start with `/` and not `//`; `?mode=signin` picks the sign-in tab. `/pricing?checkout=success\|cancelled` shows a status banner. |
 | Anchors | `/templates/{slug}#make` scrolls to the Create panel. `/policies#adults`, `#content`, `#consent`, `#privacy`, `#credits`, `#demo`. Home links to `/settings#discovery`; the settings page still needs that id (open defect). |
 | API bodies | JSON, except the two multipart uploads. Drafts, derives and admin credit adjustments carry a client idempotency key; confirm echoes `expectedCost` and gets 409 if the price moved. Errors share one envelope: `{ error: { code, message, details? } }`. |
-| Media | Only signed, expiring `/api/media` links (or presigned S3 URLs) appear in HTML; storage keys are never linked. Public covers get one-hour links, private outputs five minutes. |
+| Media | Only signed, expiring `/api/media` links appear in HTML, with either storage driver; storage keys and the bucket are never linked. Public covers get one-hour links, private outputs five minutes (each up to a tenth longer). |
 | Webhooks | Everything under `/api/webhooks/` skips the origin check and must verify a provider signature instead. |
 | Robots | Every page sends `noindex, nofollow` in metadata and headers. |
 

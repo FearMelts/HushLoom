@@ -7,6 +7,7 @@ import { releaseJob, settleJob } from "@/server/credits/ledger";
 import { getDb } from "@/server/db";
 import { characterReferences, consentRecords, generationJobs, generationOutputs, mediaAssets, templates } from "@/server/db/schema";
 import { env } from "@/server/env";
+import { untrustedImage } from "@/server/images";
 import { logger } from "@/server/log";
 import { purgeAssetsNow } from "@/server/media";
 import { newStorageKey, sha256, storage } from "@/server/storage";
@@ -25,7 +26,8 @@ export async function qualityCheck(out: ProviderOutput): Promise<QualityReport> 
   if (out.bytes.length < 1024) return { ok: false, checks: { ...checks, tooSmall: true } };
   if (out.mime.startsWith("image/")) {
     try {
-      const meta = await sharp(out.bytes).metadata();
+      // Bounded like every other decode of bytes from outside: an image over the pixel limit fails here.
+      const meta = await sharp(out.bytes, untrustedImage).metadata();
       checks.width = meta.width ?? 0;
       checks.height = meta.height ?? 0;
       return { ok: (meta.width ?? 0) >= 64 && (meta.height ?? 0) >= 64, checks };

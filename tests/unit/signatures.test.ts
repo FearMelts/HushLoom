@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { verifyReplicateWebhook } from "@/server/ai/providers/replicate";
 import { storage, verifyLocalSignature } from "@/server/storage";
 
@@ -35,5 +35,23 @@ describe("replicate webhook signature", () => {
     expect(verifyReplicateWebhook({ id: "m", timestamp: String(now), signature: sign("m", String(now), body) }, "{ }", secret, now)).toBe(false);
     expect(verifyReplicateWebhook({ id: "m", timestamp: String(now - 600), signature: sign("m", String(now - 600), body) }, body, secret, now)).toBe(false);
     expect(verifyReplicateWebhook({ id: null, timestamp: String(now), signature: "v1,x" }, body, secret, now)).toBe(false);
+  });
+});
+
+describe("media link lifetime (R37)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("a link lives at most a tenth longer than its TTL, however close to a boundary it is signed", async () => {
+    for (const ttl of [300, 3600]) {
+      for (const offset of [1, 17, 299, 1801, 3599]) {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date((1_800_000_000 + offset) * 1000));
+        const url = new URL(await storage().signedUrl("outputs/abc/def.webp", ttl), "http://x");
+        const lifetime = Number(url.searchParams.get("e")) - Math.floor(Date.now() / 1000);
+        expect(lifetime, `ttl ${ttl}, signed ${offset} s after the hour`).toBeGreaterThanOrEqual(ttl);
+        expect(lifetime, `ttl ${ttl}, signed ${offset} s after the hour`).toBeLessThanOrEqual(ttl * 1.1);
+        vi.useRealTimers();
+      }
+    }
   });
 });

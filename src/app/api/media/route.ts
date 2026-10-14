@@ -1,15 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
+import { SESSION_COOKIE, userForToken } from "@/server/auth/session";
 import { getDb } from "@/server/db";
 import { mediaAssets } from "@/server/db/schema";
+import { publicAssetLive } from "@/server/media";
 import { storage, verifyLocalSignature } from "@/server/storage";
 
 /**
- * Serves local-driver media. Access is granted only by a valid, unexpired
- * signature, which the server issues after its own ownership check.
+ * Serves all stored media, from the local disk or the S3 bucket alike (the bucket is never linked
+ * directly). Access is granted only by a valid, unexpired signature, which the server issues after
+ * its own ownership check.
  * Supports Range requests so video can seek on mobile.
  * Only assets the abuse scanner cleared are served; anything else is the same 404 as a deleted
- * asset, even with a link signed before the verdict changed (addendum §3).
+ * asset, even with a link signed before the verdict changed (addendum §3). A public asset is
+ * served only while its template is published; after that only to its owner, like private media.
  */
 export async function GET(req: NextRequest) {
   const sp = req.nextUrl.searchParams;
@@ -20,9 +24,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: { code: "forbidden", message: "Link expired or invalid." } }, { status: 403 });
   }
   const [asset] = await getDb().select().from(mediaAssets).where(eq(mediaAssets.storageKey, key));
-  if (!asset || asset.deletedAt || asset.scanStatus !== "clean") return NextResponse.json({ error: { code: "not_found", message: "Not found." } }, { status: 404 });
+  const missing = () => NextResponse.json({ error: { code: "not_found", message: "Not found." } }, { status: 404 });
+  if (!asset || asset.deletedAt || asset.scanStatus !== "clean") return missing();
+  if (asset.visibility === "public" && !(await publicAssetLive(asset.id))) {
+    const token = req.cookies.get(SESSION_COOKIE)?.value;
+    if (!token || (await userForToken(token))?.id !== asset.ownerId) return missing();
+  }
 
-  const body = await storage().get(key);
+  // Only the requested bytes are read, so a one-byte Range request costs one byte, not the whole file.
+  let size: number;
+  try {
+    size = await storage().size(key);
+  } catch {
+    return missing();
+  }
   const headers: Record<string, string> = {
     "Content-Type": asset.mime,
     "Accept-Ranges": "bytes",
@@ -35,13 +50,13 @@ export async function GET(req: NextRequest) {
   if (range) {
     // "bytes=-N" asks for the last N bytes.
     const suffix = !range[1] && range[2] ? Number(range[2]) : null;
-    const start = suffix !== null ? Math.max(0, body.length - suffix) : range[1] ? Number(range[1]) : 0;
-    const end = suffix === null && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
-    if (start > end || start >= body.length) return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${body.length}` } });
-    return new NextResponse(new Uint8Array(body.subarray(start, end + 1)), {
+    const start = suffix !== null ? Math.max(0, size - suffix) : range[1] ? Number(range[1]) : 0;
+    const end = suffix === null && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+    if (start > end || start >= size) return new NextResponse(null, { status: 416, headers: { "Content-Range": `bytes */${size}` } });
+    return new NextResponse(await storage().read(key, { start, end }), {
       status: 206,
-      headers: { ...headers, "Content-Range": `bytes ${start}-${end}/${body.length}`, "Content-Length": String(end - start + 1) },
+      headers: { ...headers, "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": String(end - start + 1) },
     });
   }
-  return new NextResponse(new Uint8Array(body), { headers: { ...headers, "Content-Length": String(body.length) } });
+  return new NextResponse(await storage().read(key), { headers: { ...headers, "Content-Length": String(size) } });
 }

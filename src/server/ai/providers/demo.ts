@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { env } from "@/server/env";
+import { untrustedImage } from "@/server/images";
 import { ProviderError, type ExecuteContext, type ProviderAdapter, type ProviderOutput, type ProviderRequest } from "./types";
 
 /**
@@ -71,7 +72,7 @@ async function renderStill(req: ProviderRequest, longSide: number): Promise<{ pn
   const source = req.inputs.find((i) => i.kind === "image" && i.role !== "reference") ?? req.inputs.find((i) => i.kind === "image" && i.role === "reference");
   let img = sharp(art);
   if (source) {
-    const base = await sharp(source.bytes).resize(width, height, { fit: "cover" }).modulate({ saturation: 0.6 }).toBuffer();
+    const base = await sharp(source.bytes, untrustedImage).resize(width, height, { fit: "cover" }).modulate({ saturation: 0.6 }).toBuffer();
     const overlay = await sharp(art).ensureAlpha(0.55).toBuffer();
     img = sharp(base).composite([{ input: overlay, blend: "over" }]);
   }

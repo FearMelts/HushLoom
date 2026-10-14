@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { assertAgeVerified } from "@/server/age/gate";
 import { getDb } from "@/server/db";
 import { generationOutputs, mediaAssets } from "@/server/db/schema";
+import { env } from "@/server/env";
 import { getOwnedJob } from "@/server/generation/service";
 import { notFound, requireUser, route } from "@/server/http";
 import { assetUrl } from "@/server/media";
@@ -23,5 +24,6 @@ export const GET = route<{ params: Promise<{ id: string }> }>(async (req, { para
   const ext = row.asset.mime === "video/mp4" ? "mp4" : "webp";
   const url = await assetUrl(row.asset, user.id, { download: `hushloom-${job.id.slice(0, 8)}${job.isDemo ? "-demo" : ""}.${ext}` });
   if (!url) throw notFound();
-  return NextResponse.redirect(new URL(url, req.nextUrl.origin), 302);
+  // The public origin: behind a proxy the request URL carries the server's internal bind address.
+  return NextResponse.redirect(new URL(url, env().APP_URL), 302);
 });

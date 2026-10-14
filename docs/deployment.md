@@ -69,11 +69,11 @@ On a live site:
 
 | Variable | Default | Required when | Secret | What it does |
 | --- | --- | --- | --- | --- |
-| `STORAGE_DRIVER` | `local` | optional | no | `local` (served by `/api/media`) or `s3`. |
+| `STORAGE_DRIVER` | `local` | optional | no | `local` or `s3`. Both are served by `/api/media`, which re-checks every asset on each request; the bucket is never linked to. |
 | `STORAGE_LOCAL_DIR` | `.storage` | Absolute in production | no | The same path for the web app and the worker. |
 | `S3_BUCKET` | unset | `STORAGE_DRIVER=s3` | no | A private bucket. |
 | `S3_REGION` | unset (`auto`) | optional | no | `auto` suits R2. |
-| `S3_ENDPOINT` | unset | Non-AWS services | no | Browsers fetch presigned links from it. |
+| `S3_ENDPOINT` | unset | Non-AWS services | no | Only the web and worker processes reach it; browsers never do. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | unset | S3, unless the SDK's default credential chain applies | yes | Bucket keys. |
 
 **AI generation and worker**
@@ -288,7 +288,7 @@ docker compose --profile s3 up -d --build
 
 **MinIO caveat.** MinIO's official images left Docker Hub: `minio/minio` and `minio/mc` returned 401 on 2026-10-14. The `s3` profile therefore defaults to `pgsty/minio`, a community build by Pigsty at a pinned tag. That third-party image is a supply-chain choice for the owner. It has never been pulled or run. Override it with `MINIO_IMAGE`.
 
-Presigned links point at `http://minio:9000`, so add `127.0.0.1 minio` to your hosts file. In production, use a managed private bucket (AWS S3 or R2).
+Browsers never fetch from MinIO: media is served through the app's `/api/media`. In production, use a managed private bucket (AWS S3 or R2).
 
 ## 8 CI
 

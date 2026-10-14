@@ -106,7 +106,11 @@ export async function moderationQueue() {
 
 export const resolveSchema = z.object({ action: z.enum(["remove", "dismiss"]), note: z.string().max(500).default("") });
 
-/** Resolves a report. "remove" takes the template down (status removed) and closes every open report on it. */
+/**
+ * Resolves a report. "remove" takes the template down (status removed), removes its public media
+ * like a takedown does, and closes every open report on it. A report of a minor keeps the media as
+ * evidence (legal hold, never purged) and opens a review-queue entry, as a csam takedown does.
+ */
 export async function resolveReport(adminId: string, eventId: string, input: z.infer<typeof resolveSchema>) {
   await getDb().transaction(async (tx) => {
     const [e] = await tx.select().from(moderationEvents).where(eq(moderationEvents.id, eventId)).for("update");
@@ -116,7 +120,23 @@ export async function resolveReport(adminId: string, eventId: string, input: z.i
     const now = new Date();
     if (input.action === "remove") {
       if (e.subjectType === "template") {
-        await tx.update(templates).set({ status: "removed", updatedAt: now }).where(eq(templates.id, e.subjectId));
+        const [t] = await tx.update(templates).set({ status: "removed", updatedAt: now }).where(eq(templates.id, e.subjectId)).returning();
+        const assetIds = t ? [t.posterAssetId, t.previewAssetId].filter((x): x is string => Boolean(x)) : [];
+        if (assetIds.length && e.reason === "minor") {
+          await tx.update(mediaAssets).set({ deletedAt: now, legalHold: true }).where(inArray(mediaAssets.id, assetIds));
+          for (const a of await tx.select().from(mediaAssets).where(inArray(mediaAssets.id, assetIds))) {
+            await tx.insert(moderationEvents).values({
+              subjectType: "output",
+              subjectId: a.id,
+              action: "escalate",
+              status: "open",
+              reason: "csam_report",
+              details: { assetId: a.id, sha256: a.sha256, provider: "report", ref: e.id, origin: "report", ownerId: a.ownerId, storageKey: a.storageKey },
+            });
+          }
+        } else if (assetIds.length) {
+          await tx.update(mediaAssets).set({ deletedAt: now }).where(and(inArray(mediaAssets.id, assetIds), eq(mediaAssets.legalHold, false), isNull(mediaAssets.deletedAt)));
+        }
       } else if (e.subjectType === "output") {
         const [o] = await tx.update(generationOutputs).set({ deletedAt: now }).where(eq(generationOutputs.id, e.subjectId)).returning();
         if (o) await tx.update(mediaAssets).set({ deletedAt: now }).where(eq(mediaAssets.id, o.assetId));

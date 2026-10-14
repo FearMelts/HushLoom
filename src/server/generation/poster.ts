@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
+import { untrustedImage } from "@/server/images";
 
 /**
  * Pulls one frame from a clip and returns it as WebP. Returns null when ffmpeg is
@@ -20,7 +21,7 @@ export async function videoPoster(clip: Buffer, atSeconds = 0.5): Promise<{ byte
       child.on("close", (code) => resolve(code === 0));
     });
     if (!ok) return null;
-    const bytes = await sharp(await readFile(output)).webp({ quality: 82 }).toBuffer();
+    const bytes = await sharp(await readFile(output), untrustedImage).webp({ quality: 82 }).toBuffer();
     const meta = await sharp(bytes).metadata();
     return { bytes, width: meta.width ?? 0, height: meta.height ?? 0 };
   } catch {

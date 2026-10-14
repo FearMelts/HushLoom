@@ -216,7 +216,7 @@ Every route except `/api/health` and `/api/media` is wrapped in `route()`. Error
 | 400 | `invalid_json` | Body is not JSON (`parseJson`). |
 | 401 | `unauthorized` | No valid session ("Sign in to continue."). |
 | 402 | `insufficient_credits` | Ledger refused a movement; `details: { needed, available }`. |
-| 403 | `bad_origin` | Middleware: a write to `/api/*` (not `/api/webhooks/*`) carries an `Origin` that matches neither the request origin nor `APP_URL`. |
+| 403 | `bad_origin` | Middleware (or the upload routes themselves): a write to `/api/*` (not `/api/webhooks/*`) carries an `Origin` that matches neither the request origin nor `APP_URL`. |
 | 404 | `not_found` | Missing, deleted, or not yours. The two cases look identical by design. A malformed UUID (Postgres `22P02` anywhere in the error's cause chain) also returns 404. |
 | 422 | `invalid_input` | A zod schema failed; `details` is `err.flatten()`. Message: "Some fields need attention." |
 | 429 | `rate_limited` | A fixed-window limit in Redis was hit. |
@@ -775,6 +775,8 @@ The other bodies are "A creation didn't finish" and "A creation was cancelled". 
 
 Session cookies are `SameSite=Lax`, so other sites cannot send them on cross-site POSTs. The middleware also refuses writes (POST, PUT, PATCH, DELETE) to `/api/*` whose `Origin` header names a different origin (403 `bad_origin`). Requests without an `Origin` header are allowed. Webhooks are exempt because they authenticate with signatures.
 
+The middleware does not run on `POST /api/uploads` and `POST /api/characters`: Next.js hands a route only the first 10 MB of a body that middleware has seen, which would cut off any larger upload. Those two routes make the same Origin check themselves (`assertSameOrigin`) and read the form through `readForm`, which answers 413 `too_large` as soon as the declared or streamed size passes the limit (the file limit plus 1 MB) and 400 `invalid_form` for a body that is not a complete form.
+
 ### Roles
 
 | Role | How it is set | Permissions |
@@ -838,9 +840,9 @@ Source: `src/server/storage/index.ts`, `src/server/media.ts`.
 | Driver | Status | Behavior |
 |---|---|---|
 | `local` (default) | Operational | Files under `STORAGE_LOCAL_DIR` (default `.storage`; absolute path required in production). `safeLocalPath` checks the key against a pattern and confirms the resolved path stays inside the directory. |
-| `s3` | Unverified (never run, including against the bundled MinIO) | AWS SDK v3; region default `auto`; path-style addressing when an endpoint is set; presigned `GetObject` with `expiresIn = ttl` and a download `ResponseContentDisposition`. |
+| `s3` | Unverified (never run, including against the bundled MinIO; the tests use an in-memory stand-in for the client) | AWS SDK v3; region default `auto`; path-style addressing when an endpoint is set. The bucket stays private and is never linked to: its files are served through `/api/media` like local ones, so the serve-time checks apply to both drivers. |
 
-Interface: `put`, `get`, `delete`, `signedUrl`.
+Interface: `put`, `get`, `size`, `read` (a stream of a byte range), `delete`, `signedUrl`.
 
 ### Keys
 
@@ -855,16 +857,16 @@ Interface: `put`, `get`, `delete`, `signedUrl`.
 | Public (template copies) | 3600 s |
 | Private | `MEDIA_URL_TTL_S`, default 300 s |
 
-Local URLs are `/api/media?k=<key>&e=<expiry>&s=<sig>[&d=<name>]`, where the signature is HMAC-SHA256 over `key\nexpiry\ndownload` with `MEDIA_SIGNING_SECRET`. The expiry is rounded up to the next TTL boundary (`ceil((now + ttl) / ttl) x ttl`) so URLs stay stable for browser caching. A link therefore lives between one TTL and just under two.
+URLs (both drivers) are `/api/media?k=<key>&e=<expiry>&s=<sig>[&d=<name>]`, where the signature is HMAC-SHA256 over `key\nexpiry\ndownload` with `MEDIA_SIGNING_SECRET`. The expiry is rounded up to the next boundary of a tenth of the TTL (`ceil((now + ttl) / w) x w`, `w = ttl / 10`) so URLs stay stable for browser caching within that window. A link therefore lives between one TTL and 1.1 TTL (300 to 330 s private, 3600 to 3960 s public). Links are bearer links: anyone holding one can open it until it expires, as the Policies page says; they are not tied to a viewer.
 
-`/api/media` checks the signature and expiry (403 "Link expired or invalid."), then re-reads the asset row and refuses anything deleted or not clean (404). It answers with `Cache-Control: private, max-age=<seconds left>`, `X-Robots-Tag: noindex`, a `Content-Disposition` when a download name is set, and supports `Range` (206, or 416 when unsatisfiable). S3 links are served by S3 directly, so that serve-time re-check does not apply to them; they rely on the short TTL.
+`/api/media` checks the signature and expiry (403 "Link expired or invalid."), then re-reads the asset row and refuses anything deleted or not clean (404). A public asset is served only while a published, undeleted template uses it as poster or preview; otherwise only to its owner (read from the session cookie), so a removed, unpublished or suspended creator's template stops serving through links issued earlier. It answers with `Cache-Control: private, max-age=<seconds left>`, `X-Robots-Tag: noindex`, a `Content-Disposition` when a download name is set, and supports `Range` (206, or 416 when unsatisfiable). It reads only the requested bytes (a file stream from an offset, or an S3 ranged `GetObject`), never the whole file for a range. The same route serves S3 media, reading the object from the bucket, so a removed, held or matched asset stops being served at the next request through any driver, including through links issued earlier. The cost is that S3 media traffic passes through the web process. Next's image optimizer is off (`images.unoptimized` in `next.config.ts`, so `/_next/image` answers 404): it would fetch a `/api/media` link once and keep its own copy for at least a minute in `.next/cache/images`, outside these checks.
 
 ### Uploads
 
 | Type | Limits | Processing |
 |---|---|---|
-| Image | 20 MB; JPEG, PNG or WebP | Re-encoded to WebP quality 92 with EXIF rotation applied, which strips EXIF and GPS. A short side under 512 px adds the warning `low_resolution`. |
-| Video | 100 MB; must contain an `ftyp` box (else 415) | Metadata and chapters stripped with `ffmpeg -map_metadata -1 -map_chapters -1 -c copy`. Unreadable files get 415; a missing ffmpeg gets 503 `video_processing_unavailable`. |
+| Image | 20 MB and 40 megapixels (413 `too_large`, read from the header before anything is decoded); JPEG, PNG or WebP, told apart by the file's first bytes before any decoder runs (anything else, SVG included, is 415 `unsupported_type` without being parsed, since an SVG's cost is in its document, not its pixels); only the first frame of an animated or multi-page file | Re-encoded to WebP quality 92 with EXIF rotation applied, which strips EXIF and GPS, flattened onto black, and downscaled to fit 4096 px. A short side under 512 px adds the warning `low_resolution`. Every decode of outside bytes (uploads, the PhotoDNA copy, provider outputs, poster frames) uses the same limits (`src/server/images.ts`). |
+| Video | 100 MB; must contain an `ftyp` box (else 415); at most 60 s (422 `too_long`) and 4096 px on a side (413 `too_large`), the most the abuse scan covers | Metadata and chapters stripped with `ffmpeg -map_metadata -1 -map_chapters -1 -c copy`. Unreadable files get 415; a missing ffmpeg gets 503 `video_processing_unavailable`. |
 
 Stored under `uploads/<userId>/<uuid>.(webp|mp4)` with a consent record (`upload_subject`, or `likeness` for a character reference).
 
