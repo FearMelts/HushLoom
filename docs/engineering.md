@@ -72,20 +72,30 @@ External adapters (each declares whether it is a demo or sandbox):
 
 ### Configuration
 
-All configuration is read through `env()` in `src/server/env.ts`. It parses 63 variables with zod once and caches the result. A deployment counts as **live** when `APP_ENV` (or, if `APP_ENV` is unset, `NODE_ENV`) equals `production` (`isLiveDeployment()`).
+All configuration is read through `env()` in `src/server/env.ts`. It parses 63 variables with zod on its first call and caches the result. A deployment counts as **live** when `APP_ENV` (or, if `APP_ENV` is unset, `NODE_ENV`) equals `production` (`isLiveDeployment()`).
 
-| Rule at startup | Effect |
+`env()` is lazy. It checks the rules below when it is first called, and it throws when one fails (`env.ts:130-155`). It never caches a failed result, so every later call throws the same error. Some rules are part of the zod schema and throw a `ZodError`; the others are checked after parsing and throw a plain `Error`. The schema runs first.
+
+| Rule checked by `env()` | Fails when | Thrown as |
+|---|---|---|
+| `MEDIA_SIGNING_SECRET` required in production (`env.ts:133-135`) | `NODE_ENV=production` and the secret is missing. | `Error` |
+| `MEDIA_SIGNING_SECRET` length (`env.ts:28`) | It is set but shorter than 32 characters, in any environment. | `ZodError` |
+| Absolute local storage path | `NODE_ENV=production`, `STORAGE_DRIVER=local` and `STORAGE_LOCAL_DIR` is not absolute. | `Error` |
+| S3 bucket | `STORAGE_DRIVER=s3` without `S3_BUCKET`. | `Error` |
+| No dev scanner on a live site | Live site with `SCAN_PROVIDER=dev` and `SCAN_FAIL_CLOSED=true`. | `Error` |
+| No sandbox age checks on a live site | Live site with `AGE_VERIFICATION_PROVIDER=sandbox` and `AGE_VERIFICATION_ENFORCE=true`. | `Error` |
+| `TRUSTED_PROXY_HOPS` | Not a whole number of 0 or more. Default 0 (section 10). | `ZodError` |
+| `CCBILL_WEBHOOK_TOKEN` length | It is set but shorter than 16 characters. | `ZodError` |
+| Any other variable | Set to a value of the wrong type or outside its allowed values. Every variable has a default or is optional, so none fails by being missing. | `ZodError` |
+
+What a failed check does depends on the process:
+
+| Process | Effect of a failed check |
 |---|---|
-| `NODE_ENV=production` and `MEDIA_SIGNING_SECRET` missing (`env.ts:133-135`) | Refuses to start. |
-| `MEDIA_SIGNING_SECRET` set but shorter than 32 characters, in any environment (`env.ts:28`) | Refuses to start. |
-| `NODE_ENV=production`, `STORAGE_DRIVER=local` and `STORAGE_LOCAL_DIR` not absolute | Refuses to start. |
-| `STORAGE_DRIVER=s3` without `S3_BUCKET` | Refuses to start. |
-| Live site with `SCAN_PROVIDER=dev` and `SCAN_FAIL_CLOSED=true` | Refuses to start. |
-| Live site with `AGE_VERIFICATION_PROVIDER=sandbox` and `AGE_VERIFICATION_ENFORCE=true` | Refuses to start. |
-| `TRUSTED_PROXY_HOPS` not a whole number of 0 or more | Refuses to start. Default 0 (section 10). |
-| `CCBILL_WEBHOOK_TOKEN` set but shorter than 16 characters | Refuses to start. |
+| Worker | Exits at load. It calls `env()` at module top level (`src/worker/index.ts:12`), before it installs the error webhook, so the error shows only in the worker's own output and exit code. |
+| Web app | Boots anyway. Its `register()` in `src/instrumentation.ts` only installs the error webhook, and `installErrorWebhook` catches the failed check (`src/server/observability.ts:148-158`). Every request that reads the configuration then fails. In API routes wrapped in `route()` (all but `/api/health` and `/api/media`), a plain `Error` becomes 500 `internal` and is logged as `unhandled route error`. A `ZodError` becomes 422 `invalid_input` with the flattened field errors in `details`, which name the failing variables, and nothing is logged (`route()` in `src/server/http.ts`). A page, or `/api/media`, that reads the configuration fails through Next.js, whose `onRequestError` hook logs it. `/api/health` answers 503 with both checks `down`, because its database and Redis clients read the configuration, so the web image's `HEALTHCHECK` reports the container unhealthy. |
 
-Outside production, `mediaSigningSecret()` falls back to a fixed development secret. The payments sandbox, age-verification sandbox and dev scanner each also refuse to work at runtime on a live site (sections 6 to 8). `ERROR_WEBHOOK_URL` is read on its own (`errorWebhookUrlAlone()`), so the error webhook is installed even when the rest of the configuration fails its check.
+Outside production, `mediaSigningSecret()` falls back to a fixed development secret. The payments sandbox, age-verification sandbox and dev scanner each also refuse to work at runtime on a live site (sections 6 to 8). `ERROR_WEBHOOK_URL` is read on its own (`errorWebhookUrlAlone()`), so the web app's error webhook is installed even when the rest of the configuration fails its check. It then reports every failure that is logged at error level: `route()` routes failing with a plain `Error`, pages and `/api/media`. `route()` routes failing with a `ZodError` are not logged, so they do not reach it.
 
 ### Deployment files
 
@@ -141,7 +151,7 @@ Values that are declared but never written by code: job status `draft` (it is on
 |---|---|---|---|
 | `media_assets` | Every stored file | `owner_id` (set null), `kind`, `storage_key`, `mime`, `bytes`, `width`, `height`, `duration_ms`, `sha256`, `visibility` (default private), `scan_status` (default pending), `scan_provider`, `scan_ref`, `scanned_at`, `legal_hold` (default false), `deleted_at` | Unique `storage_key`; indexes on `owner_id`, `scan_status` (`media_scan_idx`) and `sha256` (`media_sha256_idx`, 0004) |
 | `uploads` | A user's uploaded file and the consent it was given under | `asset_id` (cascade), `purpose`, `consent_record_id` | Index on `user_id` |
-| `character_references` | Likeness photos for reference-guided generation | `asset_id`, `consent_record_id` (both required), `deleted_at` | FKs with no delete action |
+| `character_references` | Likeness photos for reference-guided generation | `asset_id`, `consent_record_id` (both required), `deleted_at` | Index on `user_id` (`charrefs_user_idx`); asset and consent FKs with no delete action |
 
 ### Templates and social
 
@@ -153,19 +163,19 @@ Values that are declared but never written by code: job status `draft` (it is on
 | `template_ratings` | One rating per user per template | `score` | PK (`user_id`, `template_id`); check score between 1 and 5 |
 | `favorites` | Saved templates and creations | `target_type` (`template` or `creation`), `target_id` | PK (`user_id`, `target_type`, `target_id`); index on target |
 | `follows` | Creator follows | follower, creator | PK; check `no_self_follow`; index on creator |
-| `template_collections`, `template_collection_items` | Creator collections (`is_public`, item `position`) | | PK (`collection_id`, `template_id`) |
+| `template_collections`, `template_collection_items` | Creator collections (`is_public`, item `position`) | | Index on collection `creator_id` (`template_collections_creator_idx`); items PK (`collection_id`, `template_id`) |
 | `discovery_events` | View and generate signals for For You | `event` (`view` or `generate`) | Index on (`user_id`, `created_at`) |
 
 ### Projects and generation
 
 | Table | Purpose | Key columns | Constraints and indexes |
 |---|---|---|---|
-| `projects` | Multi-scene work | `title`, `description`, `deleted_at` | |
+| `projects` | Multi-scene work | `user_id`, `title`, `description`, `deleted_at` | Index on `user_id` (`projects_user_idx`) |
 | `project_scenes` | Ordered scenes | `position`, `continuity jsonb` (lighting, framing, palette, characterReferenceId, notes) | Index on (`project_id`, `position`) |
-| `generation_jobs` | One generation request | `user_id`, `idempotency_key`, `status`, `mode`, `model_key`, `provider_key`, `is_demo`, `template_id`, `project_id`, `scene_id`, `parent_job_id`, `relation` (retry, variation, remix, continuation, extension), `prompt`, `negative_prompt`, `params jsonb`, `input_asset_ids uuid[]`, `character_reference_id`, `cost_credits`, `provider_job_id`, `attempts` (default 0), `max_attempts` (default 3), `cancel_requested`, `failure_code`, `failure_message`, `queued_at`, `started_at`, `finished_at`, `deleted_at` | Unique (`user_id`, `idempotency_key`); check `cost_credits >= 0`; indexes on (`user_id`, `created_at`), `status`, `scene_id`; template, project and scene FKs set null; `parent_job_id` self FK set null (0003) |
-| `generation_outputs` | Files a job produced | `asset_id`, `poster_asset_id` (0001), `is_demo`, `quality_report`, `deleted_at` | Cascade on job |
+| `generation_jobs` | One generation request | `user_id`, `idempotency_key`, `status`, `mode`, `model_key`, `provider_key`, `is_demo`, `template_id`, `template_version` (the template's current version when the draft was made), `project_id`, `scene_id`, `parent_job_id`, `relation` (retry, variation, remix, continuation, extension), `prompt`, `negative_prompt`, `params jsonb`, `input_asset_ids uuid[]`, `character_reference_id`, `cost_credits`, `provider_job_id`, `attempts` (default 0), `max_attempts` (default 3), `cancel_requested`, `failure_code`, `failure_message`, `queued_at`, `started_at`, `finished_at`, `deleted_at` | Unique (`user_id`, `idempotency_key`); check `cost_credits >= 0`; indexes on (`user_id`, `created_at`), `status`, `scene_id`; template, project and scene FKs set null; `parent_job_id` self FK set null (0003) |
+| `generation_outputs` | Files a job produced | `job_id`, `user_id`, `asset_id`, `poster_asset_id` (0001), `is_demo`, `quality_report`, `deleted_at` | Indexes on (`user_id`, `created_at`) (`outputs_user_idx`) and `job_id` (`outputs_job_idx`); cascade on job |
 | `scene_versions` | Takes of a scene, with branches | `job_id`, `parent_version_id`, `branch_label` (default main), `is_selected` | Unique `job_id`; index on scene; parent self FK set null (0003) |
-| `folders`, `folder_items` | Library folders | `name`; item points at an output | PK (`folder_id`, `output_id`) |
+| `folders`, `folder_items` | Library folders | `name`; item points at an output | Folder index on `user_id`; items PK (`folder_id`, `output_id`) |
 | `saved_presets` | Saved settings | `mode`, `model_key`, `params`, `prompt` | Index on `user_id` |
 | `model_configs` | Admin overrides per model | PK `model_key`, `enabled`, `price_multiplier_pct` (default 100) | |
 
@@ -177,7 +187,7 @@ Values that are declared but never written by code: job status `draft` (it is on
 |---|---|---|---|
 | `credit_accounts` | Current balance | PK `user_id`, `available`, `reserved` | Checks `available >= 0` and `reserved >= 0` |
 | `credit_ledger` | Every balance movement | `kind`, `available_delta`, `reserved_delta`, `available_after`, `reserved_after`, `job_id` (set null), `payment_event_id` (set null, 0003), `idempotency_key`, `note` | Unique `idempotency_key`; index on (`user_id`, `created_at`) |
-| `subscriptions` | Passes | `plan_key`, `status` (text), `provider` (default stripe), `provider_customer_id`, `provider_subscription_id`, `current_period_end` | Unique `provider_subscription_id` |
+| `subscriptions` | Passes | `plan_key`, `status` (text), `provider` (default stripe), `provider_customer_id`, `provider_subscription_id`, `current_period_end` | Unique `provider_subscription_id`; index on `user_id` (`subscriptions_user_idx`) |
 | `payment_events` | Every accepted provider event | `provider`, `provider_event_id`, `type`, `user_id` (set null), `amount_cents`, `currency`, `credits`, `transaction_ref`, `metadata`, `processed_at` | Unique (`provider`, `provider_event_id`); index on (`provider`, `transaction_ref`) |
 
 `subscriptions.status` is free text. The code writes `active`, `non_renewing` (rebilling stopped, still paid until the period end) and `canceled`. Stripe's own statuses (`trialing`, `past_due` and others) are stored as Stripe sends them.
@@ -200,13 +210,13 @@ Values that are declared but never written by code: job status `draft` (it is on
 |---|---|---|---|
 | `moderation_events` | Reports, automatic blocks, scanner escalations and review actions | `subject_type` (template, prompt, upload, user, output), `subject_id` (text), `action`, `status`, `reporter_id`, `actor_id`, `reason`, `details` | Index on (`status`, `created_at`) |
 | `audit_logs` | Who did what | `actor_id` (set null), `action`, `target_type`, `target_id`, `metadata` | Indexes on (`target_type`, `target_id`) and `created_at` |
-| `age_verifications` | One row per verification attempt | `provider`, `status` (default pending), `provider_ref`, `method`, `jurisdiction`, `failure_reason`, `started_at`, `completed_at`, `expires_at` | Unique (`provider`, `provider_ref`). No ID images or biometrics are stored. |
+| `age_verifications` | One row per verification attempt | `provider`, `status` (default pending), `provider_ref`, `method`, `jurisdiction`, `failure_reason`, `started_at`, `completed_at`, `expires_at` | Unique (`provider`, `provider_ref`); index on (`user_id`, `created_at`) (`age_verifications_user_idx`). No ID images or biometrics are stored. |
 | `account_flags` | Holds on an account | `kind`, `reason`, `details`, `created_by`, `cleared_at`, `cleared_by` | Index on (`user_id`, `cleared_at`) |
 | `takedown_requests` | Public removal requests | `requester_id`, `requester_email`, `target_type` (output, template, asset, url), `target_ref`, `category` (ncii, csam, likeness, copyright, other), `details`, `status`, `resolution_note`, `resolved_by`, `resolved_at` | Index on (`status`, `created_at`) |
 | `taken_down_hashes` | SHA-256 of every file an actioned takedown removed, kept after the files are purged | PK `sha256` (text), `takedown_id`, `created_at` | `takedown_id` FK to `takedown_requests`, set null (0004) |
-| `push_subscriptions` | One row per signed-in device that opted in | `session_id` (cascade), `endpoint`, `p256dh`, `auth`, `user_agent`, `last_used_at`, `failed_at` | Unique `endpoint` |
+| `push_subscriptions` | One row per signed-in device that opted in | `user_id` (cascade), `session_id` (cascade), `endpoint`, `p256dh`, `auth`, `user_agent`, `last_used_at`, `failed_at` | Unique `endpoint`; index on `user_id` (`push_subscriptions_user_idx`) |
 
-Foreign keys with no delete action (deletes of the target are refused): template creator, category, poster and preview; `uploads.consent_record_id`; character reference asset and consent; `generation_jobs.character_reference_id`; output asset and poster. This is safe because those targets are only ever soft-deleted.
+Foreign keys with no delete action (deletes of the target are refused): template creator, category, poster and preview; `uploads.consent_record_id`; character reference asset and consent; `generation_jobs.character_reference_id`; output asset and poster. Most of those targets are only ever soft-deleted. The exception is a consent record: when an upload cannot be scanned under fail-closed scanning, `discardUnscannedUpload` deletes the `uploads` row and then its consent record, in that order and in one transaction (`src/server/media.ts:205-206`). That runs inside the upload request, before a character reference can point at the record, so nothing still references it when it goes.
 
 ### Migration history
 
@@ -241,10 +251,10 @@ Every route except `/api/health` and `/api/media` is wrapped in `route()`. Error
 | 403 | `bad_origin` | Middleware (or the upload routes themselves): a write to `/api/*` (not `/api/webhooks/*`) carries an `Origin` that matches neither the request origin nor `APP_URL`. |
 | 404 | `not_found` | Missing, deleted, or not yours. The two cases look identical by design. A malformed UUID also returns 404: `route()` looks for Postgres `22P02` on the error and on up to two causes below it. |
 | 413 | `too_large` | Upload routes only: the declared `Content-Length` or the streamed body passed the limit. |
-| 422 | `invalid_input` | A zod schema failed; `details` is `err.flatten()`. Message: "Some fields need attention." Also returned, with no details, when a value holds a NUL character (Postgres `22021`). |
+| 422 | `invalid_input` | A zod schema failed; `details` is `err.flatten()`. Message: "Some fields need attention." Also returned, with no details, when a value holds a NUL character (Postgres `22021`), and with the variable names in `details` when the server's own configuration fails its schema (section 1). |
 | 429 | `rate_limited` | A fixed-window limit in Redis was hit (section 10). |
 | 451 | `age_verification_required` | The age gate refused the request (section 7). `details: {verifyPath, status, jurisdiction}`. |
-| 500 | `internal` | Anything unexpected. It is logged as `unhandled route error` with the path only. Message: "Something went wrong on our side." |
+| 500 | `internal` | Anything unexpected. It is logged as `unhandled route error` with the path (no query string) and the redacted error, never the body (`src/server/http.ts:113`). Message: "Something went wrong on our side." |
 | 503 | `unavailable` | Any rate-limited route while Redis cannot answer ("We can't take this right now. Try again in a minute."). Limits fail closed. |
 
 Auth column values below: **Public** (no session needed), **User** (401 when signed out), **Admin** (401 when signed out, **404** for a signed-in non-admin, so admin endpoints do not reveal themselves), **Signed** (provider signature or secret, no session). Success bodies are JSON unless noted. Routes marked 429 can also return 503 `unavailable`.
@@ -270,8 +280,8 @@ Auth column values below: **Public** (no session needed), **User** (401 when sig
 | Method | Path | Auth | Input | Success | Notable errors |
 |---|---|---|---|---|---|
 | POST | `/api/age-verification/start` | User | none | 201 `{url, provider, sandbox, verificationId}` | 429 (10 per hour), 503 `age_verification_unavailable`, 409 `already_verified`, 502 when the provider call fails |
-| GET | `/api/age-verification/return` | User (signed out: 302 to `/auth?next=` with the Settings path) | `?sessionId=` (Yoti) or `?ref=` | Always 302 to `${APP_URL}/settings#age-verification`, after trying to sync the result. A provider error is logged with its code and error name only and leaves the check pending. | none |
-| POST | `/api/webhooks/age-verification/[provider]` | Signed | Provider callback body | `{received, outcome}` | 404 unknown or inactive provider, 400 `callback_<reason>`, 503 unconfigured, 404 `unknown_reference`, 409 `callback_replayed` |
+| GET | `/api/age-verification/return` | User (signed out: 307 to `/auth?next=` with the Settings path) | `?sessionId=` (Yoti) or `?ref=` | Always 307 to `${APP_URL}/settings#age-verification`, after trying to sync the result (`NextResponse.redirect` with no status, which Next.js 15 sends as 307). A provider error is logged with its code and error name only and leaves the check pending. | none |
+| POST | `/api/webhooks/age-verification/[provider]` | Signed | Provider callback body | `{received, outcome}` | 404 unknown or inactive provider, 400 `callback_<reason>`, 503 `callback_unconfigured`, 404 `unknown_reference`, 409 `callback_replayed` |
 
 ### Generation
 
@@ -290,10 +300,10 @@ Auth column values below: **Public** (no session needed), **User** (401 when sig
 
 | Method | Path | Auth | Input | Success | Notable errors |
 |---|---|---|---|---|---|
-| POST | `/api/uploads` | User | Multipart: `file`, `consent="true"`, `subject` | 201 `{assetId, kind, width, height, warnings}` | 403 `bad_origin`, 451 (before the rate limit), 429 (40 per hour), 400 `invalid_form`, 413 `too_large`, 422 `invalid_input` / `consent_required`, 415 `unsupported_type`, 422 `too_long` (video over 60 s), 403 `upload_rejected`, 410 `upload_removed`, 503 `scan_unavailable`, 503 `video_processing_unavailable` |
+| POST | `/api/uploads` | User | Multipart: `file`, `consent="true"`, optional `subject` (cut to 80 characters) | 201 `{assetId, kind, width, height, warnings}` | 403 `bad_origin`, 451 (before the rate limit), 429 (40 per hour), 400 `invalid_form`, 413 `too_large`, 422 `invalid_input` / `consent_required`, 415 `unsupported_type`, 422 `too_long` (video over 60 s), 403 `upload_rejected`, 410 `upload_removed`, 503 `scan_unavailable`, 503 `video_processing_unavailable` |
 | GET | `/api/media` | Signature in the URL | `?k=<key>&e=<expiry>&s=<sig>[&d=<name>]` | File bytes, or 206 for a range | 403 "Link expired or invalid.", 404, 416 (section 12) |
-| GET | `/api/characters` | User | none | `{characters}`; `imageUrl` is null while an age check is required | |
-| POST | `/api/characters` | User | Multipart: `file`, `name` (max 40), `consentAdult`, `consentLikeness` | 201 `{id, warnings}` | 403 `bad_origin`, 451 (before the rate limit), 429 (10 per hour), 400 `invalid_form`, 413 `too_large`, 422 `invalid_input` / `consent_required`, 415, 422 `limit_reached` (20), 403 `upload_rejected`, 410 `upload_removed`, 503 `scan_unavailable` |
+| GET | `/api/characters` | User | none | `{characters}`; `imageUrl` is null and `mediaWithheld` is true while an age check is required | |
+| POST | `/api/characters` | User | Multipart: `file`, `name` (trimmed, then cut to 40 characters; required), `consentAdult`, `consentLikeness` | 201 `{id, warnings}` | 403 `bad_origin`, 451 (before the rate limit), 429 (10 per hour), 400 `invalid_form`, 413 `too_large`, 422 `invalid_input` / `consent_required`, 415, 422 `limit_reached` (20), 403 `upload_rejected`, 410 `upload_removed`, 503 `scan_unavailable` |
 | DELETE | `/api/characters/[id]` | User | none | `{ok}`; withdraws the likeness consent | 404 |
 | GET | `/api/presets` | User | none | Preset list | |
 | POST | `/api/presets` | User | `{name, fromJobId}` or `{name, mode, modelKey, prompt, params}`; the seed is never stored | 201 `{preset}` | 422 `limit_reached` (100), 422 `unknown_model` |
@@ -340,7 +350,7 @@ Auth column values below: **Public** (no session needed), **User** (401 when sig
 |---|---|---|---|---|---|
 | POST | `/api/checkout` | User | `{itemKey}` | `{url, provider, isSandbox}` | 503 `payments_unavailable`, 429 (10 per 10 min), 403 `account_flagged`, 422 `unknown_item` / `unsupported_item` |
 | POST | `/api/pricing/sandbox` | User | `action` (complete, fail, refund, chargeback, renew, cancel) with `token`, `transactionRef` or `subscriptionRef` | `{outcome, transactionRef, next}` | 503 when the sandbox is not the active provider, 403 `bad_token`, 422, 404 |
-| POST | `/api/webhooks/payments/[provider]` | Signed | Provider body | 200 `{received: true, outcome}`; Segpay gets plain-text `OK` with an `x-payment-outcome` header | 404 unknown provider, 503 not configured, 400 `unsigned` / `bad_signature` / `replayed` / `malformed`, 500 for an event that must be retried |
+| POST | `/api/webhooks/payments/[provider]` | Signed | Provider body | 200 `{received: true, outcome}`; Segpay gets plain-text `OK` with an `x-payment-outcome` header | 404 unknown provider, 503 `payments_unavailable` when not configured, 400 `unsigned` / `bad_signature` / `replayed` / `malformed`, 500 for an event that must be retried |
 | POST | `/api/webhooks/stripe` | Signed | Stripe event | Delegates to the generic handler for `stripe` | As above |
 | POST | `/api/webhooks/replicate` | Signed | Replicate prediction | `{received: true}`; verifies and logs only, never changes state | 503 `webhook_unconfigured`, 400 `bad_signature` / `invalid_json` |
 
@@ -351,7 +361,7 @@ Auth column values below: **Public** (no session needed), **User** (401 when sig
 | GET | `/api/health` | Public | none | `{ok, checks: {database, redis}}`, 200 when both are `ok` | 503 when either is down (not wrapped in `route()`) |
 | POST | `/api/admin/credits` | Admin | `account` (email or `@handle`), `amount` (non-zero, within plus or minus 100000), `reason` (3 to 200), `idempotencyKey` (8 to 100) | `{handle, applied, available, reserved}` | 404, 402 |
 | GET | `/api/admin/flags` | Admin | `?all=1` includes cleared flags | `{flags}` | |
-| POST | `/api/admin/flags` | Admin | `{action: "clear", flagId, note (max 300)}` | `{ok, flag: {id, kind, clearedAt}}` | 409 `use_review_queue` for `csam_match` |
+| POST | `/api/admin/flags` | Admin | `{action: "clear", flagId, note (max 300)}` | `{ok, flag: {id, kind, clearedAt}}` | 404 `not_found` (no open flag with that id), 409 `use_review_queue` for `csam_match` |
 | PATCH | `/api/admin/models/[key]` | Admin | `enabled`, `priceMultiplierPct` (10 to 1000) | `{ok}` | 404 unknown model |
 | POST | `/api/admin/reports/[id]` | Admin | `{action: remove / dismiss, note}` | `{ok}` | 409 `already_resolved`, 409 `use_review_queue` for escalations, 422 `unsupported` |
 | GET | `/api/admin/review` | Admin | none | `{scanner, escalations, takedowns, takedownsOpen}`; `takedowns` is the first page of open requests and `takedownsOpen` their total | |
@@ -401,7 +411,7 @@ The database row is the source of truth. A queue entry only says "look at this j
 | awaiting_confirmation or draft | cancelled | `cancelJob` | none | no |
 | awaiting_confirmation | cancelled (with `deleted_at`, `failure_code = draft_expired`) | `reconcile()` when `created_at` is older than 24 h | none | no |
 | queued | cancelled | `cancelJob` (sets `cancel_requested`, `failure_code = cancelled`) | release | no |
-| queued | cancelled | Claim finds `cancel_requested` or `deleted_at` already set (account deletion sets both) | release | no |
+| queued | cancelled | Claim finds `cancel_requested` or `deleted_at` already set (account deletion and consent withdrawal set both) | release | no |
 | queued | processing | Claim: sets `started_at`, `attempts + 1` | none | no |
 | processing | queued | Retryable error and `attempts < max_attempts`; `failure_code` set, re-enqueued after `5000 x 2^(attempts - 1)` ms | reservation held | no |
 | processing | completed | Outputs stored, scanned clean, quality-checked; inserted in one transaction with settle and `generation_count + 1` on the template | settle | yes |
@@ -545,7 +555,7 @@ A pass counts while its status is `active`, `trialing` or `non_renewing` and its
 |---|---|---|---|
 | `sandbox` (default) | Sandbox. Refuses to work on a live site. | A 30-minute HMAC token over user, item and a nonce, sent to `/pricing/sandbox?t=`. That page's buttons post to `/api/pricing/sandbox`, which builds and signs a webhook body (sale, failure, renewal, cancel, refund, chargeback) and runs it through the real handler. The sale's event id is `sbx_checkout_<nonce>`, so one link settles once. | Header `x-sandbox-signature: t=<s>,v1=<HMAC(t.body)>` with a constant development secret; outside a 5-minute window is `replayed`. Sandbox reversals carry no `subscriptionRef`, and sandbox cancel is immediate. |
 | `ccbill` | Unverified (no merchant account) | FlexForms URL `https://api.ccbill.com/wap-frontflex/flexforms/{flexId}` with `formDigest`: packs `md5(price + 30 + 840 + salt)`, passes `md5(price + 30 + price + 30 + 99 + 840 + salt)`. Pass-through `X-hlUser`, `X-hlItem` and `X-hlSig = HMAC-SHA256(salt, "ccbill:user:item")`. | `CCBILL_WEBHOOK_TOKEN` is required: without it CCBill counts as unconfigured and every CCBill webhook gets 503. Every event must carry `token` equal to it (missing is `unsigned`, wrong is `bad_signature`). A `clientAccnum` that is sent must match. `NewSaleSuccess` must also carry `dynamicPricingValidationDigest = md5(subscriptionId + "1" or "0" + salt)`, and the pass-through signature must verify. |
-| `segpay` | Unverified (no merchant account) | `https://secure2.segpay.com/billing/poset.cgi?x-eticketid=<package>:<pricepoint>` with `x-billemail`, `x-auth-link`, `x-decl-link` and pass-through `hluser`, `hlitem`, `hlsig` (HMAC). Checkout refuses an item with no price point in `SEGPAY_PRICE_POINT_ID`; there is no shared fallback. | Segpay signs nothing. A postback must carry `?key=` or `postbackkey=` equal to `SEGPAY_POSTBACK_SECRET`, or HTTP Basic auth whose password is that secret or `SEGPAY_USER_ACCESS_KEY`. The `hlsig` pass-through must verify. |
+| `segpay` | Unverified (no merchant account) | `https://secure2.segpay.com/billing/poset.cgi?x-eticketid=<package>:<pricepoint>` with `x-billemail`, `x-auth-link`, `x-decl-link` and pass-through `hluser`, `hlitem`, `hlsig` (HMAC). Checkout refuses an item with no price point in `SEGPAY_PRICE_POINT_ID`; there is no shared fallback. The refusal is a plain error, so `route()` returns 500 `internal`. | Segpay signs nothing. A postback must carry `?key=` or `postbackkey=` equal to `SEGPAY_POSTBACK_SECRET`, or HTTP Basic auth whose password is that secret or `SEGPAY_USER_ACCESS_KEY`. The `hlsig` pass-through must verify. |
 | `stripe` | Unverified; off unless `PAYMENT_PROVIDER=stripe` and both keys are set | Stripe Checkout | `stripe.webhooks.constructEvent` with the `stripe-signature` header. |
 
 Stripe declares `adultContentAllowed: false`. Stripe lists adult content among restricted businesses (https://stripe.com/legal/restricted-businesses), so it is kept only as an option for non-explicit use. CCBill and Segpay are the adult-capable paths. The CCBill file header lists five points to confirm in CCBill's sandbox before launch: pass-through key spelling, whether refund transaction ids are new or original, whether the webhook URL keeps its query string, timestamp formats, and the pack period. The Segpay header lists four: the postback URL template for pass-through values, GET versus POST delivery, price point ids per item, and `transtime` and `trantype` spellings.
@@ -556,7 +566,7 @@ The pass-through values name a user and an item, but they are not tied to the pr
 
 | Check | Where | Result when it fails |
 |---|---|---|
-| CCBill: the billed price (`billedInitialPrice`, else `accountingInitialPrice`, else `initialPrice`) equals the item's price exactly, in the item's currency. A pass also needs recurring terms (`nextRenewalDate`). | `ccbill.ts:160-170` | The sale carries `review` and is held. |
+| CCBill: the billed price (`billedInitialPrice`, else `accountingInitialPrice`, else `initialPrice`) equals the item's price exactly, in the item's currency. A pass also needs recurring terms (`nextRenewalDate`). | `ccbill.ts:158-168` | The sale carries `review` and is held. |
 | CCBill: pass-through values are read only as `X-hlUser`, `X-hlItem`, `X-hlSig`. | `ccbill.ts` | Missing values: the sale is recorded as `ignored`. |
 | CCBill: a currency code it does not know, or none, is recorded as `xxx` (ISO 4217 "no currency"). | `ccbill.ts` | Fails the price check, so it is held. The numeric code is kept in `metadata.currencyCode`. |
 | Segpay: the price point in `eticketid` maps to exactly one item in `SEGPAY_PRICE_POINT_ID`. | `segpay.ts:164-176` | An `eticketid` for another package: `ignored`. Mapped to exactly one item that differs from `hlitem`: 400 `bad_signature`. No `eticketid`, or a price point mapped to no item or to several: held. |
@@ -572,7 +582,7 @@ Segpay reads a missing `currencycode` as USD. That is an open go-live question (
 
 | Normalized event | sandbox | CCBill | Segpay | Stripe |
 |---|---|---|---|---|
-| purchase_completed / subscription_started | sale | `NewSaleSuccess` | `Enable`, or `Sale` with stage `Initial` or empty (`approved=No` is ignored) | `checkout.session.completed`, `checkout.session.async_payment_succeeded`: a pack only when `payment_status` is `paid`; a pass session maps to subscription_started with no paid check and `grantsFirstPeriod: false`, and its credits come from `invoice.paid` (`stripe.ts:68-93`) |
+| purchase_completed / subscription_started | sale | `NewSaleSuccess` | `Enable`, or `Sale` with stage `Initial` or empty (`approved=No` is ignored) | `checkout.session.completed`, `checkout.session.async_payment_succeeded`: a pack only when `payment_status` is `paid`; a pass session maps to subscription_started with no paid check and `grantsFirstPeriod: false`, and its credits come from `invoice.paid` (`stripe.ts:68-96`) |
 | subscription_renewed | renewal | `RenewalSuccess` | `Sale` at any other stage | `invoice.paid` |
 | subscription_updated | | | | `customer.subscription.updated` (Stripe's status is stored as sent) |
 | subscription_cancelled, at period end | | `Cancellation` | `Cancel`, `Cancellation` | |
@@ -636,7 +646,7 @@ Credit grants use ledger keys `<provider>:<providerEventId>`, so even a replayed
 |---|---|---|
 | `chargeback` | Chargeback | `checkoutBlock` (403 `account_flagged` at checkout) and `cannotBuy` (a sale that lands later is held). |
 | `credit_debt` | Reversal shortfall | `releaseJob` (`ledger.ts`) collects the held part. |
-| `manual_review` | Held payments, account deletion with a live pass, admin suspension | Operators. An admin suspension flag (`details.source = admin_suspension`) is read by `suspensionCauses` (section 10). |
+| `manual_review` | Held payments, account deletion with a live pass, admin suspension, and an abuse-category scan match (no current scanner returns one) | Operators. An admin suspension flag (`details.source = admin_suspension`) is read by `suspensionCauses` (section 10). |
 | `csam_match` | Scanner match, CSAM takedown | `suspensionCauses`; cleared only through the review queue. |
 
 Admins clear flags through `/api/admin/flags` (audit `flag.clear`). A `csam_match` flag cannot be cleared there (409 `use_review_queue`).
@@ -650,7 +660,7 @@ Sources: `src/server/age/*`, `src/config/jurisdictions.ts`.
 | Layer | What it does | Where |
 |---|---|---|
 | Self-declaration | Signup requires a real date of birth showing age 18 or over, `confirmAdult: true` and `acceptTerms: true`. Under 18 returns 403 `underage` and stores nothing. Two consent records (`terms`, `adult_attestation`) are written. | Everywhere |
-| Age gate page | An interstitial asking visitors to confirm they are adults; `/api/age-gate` sets `hl_age_ok` for 30 days. It renders only when there is no session, no `hl_age_ok` cookie, and the path is outside `/policies`. Without the cookie, an anonymous visitor's pages and API responses also carry no media URLs (`viewerAccess`). | Everywhere |
+| Age gate page | An interstitial asking visitors to confirm they are adults; `/api/age-gate` sets `hl_age_ok` for 30 days. It renders only when there is no session, no `hl_age_ok` cookie, and the path is outside `/policies`. It never renders on `/offline`: the root layout returns a bare page for that path before it reads the session or the cookie (`src/app/layout.tsx`). Without the cookie, an anonymous visitor's pages and API responses also carry no media URLs (`viewerAccess`). | Everywhere |
 | Provider check | A real age check with a provider before creating, uploading, publishing, downloading or seeing explicit media. | Required jurisdictions only |
 
 ### Rules
@@ -698,7 +708,7 @@ A `verified` status from the sandbox reads as `unverified` on a live site, so a 
 | POST `/api/uploads` and POST `/api/characters` | `assertAgeVerified`, before the rate limit (`route.ts:20` for characters). |
 | POST `/api/templates` | `assertAgeVerified`. Publishing shares explicit media. |
 | Discovery cards, template pages, creator pages, rails, favorites page, GET `/api/templates` | `viewerAccess()` (cached per request) decides `explicitAllowed`. When false, poster and preview URLs are null and `mediaWithheld` is true. An anonymous visitor without `hl_age_ok` set to `1` always gets false (`access.ts:20-24`). Every public template is treated as explicit. |
-| The user's own library: GET `/api/generations`, `/api/generations/[id]`, `/api/projects`, `/api/projects/[id]`, GET `/api/characters`, and the matching pages | `viewerAccessFor`. Output, poster, cover and character image URLs are withheld while a check is required and not satisfied. |
+| The user's own library: GET `/api/generations`, `/api/generations/[id]`, `/api/projects`, `/api/projects/[id]`, GET `/api/characters`, and the matching pages | `viewerAccessFor` in the API routes, `viewerAccess()` in the pages. Output, poster, cover and character image URLs are withheld while a check is required and not satisfied. |
 
 ## 8. Abuse scanning
 
@@ -767,7 +777,7 @@ A match is never overwritten. A later non-match verdict for the same asset updat
 
 ### Match recording retries
 
-A failure to record a match must never leave the matched bytes deletable. Outside a caller's transaction, a match goes through `recordMatch` (`scan/index.ts:340-362`):
+A failure to record a match must never leave the matched bytes deletable. Outside a caller's transaction, a match goes through `recordMatch` (`scan/index.ts:348-366`):
 
 | Step | Behavior |
 |---|---|
@@ -792,14 +802,14 @@ Removed templates are not restored on clear. A resolved item returns 409. The or
 
 ### Takedowns
 
-Anyone can file at `/api/takedowns`. Signed-out requesters must give an email. `resolveTarget` accepts a UUID (output, template or asset) or a Hushloom link (`/templates/`, `/collection/`, `/api/media?k=`); a malformed link is treated as not found. The admin list puts urgent categories (csam, ncii, likeness) first, then oldest first, in pages of 100 with a total count.
+Anyone can file at `/api/takedowns`. Signed-out requesters must give an email. `resolveTarget` accepts a UUID (output, template or asset) or a Hushloom link (`/templates/`, `/collection/`, `/api/media?k=`). Anything else, such as a malformed link or an id that matches nothing, is still filed. It is kept as a plain link (a `url` target) for a human (`resolveTarget`, `takedowns.ts:33-66`). A `url` target is resolved again only when an admin actions the request, and actioning it gives 422 `target_not_found` if it still points at nothing. The admin list puts urgent categories (csam, ncii, likeness) first, then oldest first, in pages of 100 with a total count.
 
 | Admin action | Effect | Audit |
 |---|---|---|
-| Action | Removes the target: an output soft-deletes its outputs and job; a template is set `removed` with `deleted_at`; an asset removes its templates and soft-deletes its outputs. Then every byte-identical copy is taken down too (below). The SHA-256 of every removed file is added to `taken_down_hashes`. `csam`: every file gets `deleted_at` and `legal_hold`, an `escalate` event (`csam_report`, provider `takedown`) per file, a `csam_match` flag for each owner (`created_by` the admin), and `suspendForAbuse` for each owner with reason `takedown_csam` and the admin as actor. Other categories: unheld files are soft-deleted, and `ncii` and `likeness` files are purged at once. | `takedown.action` |
+| Action | Removes the target: an output soft-deletes its outputs and job; a template is set `removed` with `deleted_at`; an asset removes its templates and soft-deletes its outputs. Then every byte-identical copy is taken down too (below). The SHA-256 of every removed file is added to `taken_down_hashes`. `csam`: every file gets `deleted_at` and `legal_hold` and its own `escalate` event (`csam_report`, provider `takedown`). Then, for each held file that has an owner, one `csam_match` flag tied to that file's escalation (`created_by` the admin) and one `suspendForAbuse` call (reason `takedown_csam`, the admin as actor), inside the per-file loop (`takedowns.ts:236-245`). An owner with several held copies gets several flags, one per escalation; the first call suspends the account and later calls find it already suspended. The account is reinstated only when every one of those cases is cleared in the review queue and no admin suspension remains (`suspensionCauses`, section 10). Other categories: unheld files are soft-deleted, and `ncii` and `likeness` files are purged at once. | `takedown.action` |
 | Dismiss | Requires a note (422 `note_required`) | `takedown.dismiss` |
 
-An unresolvable target returns 422 `target_not_found`.
+Actioning a target that resolves to nothing returns 422 `target_not_found` and changes nothing. The message asks the admin to remove the content by hand, then dismiss the request with a note.
 
 **Copies** (`takeDownCopies`, `takedowns.ts:268-294`; `lockContent`, `takedowns.ts:302-304`). Publishing copies an output's bytes into new public assets, so the named file is rarely the only copy. The action takes a per-file lock (`lockContent`: a sorted `pg_advisory_xact_lock` per SHA-256), then finds every asset with the same SHA-256 on any account. Their outputs and jobs are soft-deleted and their templates set `removed` with `deleted_at`.
 
@@ -812,7 +822,9 @@ An unresolvable target returns 422 `target_not_found`.
 | Report on | Effect |
 |---|---|
 | Template | Set `removed`; its poster and preview copies are soft-deleted. For reason `minor`, they are also put on `legal_hold`, and each gets a `csam_report` escalation (provider `report`) in the review queue. No flag is added. |
-| Output | Soft-deleted. |
+| Output | The output and its asset are soft-deleted. |
+
+A remove also resolves every other open report on the same subject. A dismiss resolves only the one report. Both add a resolved moderation event and audit `moderation.remove` or `moderation.dismiss` (`admin.ts:116-166`).
 
 ### Publishing checks
 
@@ -822,7 +834,15 @@ An unresolvable target returns 422 `target_not_found`.
 
 ### Prompt policy
 
-`checkPrompt` (`src/server/safety/policy.ts`) runs regex categories (minors, non_consent, real_person, bestiality, incest, extreme_harm) over the prompt, negative prompt and free-text settings, after normalizing leetspeak, separated letters and repeated characters. It runs at draft (including derived drafts), at publish and at template update. Saved presets are not checked. A block returns 422 `policy_blocked` and writes an `auto_block` moderation event holding only the category and matched words.
+`checkPrompt` (`src/server/safety/policy.ts`) runs regex categories (minors, non_consent, real_person, bestiality, incest, extreme_harm) over the text it is given, after normalizing leetspeak, separated letters and repeated characters. It runs at three points, and each block returns 422 `policy_blocked`:
+
+| Where | What is checked | Moderation event |
+|---|---|---|
+| Draft, including derived drafts (`createDraft`, `src/server/generation/service.ts:196-208`) | Prompt, negative prompt, free-text settings | An `auto_block` event (subject `prompt`, the user's id), holding only the category and matched words. The 422 carries `details.category`. |
+| Publish (`publishTemplate`, `src/server/templates/publish.ts:58-61`) | Title, description, tags, and the job's prompt, negative prompt and free-text settings | An `auto_block` event (subject `template`, the job's id), holding only the category and matched words. |
+| Template update (`updateTemplate`, `src/server/templates/publish.ts:204-205`) | The title, description, tags and prompt sent | None. The request is refused and nothing is recorded. |
+
+Saved presets are not checked. The composing copilot runs the same check on the prompt and negative prompt in the browser and shows a block as a hint (`src/lib/copilot.ts`); only the server checks refuse.
 
 ## 9. Installable web app and push
 
@@ -852,7 +872,7 @@ The browser's own install prompt is suppressed (`beforeinstallprompt` is prevent
 | Navigation under `/collection`, `/projects`, `/studio`, `/train`, `/settings`, `/admin`, `/favorites`, `/pricing`, `/auth`, `/verify` | Network only; never cached |
 | `/api/*`, other origins, non-GET, `Range` requests | Not handled; the browser goes to the network |
 
-`shouldCache` refuses non-200, opaque, redirected, `private` or `no-store` responses and anything under `/api`, and stores only `/_next/static/*`, `/icons/*` and the shell files (the manifest and icons) (`sw.js:62-68`). The install step precaches the manifest, icons and `/offline` (fetched without credentials, with its headers stripped) plus the static files `/offline` needs. Activation calls `skipWaiting` and `clients.claim` and deletes older `hushloom-` caches. In development the worker is registered as `/sw.js?mode=dev` and caches nothing. `next.config.ts` serves `sw.js` with `no-cache`, `Service-Worker-Allowed: /` and a script CSP of `default-src 'self'; script-src 'self'`.
+`shouldCache` refuses non-200, opaque, redirected, `private` or `no-store` responses and anything under `/api`, and stores only `/_next/static/*`, `/icons/*` and the shell files (the manifest and icons) (`sw.js:62-68`). The install step precaches the manifest, icons and `/offline` (fetched without credentials, with its headers stripped) plus the static files `/offline` needs. The install step ends with `skipWaiting` (`sw.js:170`), so a new worker does not wait for old tabs to close. Activation deletes older `hushloom-` caches and calls `clients.claim` (`sw.js:175-185`). In development the worker is registered as `/sw.js?mode=dev` and caches nothing. `next.config.ts` serves `sw.js` with `no-cache`, `Service-Worker-Allowed: /` and a script CSP of `default-src 'self'; script-src 'self'`.
 
 ### Offline guard
 
@@ -947,7 +967,7 @@ Source: `src/server/redis.ts`, `src/server/request.ts`. Every limit is a fixed w
 | creator | Set automatically on first publish | A label only. It grants no extra permission. |
 | admin | Set in the database (the seed creates one) | Admin pages and APIs; can edit any template. Non-admins get 404 from admin APIs and pages. |
 
-Service functions filter by owner. Data that is not yours returns 404, the same as data that does not exist. The end-to-end journey checks this for creation pages, GET, derive and DELETE. VIP templates need an active pass (403 `vip_required`), and a VIP template's recipe (prompt, negative prompt, model, settings) is not sent to viewers without a pass. Age gates are in section 7.
+Service functions filter by owner. Data that is not yours returns 404, the same as data that does not exist. The end-to-end journey checks this for creation pages, GET, derive and DELETE. VIP templates need an active pass (403 `vip_required`), and a viewer without a pass gets a VIP template's model key but not its prompt, negative prompt or settings (`src/app/templates/[id]/page.tsx`). Age gates are in section 7.
 
 ### Suspension
 
@@ -994,10 +1014,10 @@ Settle and release share one key, so a reservation can close exactly once: which
 
 When a refund or chargeback finds the credits it should take back held by creations in progress, the `credit_debt` flag records them (section 6). `releaseJob` then collects:
 
-1. Read the open `credit_debt` flags whose `heldJobIds` include this job and whose `outstanding` is above 0. Lock the reversed payment events first, in the order the clawback takes them, then those flags.
+1. Read the open `credit_debt` flags whose `heldJobIds` include this job and whose `outstanding` is above 0. Lock the original payments those flags name (`originalEventId`, in id order; the same rows a clawback locks), then the flags themselves.
 2. Apply the release.
 3. For each flag, take `min(released credits left, outstanding)` back with kind `refund` or `chargeback`, key `debt:<flagId>:job:<jobId>`, and the note "Held by a creation when the payment was reversed; taken back when it was released".
-4. Update the flag's `outstanding` and `collected`, and add the amount to the reversal row's `credits` and `metadata.creditsReversed` (reducing its `shortfall`), so a later reversal of the same payment owes only the rest.
+4. Update the flag's `outstanding` and `collected`, and record the amount on the reversal row: its `credits` (stored as a negative number) drops by it, `metadata.creditsReversed` grows by it and its `shortfall` shrinks by it, so a later reversal of the same payment owes only the rest.
 
 A job that completes settles its reservation normally; that part of the debt stays on the flag for an operator.
 
@@ -1082,11 +1102,11 @@ Each row is purged in its own transaction (`purgeRows`, `media.ts:263-284`). It 
 | Kind | Recorded when | Withdrawable |
 |---|---|---|
 | `terms`, `adult_attestation` | Signup | Only by deleting the account (422 `use_account_deletion`) |
-| `upload_subject` | Each upload (`consent="true"` and a subject) | Yes |
+| `upload_subject` | Each upload (`consent="true"` required; the `subject` label is optional and stored as null when none is sent, `src/app/api/uploads/route.ts:23`) | Yes |
 | `likeness` | Each character reference (`consentAdult` and `consentLikeness`) | Yes; deleting the character withdraws it |
 | `training_data` | Never (declared, not used) | n/a |
 
-Withdrawing an upload or likeness consent (`withdrawConsent`) soft-deletes the character references under it, every job and output that used those uploads or references (setting `cancel_requested` on running ones), and the media itself (except legal hold). It audits `consent.withdraw` and purges the files at once. A running job also re-checks the likeness consent before sending the reference to a model.
+Withdrawing an upload or likeness consent (`withdrawConsent`) soft-deletes the character references under it, every job and output that used those uploads or references (setting `cancel_requested` on every affected job, whatever its state, `src/server/auth/account.ts:162`), and the media itself (except legal hold). It audits `consent.withdraw` and purges the files at once. A running job also re-checks the likeness consent before sending the reference to a model.
 
 ### Likeness
 
@@ -1120,20 +1140,20 @@ Turning history off clears the user's discovery history. `DELETE /api/me/history
 | Rule | How |
 |---|---|
 | No prompts, media or secrets in logs | Log lines carry ids, codes and counts. Push logs carry job id, outcome and counts, never endpoints. |
-| No emails in logs | The rate-limit failure log never includes the bucket, which can hold an email (`redis.ts:49`). Signup dates are checked before insert, so an impossible date no longer fails in the database and logs the row. |
+| No emails in logs | The rate-limit failure log never includes the bucket, which can hold an email (`redis.ts:50`). Signup dates are checked before insert, so an impossible date no longer fails in the database and logs the row. |
 | Query parameters redacted | `redactQueryParams` replaces everything from Drizzle's `params:` line to the end with `[redacted]`, in messages and stacks. The serializer also redacts string fields. |
 | Driver detail redacted | `scrubQueryParams` walks the whole cause chain (with a loop guard). It sets the Postgres driver's `detail` to `[redacted]`, because it can repeat a row's values, and redacts each `message`, `stack` and `params`. |
 | Rejected values redacted | For SQLSTATE class 22 errors (data exceptions), the quoted value in the message becomes `[redacted]` (`withoutRejectedValue`). |
 | Next.js prints scrubbed | `DrizzleQueryError` is patched to scrub itself whenever it is inspected (`scrubWhenInspected` in `src/server/db/index.ts`), so Next.js's own error printer prints the redacted form. `onRequestError` logs "request error" with the path without its query, then scrubs the error. |
 | Blocked prompts | Only the category and matched words are kept, in `moderation_events`. |
-| Route errors | Logged with the path only, never the query string or body. |
+| Route errors | Logged with the path (no query string) and the redacted error: its name, message, stack and direct cause, as the serializer writes them (section 14). Never the body. |
 | Age return route | Logs only the error code and the error's name. |
 
 Known exceptions in this snapshot: a Replicate 422 or other unmapped 4xx response body (up to 300 characters, which can echo the prompt) is part of the provider error message that `generation.provider_error` logs; Yoti error bodies (up to 300 characters) are logged in the warning `yoti request failed`.
 
 ### Error webhook redaction
 
-The error webhook (section 14) never sends request bodies. Each event carries only `source`, `time`, `message`, `error` (name, message, stack, digest, cause), `route`, `path`, `method`, and context limited to `jobId`, `verificationId`, `provider`, `outcome` and `routeType`. Messages and stacks go through `redactedMessage` and `redactStack` (the same redaction as the log), the message is clipped to 1000 characters, the stack to 8000 and other fields to 200.
+The error webhook (section 14) never sends request bodies. Each event carries only `source`, `time`, `message`, `error` (name, message, stack, digest, cause), `route`, `path`, `method`, and context limited to `jobId`, `verificationId`, `provider`, `outcome` and `routeType`. Messages and stacks go through `redactedMessage` and `redactStack` (the same redaction as the log), the error's message (and its cause's) is clipped to 1000 characters and its stack to 8000. The log message, paths and context values are clipped to 200, and the method to 16.
 
 ## 14. Error handling and observability
 
@@ -1141,7 +1161,7 @@ The error webhook (section 14) never sends request bodies. Each event carries on
 
 | Layer | Behavior |
 |---|---|
-| API routes | `route()` maps errors to the envelope in section 3. Unknown errors become 500 `internal` and are logged with the path. |
+| API routes | `route()` maps errors to the envelope in section 3. Unknown errors become 500 `internal` and are logged with the path and the redacted error. |
 | Generation | Provider errors are classified as retryable or not; users see fixed sentences that say credits were returned. Every failure path releases the reservation. |
 | Worker | Never relies on BullMQ retries. Crashes are logged; `reconcile()` recovers stuck jobs. |
 | Rate limits | Fail closed with 503 `unavailable` while Redis cannot answer; logged at error level, so the error webhook fires. |
@@ -1154,7 +1174,7 @@ One JSON line per entry: `{t, level, msg, ...fields}`. `warn` and `error` go to 
 
 ### Error webhook (`src/server/observability.ts`)
 
-When `ERROR_WEBHOOK_URL` is set, every `error`-level entry is posted as one JSON event. The web app installs it in `src/instrumentation.ts` (source `web`) and the worker at startup (source `worker`). The URL is read on its own (`errorWebhookUrlAlone()`), so the webhook is installed even when the rest of the configuration fails its check. Delivery is fire-and-forget with a 3 s timeout and at most 30 events per minute; dropped events are counted. Delivery failures produce warnings that never include the URL. Next's `onRequestError` hook logs the failing path without its query string (Node runtime only).
+When `ERROR_WEBHOOK_URL` is set, every `error`-level entry is posted as one JSON event. The web app installs it in `src/instrumentation.ts` (source `web`) and the worker at startup (source `worker`). In the web app the URL is read on its own when the rest of the configuration fails its check (`errorWebhookUrlAlone()`), so the webhook is still installed and reports the failing requests that are logged (section 1, Configuration, says which are). The worker reads its configuration before it installs the webhook, so a worker that fails the check exits without posting anything. Delivery is fire-and-forget with a 3 s timeout and at most 30 events per minute; dropped events are counted. Delivery failures produce warnings that never include the URL. Next's `onRequestError` hook logs the failing path without its query string (Node runtime only).
 
 ### Health
 
@@ -1188,7 +1208,7 @@ Metrics, tracing and dashboards are **not built**. The error webhook is the only
 | Secret and data leakage in logs | Redacted query parameters through the whole cause chain, driver `detail` and rejected values redacted, scrubbed Next.js prints, no buckets or emails, whitelisted webhook context, no bodies | Replicate 422 and other unmapped 4xx bodies and Yoti error bodies reach logs. |
 | Abuse of resources | Decoder limits on every untrusted image, video length and size limits, bounded frame sampling with two ffmpeg threads, ranged media reads, upload size checked while streaming, Redis calls time out | |
 | Clickjacking and sniffing | `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy` denying camera, microphone and geolocation, `X-Robots-Tag: noindex, nofollow`, `poweredByHeader: false` | No page Content-Security-Policy and no HSTS header (**not built**). |
-| Misconfigured live deployment | Startup refuses dev scanner and sandbox age checks on a live site while enforcement is on; sandboxes refuse to run live; signing secret required in production; the seed exits 1 on a live site (`seed.ts:42-44`); compose publishes web on 127.0.0.1 by default; `.env` files kept out of git and images; CI checkout keeps no credentials | No reverse proxy is bundled, and `TRUSTED_PROXY_HOPS` must be set to match one. Compose Redis has no password (not published). Images are pinned by tag, not digest. Web image server files are owned by the runtime user. First-party GitHub actions are pinned to tags, not SHAs. |
+| Misconfigured live deployment | The configuration check rejects the dev scanner and sandbox age checks on a live site while enforcement is on: the worker exits at load, and the web app boots but fails every request that reads the configuration (section 1); sandboxes refuse to run live; signing secret required in production; the seed exits 1 on a live site (`seed.ts:42-44`); compose publishes web on 127.0.0.1 by default; `.env` files kept out of git and images; CI checkout keeps no credentials | A web app that fails the check still boots; only its 503 health check and its failing requests show it. No reverse proxy is bundled, and `TRUSTED_PROXY_HOPS` must be set to match one. Compose Redis has no password (not published). Images are pinned by tag, not digest. Web image server files are owned by the runtime user. First-party GitHub actions are pinned to tags, not SHAs. |
 
 ### Other observations from the code
 
@@ -1199,6 +1219,7 @@ Metrics, tracing and dashboards are **not built**. The error webhook is the only
 - A cancel while processing still sends a push notification.
 - The MinIO image under the `s3` profile is a third-party fork (`pgsty/minio`).
 - Deleting an account while an edit to one of its templates is being published can deadlock. Postgres aborts one of the two transactions.
+- When the configuration fails its zod schema, the web app's API routes answer 422 `invalid_input` with the failing variable names in `details` and log nothing (section 1). The review noted this under I05 and left it unfixed (`notes/analysis/review/fix-results.json`).
 
 ### Adversarial review
 
@@ -1322,7 +1343,7 @@ Playwright then passed 36 of 36 on a fresh production build at `ce84bff` in 5.4 
 
 | Finding | Call |
 |---|---|
-| R35 | A VIP template's recipe is not sent to viewers without a pass. |
+| R35 | A VIP template's prompt, negative prompt and settings are not sent to viewers without a pass. The model key is still sent. |
 | R08 | Takedowns reach byte-identical copies on other accounts. |
 | R16 | A sandbox verification reads as unverified on a live site. |
 | R14 | `AGE_VERIFICATION_FAIL_CLOSED` stays `false` by default. |
@@ -1333,7 +1354,7 @@ Playwright then passed 36 of 36 on a fresh production build at `ce84bff` in 5.4 
 |---|---|---|
 | R05-H6 | Medium | Ten wrong guesses from anyone lock the account's sign-in, and its deletion, for 15 minutes. Options: CAPTCHA, a delay, a trusted-device cookie, or per-(email, address) buckets. Pinned by an `it.fails` test. |
 | R05-H7 | Medium | Signup reveals that an email exists (409 `email_taken`). A fix needs email verification, which needs an email adapter that does not exist. Pinned by an `it.fails` test. |
-| R14 default | | `AGE_VERIFICATION_FAIL_CLOSED` defaults to `false`. |
+| R14 default | Medium | `AGE_VERIFICATION_FAIL_CLOSED` defaults to `false`, so a request from an unknown country or US state is allowed without a check. |
 | I07 remainder | Low | First-party GitHub actions are pinned to tags, not SHAs. |
 | I09 | Low | Compose Redis has no password, but it is not published. |
 | I10 | Low | Base images are pinned by tag, not digest. Needs registry access. |

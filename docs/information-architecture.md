@@ -20,7 +20,7 @@ Status words:
 | Level | Rule |
 |---|---|
 | Anyone | Every visitor past the age notice. |
-| Member | Signed out, the page redirects to `/auth?next=<path>` with a server 307 (`/pricing/sandbox` uses `next=/pricing`). On `/collection`, `/projects` and `/favorites` a skeleton has already streamed a 200, so the browser follows the redirect. |
+| Member | Signed out, the page redirects to `/auth?next=<path>` with a server 307. On `/collection`, `/projects` and `/favorites` a skeleton has already streamed a 200, so the browser follows the redirect. |
 | Owner | A malformed, missing or other member's id is the same 404. |
 | Admin | Everyone else, signed out included, gets the 404 page. |
 | Age | Where a provider check is required and missing (section 7.1), media is withheld, and creating, uploading, downloading and publishing return 451. |
@@ -37,14 +37,14 @@ The folder under `src/app` follows the path when they differ. **age** in the Who
 | `/explore` | Search and browse published templates | Anyone; age | 200 | Sort, media, VIP, category, search | Top-bar search, tab bar Search, Home rails, tags | Templates, creators |
 | `/templates/{slug}` (`templates/[id]`) | Template with the Create panel, versions, related rails | Anyone; age. VIP, no pass, not yours: panel locked, prompt and settings not sent | 404 if missing, or not published and not yours | Make it, follow, rate, report, Manage (owner) | Cards (Make opens `#make`), "Remix of", creation page, admin reports | Creator, `/explore`, `/pricing`, `/train`, `/studio`, `/policies/takedown?target=` |
 | `/generate/image`, `/generate/video` (`generate/[kind]`) | Blank or prefilled creation | Anyone; Make needs a member and, where required, the check | Other kinds: 404 | Make it, switch kind, preset, upload with consent | Create (rail, top bar, "+"), Home, Remix, scenes, Train | `/explore`, `/collection`, `/studio`, `/train`, `/auth` |
-| `/studio` | Every control, presets, job monitor | Member; age (recent strip) | 307 to auth | Seed, negative prompt, project placement, presets | Rail, You sheet, panel link | `/collection/{id}` |
+| `/studio` | Every control, presets, job monitor | Member; age (job monitor data, which shows text only) | 307 to auth | Seed, negative prompt, project placement, presets | Rail, You sheet, panel link | `/collection/{id}` |
 | `/collection` (`collection/(list)`) | Library: every creation you made | Member; age | Browser redirect | Filter, select, bulk delete, folders, Retry | Library tab, toasts, 404 page, app shortcut | `/collection/{id}`, `/projects` |
 | `/collection/{jobId}` (`collection/[id]`) | One creation: media, settings, lineage, compare | Owner; age | 307 to auth; 404 if malformed, missing or not yours | Remix, Retry, Variation, Continue, Extend, Reuse, Save, Download, Folder, Preset, Publish, Delete, Cancel | Library, tray, toasts, push, Studio, takes | `/generate/{kind}?from=`, template, project, `/collection` |
 | `/favorites` | Saved templates; creations at `?tab=creations` | Member; age | Browser redirect | Open, unfavorite | Rail, You sheet, Home "All saved" | Templates, creations, `/explore` |
 | `/projects` (`projects/(list)`) | Project index | Member; age (covers) | Browser redirect | New project | Rail, You sheet, Library | `/projects/{id}` |
 | `/projects/{id}` (`projects/[id]`) | Scene workspace: timeline, continuity guide, takes | Owner; age (covers, takes) | 307 to auth; 404 if malformed, missing or not yours | Edit scenes and guide, Make, Use as take, Branch, Continue, Compare, Play sequence | Index, creation "in {project}" | `/generate/{kind}?scene=`, `/collection/{id}` |
 | `/train` | Character references with recorded consent | Member; age (photos) | 307 to auth | Add (photo, two consents), Remove, Make a still | Rail, You sheet, panel link | `/generate/image?character={id}` |
-| `/creators/{handle}` (`creators/[id]`) | Published templates, public collections; the owner also sees "Your templates" | Anyone; age | 404 if unknown, suspended or deleted | Follow; owner edits or unpublishes | Card handles, creator rows, rail profile row | Templates |
+| `/creators/{handle}` (`creators/[id]`) | Published templates, public collections; the owner also sees "Your templates" and private collections | Anyone; age | 404 if unknown, suspended or deleted | Follow; owner edits or unpublishes | Card handles, creator rows, profile row (rail, You sheet) | Templates |
 | `/settings` | Profile, discovery, consents, `#age-verification`, `#device`, account | Member | 307 to auth | Edit, withdraw consent, Verify now, install, notifications, sign out everywhere, delete account | Rail, You sheet, Home "Tune", 451 links | `/verify/sandbox` or the provider, `/auth` |
 | `/pricing` | Credits and passes; ledger and payment history when signed in | Anyone; buying needs a member | 200 | Buy a pack or pass | Credit pill, You sheet, VIP lock, short-balance line | Processor or `/pricing/sandbox` |
 | `/pricing/sandbox` | Sandbox processor: "No money moves" | Member, payment sandbox on a non-live site | 307 to `/auth?next=/pricing`; else 307 to `/pricing` | Complete, Fail; refund, chargeback, renew, cancel | Checkout link (`?t=`, 30 minutes) | `/pricing?checkout=` |
@@ -58,7 +58,7 @@ The folder under `src/app` follows the path when they differ. **age** in the Who
 
 ### 1.3 Route groups, loading, error and not-found
 
-Route groups do not change URLs. `(home)`, `collection/(list)` and `projects/(list)` exist so a loading boundary wraps only the list page: a page under one has already streamed a 200 when it calls `notFound()` or `redirect()`, so it cannot answer 404 or 307 (commit `44f4c14`; src/app/(home)/loading.tsx). Pages without a loading file show no skeleton.
+Route groups do not change URLs. `(home)`, `collection/(list)` and `projects/(list)` exist so a loading boundary wraps only the list page: a page under one has already streamed a 200 when it calls `notFound()` or `redirect()`, so it cannot answer 404 or 307 (src/app/(home)/loading.tsx).
 
 | File | Behavior |
 |---|---|
@@ -80,15 +80,15 @@ Route groups do not change URLs. `(home)`, `collection/(list)` and `projects/(li
 | Desktop rail | 1024 px and up | Wordmark, primary, Go deeper. Footer: New creation (`/generate/video`), credit pill, admin shield, Settings, Sign out, profile row; signed out, Join or sign in; always Pricing and policies links. |
 | Top bar | All widths | Wordmark below 1024 px; search from 640 px, submitting to `/explore?q=`; credit pill below 1024 px; Create (signed in) or Sign in; offline banner. |
 | Mobile tab bar | Below 1024 px | Discover, Search (`/explore`), center "+" (`/generate/image`), Library, then You (signed in) or Sign in. |
-| "You" sheet | Below 1024 px, from the You tab | Profile row, credits row (`/pricing`), Favorites, Projects, Studio, Train, Settings, Pricing, Policies, Admin (admins), Sign out. Never opened by a test. |
+| "You" sheet | Below 1024 px, from the You tab | Profile row, credits row (`/pricing`), Favorites, Projects, Studio, Train, Settings, Pricing, Policies, Admin (admins), Sign out. |
 | Job tray | Signed in, all widths | Running creations, each linking to `/collection/{id}`; polls every 3 s (15 s hidden, paused offline). |
-| Template Make bar | Below 1024 px, template pages | "Make it · N credits", with a DEMO label on demo models; links to `#make`. Captured at 390x844 (smoke-03-template.png). |
+| Template Make bar | Below 1024 px, template pages | "Make it · N credits", with a DEMO label on demo models; links to `#make`. |
 
 Open defect: the top-bar Create button, meant for desktop only, also shows at phone width (smoke-04-library.png). Cause: `buttonClass` already includes `inline-flex`, and `cn` is plain `clsx`, which merges nothing (src/lib/cn.ts).
 
 Sign out (rail icon, You sheet) calls `POST /api/auth/logout`, drops this device's push subscription and reloads `/`. Sign out everywhere (`/settings`) ends every session.
 
-The build keeps four primary items; spec Part VI only asks not to crowd the main nav. Studio is never required. Pricing is reached passively (credit pill, VIP lock, short-balance line), never through an interstitial.
+Studio is never required. Pricing is reached passively (credit pill, VIP lock, short-balance line), never through an interstitial.
 
 ## 3. Relationship map
 
@@ -101,13 +101,13 @@ The build keeps four primary items; spec Part VI only asks not to crowd the main
 | Generate | Library | Confirm queues a job; the toast, tray, completion toast and push open it |
 | Library | Generate | Remix (`?from=`, new seed), Reuse settings (`&reuse=exact`) |
 | Library | Library | Retry, Variation, Continue, Extend: derive, cost sheet, confirm |
-| Library | Template, Creator | Publish a finished, scan-clean creation not made from an upload or character. Refused with 409 `taken_down` for removed content, or 403 `creator_suspended` |
+| Library | Template, Creator | Publish a finished, scan-clean creation not made from an upload or character; refusals in section 5 |
 | Library | Projects, Studio, Favorites, Folders | "in {project}" line; Preset sheet; Save; Folder sheet |
 | Projects | Generate | Make a clip or still: `?scene=` carries continuity note, lighting, framing, character and studio mode |
 | Projects | Library | Take cards; every take is a creation |
 | Train | Generate, Projects | Make a still (`?character=`); continuity guide Character select |
 | Studio | Library | Job monitor rows |
-| Settings | Home, Create panel | Personalization, history and autoplay shape Home; the assistant toggle only filters panel suggestions (rules-based, not AI) |
+| Settings | Home, Create panel | Personalization, interests, history and autoplay shape Home; the assistant toggle only filters panel suggestions (rules-based, not AI) |
 
 ## 4. Object model with URLs
 
@@ -156,12 +156,13 @@ For every row: a cross-origin POST, PUT, PATCH or DELETE gets 403 `bad_origin` (
 | | GET, POST `/api/characters` | member; GET withholds photos (age); POST age, 10/h |
 | | DELETE `/api/characters/{id}` | owner |
 | Generation | GET `/api/generations` (`?active=1` for the tray) | member; media withheld (age) |
-| | POST `/api/generations` (draft); POST `.../{id}/derive` | member or owner, age; drafts 30/min |
+| | POST `/api/generations` (draft) | member, age; 30/min |
+| | POST `.../{id}/derive` | owner, age; no rate limit |
 | | POST `.../{id}/confirm` | owner, age; 409 `cost_changed`, 429 `too_many_active` |
 | | GET `.../{id}/download` (302 to a signed link) | owner, age |
 | | GET, DELETE `/api/generations/{id}`; POST `.../cancel` | owner; DELETE of a queued or running job is 409 `job_active` |
 | Templates | GET `/api/templates` (browse; media withheld per viewer) | anon |
-| | POST `/api/templates` (publish) | member, age; 409 `taken_down` or `not_cleared`; 403 `creator_suspended` |
+| | POST `/api/templates` (publish) | member, age; 409 `not_ready`, `no_output`, `not_cleared` or `taken_down`; 403 `personal_media` or `creator_suspended`; 422 `policy_blocked` |
 | | POST `/api/templates/{id}/rate`, `/api/templates/{id}/report` | member; report 20/h |
 | | PATCH `/api/templates/{uuid}` | owner or admin; 403 `creator_suspended` |
 | Social | POST, DELETE `/api/favorites`, `/api/follows` | member |
@@ -207,22 +208,25 @@ For every row: a cross-origin POST, PUT, PATCH or DELETE gets 403 `bad_origin` (
 
 Why: Ofcom requires "highly effective age assurance" where users can generate or upload pornographic content ([Ofcom](https://www.ofcom.org.uk/online-safety/protecting-children/enforcement-programme-to-protect-children-from-encountering-pornographic-content-through-the-use-of-age-assurance)), and many US states have similar laws ([Free Speech Coalition](https://www.freespeechcoalition.com/faq)).
 
-- **Who is covered.** `AGE_VERIFICATION_ENFORCE` defaults to true. Regions come from `AGE_VERIFICATION_REGIONS` or `src/config/jurisdictions.ts` (GB and 25 US states as of 2026-10-12, to re-check before launch). A check is required when either the account's stored jurisdiction or the request's location requires it; the stored value decides alone only when the request has no location (src/server/age/service.ts). An unknown location (no header, a bare `US` while US states are configured, or `XX`, `T1`, `A1`, `A2`) falls to `AGE_VERIFICATION_FAIL_CLOSED`, default **false**: creation is allowed (src/server/age/rules.ts). Geo headers are trusted as sent, so the edge must set them and strip client copies.
-- **What is gated.** The **age** routes in section 5 return 451 with `verifyPath: /settings#age-verification`; the message ends "Open Settings › Age verification to do it." Public pages withhold media and show "Verify your age to see previews" (or "Sign in and verify..."). Every public template counts as explicit. Members' own media is withheld too (1.2).
+- **Who is covered.** `AGE_VERIFICATION_ENFORCE` defaults to true. Regions come from `AGE_VERIFICATION_REGIONS` or `src/config/jurisdictions.ts` (GB and 25 US states as of 2026-10-12, to re-check before launch), plus any in the legacy `AGE_ASSURANCE_STRICT_REGIONS` (default empty). A check is required when either the account's stored jurisdiction or the request's location requires it; the stored value decides alone only when the request has no location (src/server/age/service.ts). An unknown location (no header, a bare `US` while US states are configured, or `XX`, `T1`, `A1`, `A2`) falls to `AGE_VERIFICATION_FAIL_CLOSED`, default **false**: no check is required (src/server/age/rules.ts). Geo headers are trusted as sent, so the edge must set them and strip client copies.
+- **What is gated.** The **age** routes in section 5 return 451 with `verifyPath: /settings#age-verification`. Public pages withhold media and show "Verify your age to see previews" (or "Sign in and verify..."). Every public template counts as explicit. Members' own media is withheld too (1.2).
 - **Sandbox on a live site.** A live site refuses to boot with the sandbox provider while enforcement is on, and a sandbox "verified" status reads as unverified there (service.ts).
-- **Flow.** Settings "Verify now" calls `POST /api/age-verification/start`, which sends the user to `/verify/sandbox?ref=` or Yoti's hosted page. A signed callback sets the status, and `/api/age-verification/return` leads back to Settings. Status reads "expired" after `AGE_VERIFICATION_VALID_DAYS` (365). No ID images or biometrics are stored.
+- **Flow.** Settings "Verify now" calls `POST /api/age-verification/start`, which opens `/verify/sandbox?ref=` or Yoti's hosted page. Sandbox: that page posts a signed result to `/api/webhooks/age-verification/sandbox` and returns to Settings. Yoti (unverified): a signed notification, or `/api/age-verification/return` fetching the result, sets the status; the return route always lands in Settings. Status reads "expired" after `AGE_VERIFICATION_VALID_DAYS` (365). No ID images or biometrics are stored.
 
 ### 7.2 Scanning
 
-Uploads, character photos and outputs are scanned before they are served or used. Video is scanned across its whole length: a frame each second plus every sharp change, up to 60 change frames, or 3 a second for clips over 20 s. Clips over 60 s or 4096 px on a side are refused (src/server/safety/scan/index.ts). Anything not `clean` gets the same 404 as a deleted asset. On a match the file goes on legal hold; the owner is suspended and signed out, their templates unpublished and their push subscriptions deleted; and a `csam_match` flag and an escalation reach `/admin/review` (src/server/safety/suspend.ts). A matched upload gets a generic 403; a matched output fails with credits returned. Actioning a takedown removes byte-identical copies on every account and blocks republishing them (409 `taken_down`). `SCAN_FAIL_CLOSED` defaults to true: during an outage uploads get 503 and outputs retry. A live site refuses to boot on `SCAN_PROVIDER=dev` only while fail-closed is on; `/admin/review` labels it "Development scanner · not live". The runbook, `docs/abuse-response.md`, awaits legal review. Cloudflare's tool scans only cached responses ([Cloudflare](https://blog.cloudflare.com/the-csam-scanning-tool/)); app media is private, so as shipped it would see nothing.
+- **What is scanned.** Uploads, character photos and outputs, before they are served or used. Video is scanned across its whole length: a frame each second plus every sharp change, up to 60 change frames, or 3 a second for clips over 20 s. Clips over 60 s or 4096 px on a side are refused (src/server/safety/scan/index.ts). Anything not `clean` gets the same 404 as a deleted asset.
+- **On a match.** The file goes on legal hold. The owner is suspended and signed out, their templates are unpublished and their push subscriptions deleted, and a `csam_match` flag and an escalation reach `/admin/review` (src/server/safety/suspend.ts). A matched upload gets a generic 403; a matched output fails with credits returned.
+- **Takedowns.** Actioning one removes byte-identical copies on every account and blocks republishing them (409 `taken_down`).
+- **Modes.** `SCAN_FAIL_CLOSED` defaults to true: during an outage uploads get 503 and outputs retry. A live site refuses to boot on `SCAN_PROVIDER=dev` only while fail-closed is on; `/admin/review` labels it "Development scanner · not live". Cloudflare's tool scans only cached responses ([Cloudflare](https://blog.cloudflare.com/the-csam-scanning-tool/)); app media is private, so as shipped it would see nothing. The runbook, `docs/abuse-response.md`, awaits legal review.
 
 ### 7.3 Payments
 
-`PAYMENT_PROVIDER` picks sandbox (default), ccbill, segpay or stripe. Stripe is off unless chosen ([Stripe restricted businesses](https://stripe.com/legal/restricted-businesses)). `/pricing` shows "Sandbox · no money moves". On a live site the sandbox counts as not configured, so buying is switched off with a notice; CCBill counts as not configured without `CCBILL_WEBHOOK_TOKEN`. Webhooks are exactly-once per provider event. A refund or chargeback claws credits back through the ledger, and a chargeback flag blocks checkout until an admin clears it.
+`PAYMENT_PROVIDER` picks sandbox (default), ccbill, segpay or stripe. Stripe is off unless chosen ([Stripe restricted businesses](https://stripe.com/legal/restricted-businesses)). `/pricing` shows "Sandbox · no money moves". On a live site the sandbox counts as not configured, so buying is switched off with a notice; CCBill counts as not configured without `CCBILL_WEBHOOK_TOKEN`. Each provider event applies once. Refunds and chargebacks claw credits back through the ledger; a chargeback flag blocks checkout until an admin clears it.
 
 ### 7.4 Installable web app
 
-Apple and Google ban sexually explicit apps ([App Store 1.1.4](https://developer.apple.com/app-store/review/guidelines/), [Google Play](https://support.google.com/googleplay/android-developer/answer/9878810)), so mobile is the web app. The manifest is standalone, with shortcuts to `/generate/image` and `/collection`. `public/sw.js` caches static assets, icons and `/offline` only, and never answers `/api/*` or member pages. Install is offered only in `/settings#device`. Push is opt-in per account and device, opens `/collection/{jobId}`, and says only that a creation is ready, did not finish or was cancelled. Without VAPID keys the toggle is disabled: "Push is not configured on this server."
+Apple and Google ban sexually explicit apps ([App Store 1.1.4](https://developer.apple.com/app-store/review/guidelines/), [Google Play](https://support.google.com/googleplay/android-developer/answer/9878810)), so mobile is the web app. The manifest is standalone, with shortcuts to `/generate/image` and `/collection`. `public/sw.js` precaches the manifest, icons and `/offline`, caches static assets, and never answers `/api/*` or member pages. Install is offered only in `/settings#device`. Push is opt-in per account and device, opens `/collection/{jobId}`, and says only that a creation is ready, did not finish or was cancelled. Without VAPID keys the toggle is disabled: "Push is not configured on this server."
 
 ## 8. Three-perspective walkthrough
 
@@ -232,7 +236,7 @@ Apple and Google ban sexually explicit apps ([App Store 1.1.4](https://developer
 2. `/templates/{slug}#make` opens with the panel in view, defaults filled, cost showing.
 3. Make it opens the confirm sheet: cost, balance after, model, and a demo note on demo models.
 4. Confirm queues the job; the tray shows it everywhere. Past the active-jobs cap (default 3) confirm answers 429. With notifications on, a push opens `/collection/{jobId}`.
-5. On the creation page, Remix goes to `/generate/{kind}?from=` and Save adds a favorite. The template link returns to the template page, whose "You might also like" rail leads back to discovery.
+5. On the creation page, Remix goes to `/generate/{kind}?from=` and Save adds a favorite. The template link leads back to its page and its "You might also like" rail.
 
 On a phone the same path runs through the tab bar, Make bar and tray.
 

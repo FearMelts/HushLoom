@@ -1,6 +1,6 @@
 # Hushloom Deployment and Configuration
 
-Deliverable F: configuring, running, testing and deploying Hushloom at `342afb4`, with all build tracks, the launch journey and review fixes merged (`notes/progress.md`). Everything here exists in that code unless marked **planned** or **not built**. **Unverified** means written from public documentation, never run against the real service. No credentials appear here.
+Deliverable F: configuring, running, testing and deploying Hushloom at `342afb4` (`notes/progress.md`). Everything here exists in that code unless marked **planned** or **not built**. **Unverified** means written from public documentation, never run against the real service.
 
 | Area | State in this build |
 | --- | --- |
@@ -28,17 +28,17 @@ A deployment runs the web server, the worker and a one-shot migration. Alpine is
 
 ## 2 Environment variables
 
-`src/server/env.ts` is the source of truth: 63 variables, defaults and startup checks. `.env.example` lists them all, commented, plus 16 for the seed, compose and tests; `tests/unit/env-template.test.ts` fails if `.env.example` misses a variable. `npm run dev`, `npm start` and compose read `.env`. The worker, migrations and tsx scripts do not: run `set -a; . ./.env; set +a` first. An empty value is not unset, so leave unused lines commented.
+`src/server/env.ts` is the source of truth: 63 variables, defaults and startup checks. `.env.example` lists them all, commented, plus 16 for the seed, compose and tests. `npm run dev`, `npm start` and compose read `.env`. The worker, migrations and tsx scripts do not: run `set -a; . ./.env; set +a` first. An empty value is not unset, so leave unused lines commented.
 
 ### The APP_ENV rule
 
-`NODE_ENV` says how the code was built; `APP_ENV` says what kind of site it is. Each process judges from its own environment: it is **live** when `APP_ENV=production`, or `APP_ENV` is unset and its `NODE_ENV` is `production` (`isLiveDeployment()`). There, `SCAN_PROVIDER=dev` with `SCAN_FAIL_CLOSED=true`, or `AGE_VERIFICATION_PROVIDER=sandbox` with `AGE_VERIFICATION_ENFORCE=true`, stops the app: the worker exits 1 and every web request fails, health check included. Sandbox checkout answers 503, a sandbox age result reads as unverified, and the seed refuses to run.
+`NODE_ENV` says how the code was built; `APP_ENV` says what kind of site it is. Each process judges from its own environment: it is **live** when `APP_ENV=production`, or `APP_ENV` is unset and its `NODE_ENV` is `production` (`isLiveDeployment()`). There, `SCAN_PROVIDER=dev` with `SCAN_FAIL_CLOSED=true`, or `AGE_VERIFICATION_PROVIDER=sandbox` with `AGE_VERIFICATION_ENFORCE=true`, is rejected: the worker exits 1, `/api/health` answers 503, and every page or API route that reads the configuration fails. Static files, `/offline` and signed-out policy pages still load (`README.md` overstates this). Sandbox checkout answers 503, a sandbox age result reads as unverified, and the seed refuses to run.
 
 **Rule:** leave `APP_ENV` unset, or `production`, on any site the public can reach. Use `staging` only for a private preview, because it lets the sandboxes run. `test` is for e2e.
 
-`NODE_ENV` defaults to `development`. The standalone `server.js` and both images set `production`; `npm run worker` and tsx scripts do not. Outside the images, run the worker, seed and scan backfill with `NODE_ENV=production` or an explicit `APP_ENV=production`. Otherwise they count as not live: the worker skips the live-site checks, a dev scanner there clears every output, and the seed creates shared-password accounts in the live database. The migration reads only `DATABASE_URL`.
+`NODE_ENV` defaults to `development`. The standalone `server.js` and both images set `production`; `npm run worker` and tsx scripts do not. Outside the images, run the worker and scan backfill with `NODE_ENV=production` or `APP_ENV=production`. Otherwise they count as not live: the worker skips the live-site checks and a dev scanner clears every output. Never run the seed against a live database. Its guard reads only this shell's `NODE_ENV` and `APP_ENV`, so set one of them in every shell that reaches one. The migration reads only `DATABASE_URL`.
 
-`AGE_VERIFICATION_ENFORCE=false`, or `SCAN_PROVIDER=cloudflare` with `SCAN_FAIL_CLOSED=false`, also starts a live site without a real provider; neither belongs there without legal sign-off.
+`AGE_VERIFICATION_ENFORCE=false` or `SCAN_FAIL_CLOSED=false` also lets a live site start without a real provider; neither belongs there without legal sign-off.
 
 ### TRUSTED_PROXY_HOPS
 
@@ -55,25 +55,27 @@ Count exactly: too high trusts a client-sent entry, too low makes visitors share
 - Never commit secrets: keep them in the host's secret store. `.gitignore` ignores every `.env*` except `.env.example`; `.dockerignore` keeps `**/.env` and `**/.env.*` out of images.
 - Generate `MEDIA_SIGNING_SECRET`, `CCBILL_WEBHOOK_TOKEN`, `SEGPAY_POSTBACK_SECRET`, `AGE_VERIFICATION_WEBHOOK_SECRET` and `SEED_PASSWORD` with `openssl rand -hex 32`, and `POSTGRES_PASSWORD` with `openssl rand -hex 24`.
 - Generate one VAPID pair per deployment with `npx web-push generate-vapid-keys`. Rotating it drops every push subscription.
-- Providers issue the rest: CCBill salt, Segpay ids, Yoti key and SDK id, PhotoDNA key and endpoint, Replicate token, S3 keys.
+- Providers issue the other keys (§10).
+
+### Variables by section
 
 **Core and storage**
 
 | Variable | Default | Required when | Secret | What it does |
 | --- | --- | --- | --- | --- |
-| `NODE_ENV` | `development` | Worker and scripts outside the images: `production` | no | `server.js` and the images set `production` (§2). |
+| `NODE_ENV` | `development` | Worker and scripts outside the images: `production` | no | Build mode (§2). |
 | `APP_ENV` | unset | See the rule | no | `development`, `test`, `staging` or `production`. |
 | `APP_URL` | `http://localhost:3000` | Production: the public https origin | no | Allowed origin for API writes. Base for checkout, Yoti and download links. |
 | `DATABASE_URL` | `postgres://playbox@localhost:5432/playbox` | Beyond local development | yes | Postgres. |
 | `REDIS_URL` | `redis://localhost:6379` | Beyond local development | if it holds a password | Queue and rate limits. |
 | `SESSION_TTL_DAYS` | `30` | optional | no | Sign-in lifetime. |
 | `TRUSTED_PROXY_HOPS` | `0` | Behind a proxy: 1 or more | no | Proxies that add to `X-Forwarded-For` (above). |
-| `MEDIA_SIGNING_SECRET` | dev fallback | Production, 32+ characters | yes | Signs media links. Production will not start without it. |
-| `MEDIA_URL_TTL_S` | `300` | optional | no | Private link lifetime. Links live up to 1.1x: 300 to 330 s, public template links 3600 to 3960 s. |
+| `MEDIA_SIGNING_SECRET` | dev fallback | Production, 32+ characters | yes | Signs media links. |
+| `MEDIA_URL_TTL_S` | `300` | optional | no | Private link lifetime. Links live up to 1.1 times it; public media up to 3960 s. |
 | `STORAGE_DRIVER` | `local` | optional | no | `local` or `s3`. Either way `/api/media` serves and re-checks every file; no presigned bucket URLs. |
 | `STORAGE_LOCAL_DIR` | `.storage` | Absolute in production | no | Same path for web app and worker. |
 | `S3_BUCKET`, `S3_REGION` | unset (region `auto`) | Bucket: `STORAGE_DRIVER=s3` | no | A private bucket. `auto` suits R2. |
-| `S3_ENDPOINT` | unset | Non-AWS services | no | Reached by the app only, never by browsers (the presigned-link comment in `.env.example` is stale). |
+| `S3_ENDPOINT` | unset | Non-AWS services | no | Reached by the app only, never by browsers. Stale: the presigned-link notes in `.env.example`, `scripts/s3-bucket.ts` and `README.md`, whose MinIO hosts-file step is unneeded. |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | unset | S3, unless the SDK credential chain applies | yes | Bucket keys. |
 
 **AI generation and worker**
@@ -121,14 +123,14 @@ Count exactly: too high trusts a client-sent entry, too low makes visitors share
 
 | Variable | Default | Required when | Secret | What it does |
 | --- | --- | --- | --- | --- |
-| `SCAN_PROVIDER` | `dev` | Live: `photodna` | no | `dev`, `photodna` or `cloudflare`. |
+| `SCAN_PROVIDER` | `dev` | Live: `photodna` | no | `dev`, `photodna` or `cloudflare`. Never set `cloudflare`, which startup allows: it scans nothing, so fail-closed rejects every upload (503) and refunds every output, and without it every file is recorded clean, unscanned. |
 | `SCAN_FAIL_CLOSED` | `true` | Keep `true` | no | Unchecked content is never kept: uploads get 503, outputs retry, then refund. |
 | `PHOTODNA_API_KEY`, `PHOTODNA_ENDPOINT` | unset | photodna | key: yes | Key and Match URL, issued after Microsoft's approval. |
 | `CLOUDFLARE_SCAN_WEBHOOK_SECRET` | unset | Not used | yes | Cloudflare notifies by email only. |
 | `SCAN_TIMEOUT_S` | `30` | optional | no | Seconds before a scan counts as unavailable. |
 | `SCAN_DEV_MATCH_HASHES`, `SCAN_DEV_SIMULATE_OUTAGE` | empty, `false` | dev only | no | Test hashes, outage drills. |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | unset | Push | private key: yes | The pair browsers subscribe with and pushes are signed by, and a `mailto:` or `https:` contact (not localhost). Push is off until all three are set. |
-| `ERROR_WEBHOOK_URL` | unset | optional | if it holds a token | Gets each error as JSON, without bodies, query strings, prompts or media. Fire-and-forget, rate-capped. The web process installs it even when other configuration fails its check; the worker then exits 1 unreported. |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | unset | Push | private key: yes | Key pair and a `mailto:` or `https:` contact (not localhost). Push is off until all three are set. |
+| `ERROR_WEBHOOK_URL` | unset | optional | if it holds a token | Gets each error as JSON, without bodies, query strings, prompts or media. Rate-capped. A worker with invalid configuration exits 1 unreported. |
 
 **Seed and compose only**
 
@@ -141,8 +143,8 @@ Count exactly: too high trusts a client-sent entry, too low makes visitors share
 
 **Test variables** (none secret):
 
-- vitest: `TEST_DATABASE_URL` (`.../playbox_test`, tables emptied), `TEST_REDIS_URL` (db 1), `LOG_TESTS` (prints info lines).
-- Playwright: `E2E_PORT` (3100), `E2E_DATABASE_URL` (`.../playbox_e2e`, recreated each run, name must end in `_e2e`), `E2E_REDIS_URL` (db 2, flushed), `E2E_MEDIA_SIGNING_SECRET` (random per run), `E2E_SHOTS_DIR` (journey evidence, default `test-results/journey`).
+- vitest: `TEST_DATABASE_URL` (`.../playbox_test`, tables emptied), `TEST_REDIS_URL` (db 1), `LOG_TESTS` (prints debug, info and warn lines too).
+- Playwright: `E2E_PORT` (3100), `E2E_DATABASE_URL` (`.../playbox_e2e`, reset each run, name must end in `_e2e`), `E2E_REDIS_URL` (db 2, flushed), `E2E_MEDIA_SIGNING_SECRET` (random per run), `E2E_SHOTS_DIR` (journey evidence, default `test-results/journey`).
 - `PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS`: `playwright.config.ts` sets 1 so service worker requests see emulated offline state.
 
 The web image sets `PORT`, `HOSTNAME=0.0.0.0` and `NEXT_TELEMETRY_DISABLED`. Compose sets `NODE_ENV`, `DATABASE_URL`, `REDIS_URL`, `STORAGE_LOCAL_DIR`, `APP_URL` and `MEDIA_SIGNING_SECRET` over `.env`. `playbox` is a leftover internal name.
@@ -152,7 +154,7 @@ The web image sets `PORT`, `HOSTNAME=0.0.0.0` and `NEXT_TELEMETRY_DISABLED`. Com
 ```sh
 createuser -s playbox && createdb -O playbox playbox
 npm ci
-cp .env.example .env                 # optional: every line is commented, so the defaults apply
+cp .env.example .env                 # optional: every line is commented
 npm run db:migrate
 SEED_PASSWORD=<choose one> npm run db:seed
 npm run dev                          # terminal 1: http://localhost:3000
@@ -161,7 +163,7 @@ npm run worker                       # terminal 2: the generation queue
 
 The defaults run sandbox payments, the sandbox age check, the dev scanner and demo models, all labeled. Under `next dev` the service worker does push only, no caching.
 
-**Seeded data.** The seed exits 1 when its own process counts as live (`scripts/seed.ts`); on a bare host that takes `NODE_ENV=production` or `APP_ENV=production` (§2). It skips a database that already has templates, and stops if its media does not scan clean. It creates 9 categories, 24 sample templates on demo models, `admin@hushloom.local` (admin), `demo@hushloom.local` (member, 200 credits), and five creators: `lunavelour`, `atelier_noir`, `mx_ember`, `softfocus` and `nightcartographer`, each `@hushloom.local`. All share `SEED_PASSWORD`, or a random password printed once.
+**Seeded data.** The seed exits 1 on a live site (§2). It skips a database that already has templates, and stops if its media does not scan clean. It creates 9 categories, 24 sample templates on demo models, `admin@hushloom.local` (admin), `demo@hushloom.local` (member, 200 credits), and five creators: `lunavelour`, `atelier_noir`, `mx_ember`, `softfocus` and `nightcartographer`, each `@hushloom.local`. All share `SEED_PASSWORD`, or a random password printed once.
 
 Other commands:
 
@@ -178,7 +180,7 @@ Other commands:
 | `0001_output_posters` | Adds `generation_outputs.poster_asset_id`. |
 | `0002_launch_readiness` | Adds `account_flags`, `age_verifications`, `push_subscriptions`, `takedown_requests`, scan and `legal_hold` columns on `media_assets`, age columns on `users`, payment fields. **Existing media becomes `pending`, unserved until `npx tsx scripts/scan-backfill.ts` runs.** |
 | `0003_integrity_fks_and_dob` | Makes `users.date_of_birth` nullable and erases it for deleted accounts. Clears dangling references and adds five `ON DELETE SET NULL` foreign keys. Cannot be undone. |
-| `0004_taken_down_hashes` | Creates `taken_down_hashes` (`sha256` primary key, `takedown_id` with `ON DELETE SET NULL`, `created_at`) and the index `media_sha256_idx` on `media_assets(sha256)`. Publishing reads it. |
+| `0004_taken_down_hashes` | Creates `taken_down_hashes`, the takedown hash block publishing reads, and an index on `media_assets(sha256)`. |
 
 New migrations: edit `src/server/db/schema.ts`, run `npm run db:generate`, review the SQL, commit it with its `meta` snapshot.
 
@@ -210,7 +212,7 @@ What `test:e2e` builds:
 3. `scripts/e2e-serve.mjs` copies `.next/static` and `public/` next to `server.js` and starts it with `NODE_ENV=production` and `APP_ENV=test`.
 4. The worker starts once `/api/health` answers, health port 3901.
 
-`tests/e2e/journey.spec.ts` has 9 tests (core flows, isolation, under-18 refusal, layout, keyboard); `tests/e2e/launch.spec.ts` has 27 (age checks, sandbox payments, scanning, takedowns, the installable app, phone width).
+`tests/e2e/journey.spec.ts` has 9 tests (core flows, isolation, under-18 refusal, layout); `tests/e2e/launch.spec.ts` has 27 (age checks, payments, scanning, takedowns, the installable app).
 
 **Last results** (`notes/progress.md`): typecheck and lint clean, vitest 503/503 in 44 files, e2e 36/36 on a fresh production build at `ce84bff` (`notes/evidence/e2e-ce84bff.log`). `342afb4` changes only notes.
 
@@ -220,34 +222,37 @@ What `test:e2e` builds:
 npm ci && npm run build
 cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public
 npm run db:migrate
-PORT=3000 HOSTNAME=0.0.0.0 node .next/standalone/server.js
+PORT=3000 HOSTNAME=127.0.0.1 node .next/standalone/server.js   # proxy on this host
 NODE_ENV=production node --import tsx src/worker/index.ts   # from the full checkout
 ```
 
+- **Bind.** An unset `HOSTNAME` binds every interface. A proxy on another host needs `0.0.0.0` and a firewall admitting only that proxy, or clients can forge geo and forwarding headers and skip age checks.
 - **Copy the static files.** Standalone output has neither `.next/static` nor `public/`. Without them, styles, scripts, icons, the manifest and `sw.js` return 404.
 - **Use `server.js`.** `npm start` runs `next start`, which does not support standalone output.
 - **No database at build time.** Every page is dynamic, so the build should need no database or secrets (untried).
 - **Configuration.** Pass variables through the environment. The web process needs ffmpeg, and with S3 it streams all media.
-- **Worker.** Runs from source with tsx (full install needed) and, outside the image, needs `NODE_ENV=production` (§2). It exits 1 on invalid configuration, reconciles stuck jobs and expires drafts older than 24 hours (at start, then every 60 s), purges media hourly, and serves `GET /health` when `WORKER_HEALTH_PORT` is set. On SIGTERM it closes its connections and exits 0.
+- **Worker.** Runs from source with tsx (full install needed), with `NODE_ENV` set as in §2. It exits 1 on invalid configuration, reconciles stuck jobs and expires drafts older than 24 hours (at start, then every 60 s), purges media hourly, and serves `GET /health` when `WORKER_HEALTH_PORT` is set. On SIGTERM it closes its connections and exits 0.
 - **Health.** `GET /api/health` answers 200 when `database` and `redis` are both `ok`, otherwise 503. The worker's `/health` answers 200 while its consumer runs.
 - **Scaling.** `WORKER_CONCURRENCY` raises parallelism. Multiple instances are untested; with local storage they need a shared disk.
 
 ## 7 Docker and compose
 
-`Dockerfile` (web) runs `node server.js` with the static files, as user `node`, on `node:22-bookworm-slim` with ffmpeg, healthcheck `/api/health`. `Dockerfile.worker` has the same base and ffmpeg plus the full `npm ci`. It runs the worker as PID 1 (healthcheck on 3901), plus migrate, seed and s3-init. Both set `NODE_ENV=production`.
+`Dockerfile` (web) runs `node server.js` with the static files, as user `node`, on `node:22-bookworm-slim` with ffmpeg, healthcheck `/api/health`. `Dockerfile.worker` has the same base and ffmpeg plus the full `npm ci`. It runs the worker as PID 1 (healthcheck on 3901), plus migrate, seed and s3-init.
 
 | Service | Role | Profile |
 | --- | --- | --- |
-| `postgres` | `postgres:16`, volume `pgdata`. Requires `POSTGRES_PASSWORD`. | default |
+| `postgres` | `postgres:16`, volume `pgdata` | default |
 | `redis` | `redis:7`, append-only, `noeviction`, volume `redisdata` | default |
 | `migrate` | One-shot migrations once Postgres is healthy | default |
-| `web` | Published on `${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}`: this machine only by default. Waits for `migrate` and Redis. | default |
+| `web` | Published on `${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}`, this machine only by default. Waits for `migrate` and Redis. | default |
 | `worker` | Same dependencies as `web` | default |
 | `seed` | Refuses unless `SEED_PASSWORD` is set and `APP_ENV` is set and not `production` | `seed` |
-| `minio` | On `127.0.0.1:9000` and `:9001`, volume `miniodata`. Root login is the app's S3 keys. | `s3` |
+| `minio` | On `127.0.0.1:9000` and `:9001`, volume `miniodata`. Root login is the app's S3 keys; the secret needs 8+ characters. | `s3` |
 | `s3-init` | Creates the private bucket before web and worker start | `s3` |
 
-App containers read `.env`, run with `init: true`, and share the `storage` volume at `/data/storage`. Postgres and Redis publish no ports. Run the TLS proxy on the same host, or set `WEB_BIND=0.0.0.0` and firewall the port to the edge. A local trial without provider accounts needs `APP_ENV=staging`.
+App containers read `.env`, run with `init: true`, and share the `storage` volume at `/data/storage`. Postgres and Redis publish no ports. A local trial without provider accounts needs `APP_ENV=staging`.
+
+Compose refuses to start unless `.env` sets `POSTGRES_PASSWORD` and `MEDIA_SIGNING_SECRET`. The `s3` profile (never run) also needs `STORAGE_DRIVER=s3`, `S3_BUCKET`, `S3_ENDPOINT=http://minio:9000`, `S3_REGION=us-east-1` (as in `README.md`) and both S3 keys; without the bucket or keys, `s3-init` exits 1.
 
 ```sh
 docker compose up -d --build
@@ -255,19 +260,19 @@ docker compose --profile seed run --rm seed     # private previews only
 docker compose --profile s3 up -d --build
 ```
 
-**Validated:** only `docker compose config` (all three profiles, with the intended errors for missing secrets) and registry checks that the tags exist. **Not validated:** `docker build` (no Docker daemon was available) and `docker compose up`.
+**Validated:** only `docker compose config` (all three profiles, with the intended missing-secret errors) and registry checks that tags exist. **Not validated:** `docker build` (no Docker daemon was available) and `docker compose up`.
 
 **MinIO caveat.** MinIO's official images left Docker Hub (401 on 2026-10-14), so the `s3` profile defaults to `pgsty/minio`, Pigsty's community build at a pinned tag: a supply-chain choice for the owner, never pulled or run. Override it with `MINIO_IMAGE`. In production, use a managed private bucket (AWS S3 or R2).
 
 **Open low items**, left by decision (`notes/progress.md`):
 
-- **I09.** Compose Redis has no password, but is not published. A required `REDIS_PASSWORD` would break every existing `.env`, since compose interpolates inactive profiles too.
+- **I09.** Compose Redis has no password but is not published. Requiring one would break every existing `.env`.
 - **I10.** Base images are pinned by tag, not digest, which needs registry access and a build to verify.
 - **I11.** The web image's server files are owned by the runtime user, so a compromised process could rewrite them. A fix is unverifiable without Docker.
 
 ## 8 CI
 
-`.github/workflows/ci.yml` runs on pushes and pull requests for every branch except `main`, so a pull request into `main` gets no CI. Permissions are read-only, and checkouts set `persist-credentials: false`. Both jobs start Postgres 16 and Redis 7 services and install Node 22 and ffmpeg. `checks` runs `npm ci`, typecheck, lint, vitest and the build. `e2e` adds Chromium, runs `npm run test:e2e` (a second build), and uploads the report on failure, kept 14 days.
+`.github/workflows/ci.yml` runs on pushes and pull requests for every branch except `main`, so a pull request into `main` gets no CI. Permissions are read-only, and checkouts set `persist-credentials: false`. Both jobs run Postgres 16, Redis 7, Node 22 and ffmpeg. `checks` runs `npm ci`, typecheck, lint, vitest and the build. `e2e` adds Chromium, runs `npm run test:e2e` (a second build), and uploads the report on failure, kept 14 days.
 
 It has **never run on GitHub**. Open low item I07: actions are pinned to `@v4` tags, not commit SHAs.
 
@@ -287,16 +292,16 @@ The proxy must:
 - be the only way to reach the app port
 - match `APP_URL` exactly, or browser API writes get 403 `bad_origin` (`src/server/origin.ts`)
 - replace client-sent forwarding headers with its own; for `X-Forwarded-For`, replacing or appending both work, with `TRUSTED_PROXY_HOPS` set to match (§2)
-- allow bodies of at least 101 MB on `POST /api/uploads` and 21 MB on `POST /api/characters` (100 MB and 20 MB files plus form overhead)
+- allow bodies of at least 101 MB on `POST /api/uploads` and 21 MB on `POST /api/characters`
 - pass `Range` headers to `/api/media`
 - keep webhook query strings (`?token=`, `key=`) and let processors reach `/api/webhooks/payments/ccbill`, `/api/webhooks/payments/segpay` and `/api/webhooks/age-verification/yoti`
-- add HSTS, which the app does not set (it sets `X-Frame-Options`, `nosniff`, referrer and permissions policies, and `X-Robots-Tag: noindex`)
+- add HSTS: `next.config.ts` sets the other security headers, not that one
 
 **Geo headers.** The age rules trust `GEO_COUNTRY_HEADER` and `GEO_REGION_HEADER` as received, so the edge must strip client copies and set its own (`cf-ipcountry` behind Cloudflare). Without them every visitor is "unknown", and `AGE_VERIFICATION_FAIL_CLOSED` decides.
 
-**Cache-Control.** Never cache HTML or `/api/*` at the edge. `/api/media` sends `private, max-age=<seconds until expiry>`, so Cloudflare's CSAM tool would scan nothing as shipped. `sw.js` sends `no-cache` and `Service-Worker-Allowed: /`; do not cache or rewrite it. `/_next/static/*` is content-hashed and safe to cache. `/_next/image` answers 404 by design (`next.config.ts`, `images.unoptimized`).
+**Cache-Control.** Never cache HTML or `/api/*` at the edge. `/api/media` sends `private, max-age=<seconds until expiry>`, so Cloudflare's CSAM tool would scan nothing as shipped. `sw.js` sends `no-cache` and `Service-Worker-Allowed: /`; do not cache or rewrite it. `/_next/static/*` is content-hashed and safe to cache.
 
-**Service worker scope.** `/sw.js` registers with scope `/`, as do the manifest's `start_url` and `scope`, so serve the app at the root of its origin. It serves `/_next/static` cache-first and public pages network-first, falling back to a precached `/offline`, never storing HTML. It never answers `/api/*`, signed-in pages, ranges or writes (`public/sw.js`). Bump `VERSION` to ship an update.
+**Service worker scope.** `/sw.js` registers with scope `/`, as do the manifest's `start_url` and `scope`, so serve the app at the root of its origin. It serves `/_next/static` cache-first and public pages network-first, falling back to a precached `/offline`, never storing the pages it fetches. It never answers `/api/*`, signed-in pages, ranges or writes (`public/sw.js`). Bump `VERSION` to ship an update.
 
 ## 10 Going live checklist
 
@@ -304,7 +309,7 @@ The proxy must:
 
 | Account | Variables and setup |
 | --- | --- |
-| **CCBill** or **Segpay** | CCBill: `PAYMENT_PROVIDER=ccbill`, ids, salt and webhook token, all required. Webhook: `https://<host>/api/webhooks/payments/ccbill?token=<token>`. Segpay: `PAYMENT_PROVIDER=segpay`, package, price point map, postback secret. Postback, as POST: `.../api/webhooks/payments/segpay?key=<secret>`. Its template must echo `hluser`, `hlitem` and `hlsig`; without them a sale is ignored, with no grant, flag or alert. Without `<eticketid>` or `<price>`, a sale is held for review (a `manual_review` flag on `/admin`) and grants nothing. Sales below the item's price or in another currency are held too. Replace the placeholder prices in `src/config/pricing.ts`. |
+| **CCBill** or **Segpay** | CCBill: `PAYMENT_PROVIDER=ccbill`, ids, salt and webhook token. Webhook: `https://<host>/api/webhooks/payments/ccbill?token=<token>`. Segpay: `PAYMENT_PROVIDER=segpay`, package, price point map, postback secret. Postback, as POST: `.../api/webhooks/payments/segpay?key=<secret>`. Its template must echo `hluser`, `hlitem` and `hlsig`, or sales are silently ignored, and carry `<eticketid>`, `<price>` and `<currencycode>`. A sale without `<eticketid>` is held (a `manual_review` flag on `/admin`, no grant), as is any processor's sale, pass start or renewal paid short or in another currency (`src/server/payments/service.ts`). Replace the placeholder prices in `src/config/pricing.ts`. |
 | **Yoti**, for UK "highly effective age assurance" (Ofcom, https://www.ofcom.org.uk/online-safety/protecting-children/enforcement-programme-to-protect-children-from-encountering-pornographic-content-through-the-use-of-age-assurance) and US state laws (https://www.freespeechcoalition.com/faq) | `AGE_VERIFICATION_PROVIDER=yoti`, API key, SDK id, notification public key. Register `/api/webhooks/age-verification/yoti` and allow `/api/age-verification/return`. |
 | **PhotoDNA** (free after approval) | `SCAN_PROVIDER=photodna`, `PHOTODNA_API_KEY`, `PHOTODNA_ENDPOINT`, fail-closed kept on. |
 | **Cloudflare CSAM tool** (optional, free, https://blog.cloudflare.com/the-csam-scanning-tool/) | Dashboard only. A second layer, never a replacement. |
@@ -317,10 +322,10 @@ The proxy must:
 **Configuration**
 
 - `APP_ENV` unset with `NODE_ENV=production` in every process (§2), an https `APP_URL`, a generated `MEDIA_SIGNING_SECRET`, and S3 or a shared absolute `STORAGE_LOCAL_DIR`.
-- `TRUSTED_PROXY_HOPS` equal to the number of proxies, at least 1. Under compose, `WEB_BIND=127.0.0.1` unless the edge is on another host.
+- `TRUSTED_PROXY_HOPS` equal to the number of proxies, at least 1.
 - Geo headers matching the edge, `AGE_VERIFICATION_REGIONS` re-checked, `AGE_VERIFICATION_FAIL_CLOSED` decided.
 - Migrations applied through 0004 and the backfill run. No seed.
-- Alerts on the log lines `scan.unavailable`, `scan.matched`, `scan.match_record_failed`, `scan.match_hold_failed`, `generation.match_record_failed` and `generation.match_hold_failed` (`src/server/safety/scan/index.ts`). After any `*.match_record_failed` or `*.match_hold_failed`, run `npx tsx scripts/scan-backfill.ts`: the file sits held and pending, and its case, flag and suspension appear only when the backfill rescans it.
+- Alerts on the log lines `scan.unavailable`, `scan.matched`, `scan.match_record_failed`, `scan.match_hold_failed`, `generation.match_record_failed` and `generation.match_hold_failed` (`src/server/safety/scan/index.ts`). Recording a match is tried 3 times, each failure logging `*.match_record_failed` with its `attempt`. After attempt 3, or any `*.match_hold_failed`, the file stays pending, never served or purged, with no case, flag or suspension until you run `npx tsx scripts/scan-backfill.ts`.
 - Named reviewers working `/admin/review` daily.
 
 **Open questions for the processors** (`notes/progress.md`)
@@ -344,7 +349,7 @@ The proxy must:
 - **CCBill:** pass-through spelling, reversal transaction id, the webhook query string, date formats, the 30-day pack period.
 - **Segpay:** the postback template and its values; GET or POST (the route accepts POST only); price point ids; `transtime` and `trantype` spellings.
 - **Yoti:** session and result fields, the hosted URL, the RSA-PSS notification signature. Yoti's sandbox was not integrated.
-- **PhotoDNA:** request shape, 4 MB and 2048 px limits, 5 requests a second, success code 3000 (from memory).
+- **PhotoDNA:** request shape, the 4 MB cap, 5 requests a second, success code 3000 (from memory).
 - **Replicate:** live calls and output download.
 - **S3:** a real private bucket, streamed through `/api/media`.
 - **Web Push:** delivery, iOS Home Screen push, installs on real devices.
@@ -358,15 +363,13 @@ The proxy must:
 - `drizzle-orm` 0.45.4, `postgres` 3.4.9: database access and migrations.
 - `bullmq` 5.81.5, `ioredis` 5.11.1: queue and rate limits.
 - `sharp` 0.35.5: re-encoding, posters, demo stills.
-- `@aws-sdk/client-s3` 3.1150.0: the S3 driver (`s3-request-presigner` is listed, unused since R13).
+- `@aws-sdk/client-s3` 3.1150.0: the S3 driver (`s3-request-presigner` is listed but unused).
 - `web-push` 3.6.7: encrypted, VAPID-signed push.
 - `stripe` 18.5.0: the Stripe adapter (off).
 - `zod` 3.25.76, `bcryptjs` 3.0.3: validation, password hashing.
 - `@fontsource-variable/*` 5.3.0, `lucide-react` 1.55.0, `clsx` 2.1.1: self-hosted fonts, icons, class names.
 
 **Development dependencies:** `typescript`, `tsx` (the worker needs it at run time), `vitest`, `@playwright/test`, `drizzle-kit`, `eslint`, `tailwindcss` 4.
-
-**System dependencies:** ffmpeg, Postgres 16, Redis 7, Chromium (tests) and the §7 images.
 
 **External services:**
 
