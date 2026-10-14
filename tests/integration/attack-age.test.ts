@@ -244,6 +244,19 @@ describe("R03 attack: other entry points and header forms for a member whose sto
     const [row] = await getDb().select().from(generationJobs).where(eq(generationJobs.id, draft.id));
     expect({ status: res.status, job: row!.status }).toEqual({ status: 451, job: "awaiting_confirmation" });
   });
+
+  // The other form of the same lapse: a sandbox result reads as unverified once the site is live (R16),
+  // so a draft priced on it cannot be confirmed there either.
+  it("confirming a draft on a live site with only a sandbox verification does not start a generation from GB", async () => {
+    const gb = await userIn("GB");
+    await verifyThroughSandbox(gb);
+    const draft = await createDraft(gb, draftBody(), { country: "GB" });
+    await signIn(gb, GB);
+
+    const res = await withEnv({ APP_ENV: "production" }, () => confirm(draft.id, draft.costCredits, GB));
+    const [row] = await getDb().select().from(generationJobs).where(eq(generationJobs.id, draft.id));
+    expect({ status: res.status, job: row!.status, reserved: (await getBalance(gb.id)).reserved }).toEqual({ status: 451, job: "awaiting_confirmation", reserved: 0 });
+  });
 });
 
 describe("R04 attack: character photos", () => {
