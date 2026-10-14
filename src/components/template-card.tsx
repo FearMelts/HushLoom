@@ -235,7 +235,9 @@ export function TemplateGrid({ cards, signedIn, autoplay, editorial }: { cards: 
 
 export function TemplateRail({ cards, signedIn }: { cards: Card[]; signedIn: boolean }) {
   return (
-    <div className="scrollbar-none -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6" role="list">
+    // Scroll padding equal to the gutter: snap-start aligns cards to the snapport, which ignores the rail's own
+    // padding, so without it the first card snaps flush to the screen edge instead of the content edge.
+    <div className="scrollbar-none -mx-4 flex scroll-px-4 snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:scroll-px-6 sm:px-6" role="list">
       {cards.map((c) => (
         <div key={c.id} role="listitem" className="w-[42vw] max-w-[220px] shrink-0 snap-start sm:w-[200px]">
           <TemplateCard card={c} signedIn={signedIn} />
