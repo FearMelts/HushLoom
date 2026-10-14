@@ -23,7 +23,8 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 2 Production build and existing e2e after four tracks | verified | `npm run test:e2e` at 0686f87 (APP_ENV=test): next build ok, Playwright 8/8 in 2.3 min, exit 0 |
 | 2 Merge fix track A, then fix track B | verified | merges 0d06957 (typecheck 0, lint 0, vitest 232/232) and b28583c (typecheck 0, lint 0, vitest 241/241); the two tracks changed no file in common |
 | 2 Merge infra | verified | merge a432052: typecheck 0, lint 0, vitest 258/258 (23 files) |
-| 2 Merge remaining tracks, full verification, browser journey | not done | |
+| 2 Clean install and full verification | verified | fresh worktree at a432052 (notes/evidence/clean-verify-a432052.log): npm ci (462 packages), typecheck 0, lint 0, vitest 258/258 in 23 files, next build exit 0 |
+| 2 Launch browser journey (age verification, payments, scanning, web app, core flows) | not done | being written in a worktree on base 542af7a |
 | 3 Adversarial review | not done | started 2026-10-14 01:2x on a frozen snapshot of f8d5ef3 (all tracks but infra); infra code gets its own pass after it merges |
 | 4 Visual review | not done | |
 | 5 Deliverables: vision, information architecture | implemented but not verified | drafts in the session scratchpad; critiques returned "revise"; finishing in phase 5 against the merged build |
@@ -149,6 +150,9 @@ vitest suite before merging.
   failing test per finding). Neither is a build track, so the two-track limit still holds.
 - 2026-10-14 01:42 Infra finished green and merged (258/258). All seven phase 1 tracks are merged.
   Clean-install verification (fresh worktree, npm ci, typecheck, lint, vitest, next build) running.
+- 2026-10-14 01:45 Clean-install verification passed (log in notes/evidence). npm warns that
+  eslint 9.39.1 is no longer supported (out of scope; noted). Docs workflow for deliverables A, B, C, E
+  and F started on a frozen snapshot of c52f843, writing to /mnt/project-files/playbox-2/docs.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
