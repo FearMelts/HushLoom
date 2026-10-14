@@ -12,6 +12,11 @@ const query = z.object({
   media: z.enum(["image", "video"]).optional(),
   sort: z.enum(["trending", "new", "top_rated", "most_favorited"]).optional(),
   creatorId: z.string().uuid().optional(),
+  // VIP templates only (pass holders can make them; everyone can browse them).
+  vipOnly: z
+    .enum(["1", "true", "0", "false"])
+    .optional()
+    .transform((v) => v === "1" || v === "true" || undefined),
   offset: z.coerce.number().int().min(0).max(10_000).optional(),
   limit: z.coerce.number().int().min(1).max(60).optional(),
 });

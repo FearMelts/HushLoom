@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { Button, Field, inputClass } from "./ui";
+import { Button, Field, inputClass, radioGroupKeys } from "./ui";
 
 type Errors = Record<string, string | undefined>;
+const MODES = ["signup", "signin"] as const;
 
 function fieldErrors(e: unknown): Errors {
   if (!(e instanceof ApiError)) return { form: "Something went wrong. Try again." };
@@ -52,17 +53,28 @@ export function AuthForms({ next, initialMode }: { next: string; initialMode: "s
 
   return (
     <div className="petal hairline bg-ink-900/80 p-6 sm:p-8">
-      <div role="tablist" className="mb-6 grid grid-cols-2 rounded-full bg-ink-950 p-1">
-        {(["signup", "signin"] as const).map((m) => (
+      {/* One of two forms: a radio group with a roving tabindex, arrow keys switch. */}
+      <div
+        role="radiogroup"
+        aria-label="Account"
+        className="mb-6 grid grid-cols-2 rounded-full bg-ink-950 p-1"
+        onKeyDown={radioGroupKeys(MODES, mode, (m) => {
+          setMode(m);
+          setErrors({});
+        })}
+      >
+        {MODES.map((m) => (
           <button
             key={m}
-            role="tab"
-            aria-selected={mode === m}
+            type="button"
+            role="radio"
+            aria-checked={mode === m}
+            tabIndex={mode === m ? 0 : -1}
             onClick={() => {
               setMode(m);
               setErrors({});
             }}
-            className={cn("h-9 rounded-full text-sm transition-colors", mode === m ? "bg-bone-50 font-semibold text-ink-950" : "text-bone-300 hover:text-bone-50")}
+            className={cn("h-9 rounded-full text-sm transition-colors max-sm:h-10", mode === m ? "bg-bone-50 font-semibold text-ink-950" : "text-bone-300 hover:text-bone-50")}
           >
             {m === "signup" ? "Create account" : "Sign in"}
           </button>
@@ -99,7 +111,7 @@ export function AuthForms({ next, initialMode }: { next: string; initialMode: "s
               <input type="checkbox" name="confirmAdult" className="mt-0.5 size-4 accent-[var(--color-ember-500)]" />
               <span>I am at least 18 and the age of majority where I live.</span>
             </label>
-            {errors.confirmAdult ? <p className="text-[12.5px] text-danger-400">{errors.confirmAdult}</p> : null}
+            {errors.confirmAdult ? <p className="text-[12.5px] text-danger-400" role="alert">{errors.confirmAdult}</p> : null}
             <label className="flex items-start gap-3 text-[13.5px] text-bone-300">
               <input type="checkbox" name="acceptTerms" className="mt-0.5 size-4 accent-[var(--color-ember-500)]" />
               <span>
@@ -110,7 +122,7 @@ export function AuthForms({ next, initialMode }: { next: string; initialMode: "s
                 : only consenting adults, never minors, never anyone without their permission.
               </span>
             </label>
-            {errors.acceptTerms ? <p className="text-[12.5px] text-danger-400">{errors.acceptTerms}</p> : null}
+            {errors.acceptTerms ? <p className="text-[12.5px] text-danger-400" role="alert">{errors.acceptTerms}</p> : null}
           </>
         ) : null}
         {errors.form ? (

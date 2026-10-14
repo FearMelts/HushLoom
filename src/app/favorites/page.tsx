@@ -62,7 +62,7 @@ export default async function FavoritesPage({ searchParams }: { searchParams: Pr
             key={t.key}
             href={t.key === "templates" ? "/favorites" : "/favorites?tab=creations"}
             aria-current={tab === t.key ? "page" : undefined}
-            className={cn("h-8 rounded-full px-3.5 text-[13px] leading-8", tab === t.key ? "bg-bone-50 font-semibold text-ink-950" : "hairline text-bone-300 hover:bg-ink-800")}
+            className={cn("h-8 rounded-full px-3.5 text-[13px] leading-8 max-sm:h-10 max-sm:leading-10", tab === t.key ? "bg-bone-50 font-semibold text-ink-950" : "hairline text-bone-300 hover:bg-ink-800")}
           >
             {t.label}
           </Link>

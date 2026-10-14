@@ -1,4 +1,6 @@
-import { and, desc, eq, ilike, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, isNull, ne, notInArray, or, sql, type SQL } from "drizzle-orm";
+import { getModel } from "@/server/ai/registry";
+import { adapterFor } from "@/server/ai/providers";
 import { getDb } from "@/server/db";
 import {
   discoveryEvents,
@@ -7,6 +9,7 @@ import {
   mediaAssets,
   templateCategories,
   templates,
+  templateVersions,
   userPreferences,
   userProfiles,
 } from "@/server/db/schema";
@@ -14,6 +17,16 @@ import { assetUrl } from "@/server/media";
 import type { Viewer } from "@/server/age/service";
 
 export type { Viewer };
+
+/**
+ * Whether a model key belongs to a demonstration adapter (no AI model is called). A template's
+ * cover and preview were made with its version's model, so a demo model means demo media, and
+ * the card says so (audit D1). Unknown keys are not claimed to be demos.
+ */
+export function isDemoModelKey(modelKey: string | null | undefined): boolean {
+  const model = modelKey ? getModel(modelKey) : undefined;
+  return model ? (adapterFor(model)?.isDemo ?? false) : false;
+}
 
 export type SortKey = "trending" | "new" | "top_rated" | "most_favorited";
 
@@ -29,6 +42,8 @@ export type TemplateCard = {
   isVip: boolean;
   quality: string;
   isNew: boolean;
+  /** The current version runs on a demo model, so the cover and preview are labeled placeholders, not AI output. */
+  isDemo: boolean;
   posterUrl: string | null;
   previewUrl: string | null;
   /** True when the viewer must verify their age (or sign in and verify) before media is issued; titles and metadata still show. */
@@ -70,6 +85,7 @@ const baseSelect = {
   displayName: userProfiles.displayName,
   category: templateCategories.slug,
   poster: mediaAssets,
+  modelKey: templateVersions.modelKey,
 };
 
 type Row = {
@@ -78,6 +94,7 @@ type Row = {
   displayName: string;
   category: string | null;
   poster: typeof mediaAssets.$inferSelect | null;
+  modelKey: string | null;
 };
 
 /**
@@ -113,6 +130,7 @@ async function toCards(rows: Row[], viewer: Viewer): Promise<TemplateCard[]> {
         isVip: r.t.isVip,
         quality: r.t.quality,
         isNew: Boolean(r.t.publishedAt && Date.now() - r.t.publishedAt.getTime() < NEW_DAYS * 86_400_000),
+        isDemo: isDemoModelKey(r.modelKey),
         posterUrl: viewer.explicitAllowed && r.poster ? await assetUrl(r.poster, viewerId) : null,
         previewUrl: viewer.explicitAllowed && preview ? await assetUrl(preview, viewerId) : null,
         mediaWithheld: !viewer.explicitAllowed,
@@ -134,7 +152,8 @@ function selectCards() {
     .from(templates)
     .innerJoin(userProfiles, eq(userProfiles.userId, templates.creatorId))
     .leftJoin(templateCategories, eq(templateCategories.id, templates.categoryId))
-    .leftJoin(mediaAssets, eq(mediaAssets.id, templates.posterAssetId));
+    .leftJoin(mediaAssets, eq(mediaAssets.id, templates.posterAssetId))
+    .leftJoin(templateVersions, and(eq(templateVersions.templateId, templates.id), eq(templateVersions.version, templates.currentVersion)));
 }
 
 const published = and(eq(templates.status, "published"), isNull(templates.deletedAt));
@@ -146,6 +165,10 @@ export type BrowseQuery = {
   sort?: SortKey;
   creatorId?: string;
   vipOnly?: boolean;
+  /** Exact tag (lowercase, as stored), for "More in #tag" rails. */
+  tag?: string;
+  /** Leave these templates out (the one being viewed, or ones another rail already shows). */
+  excludeIds?: string[];
   limit?: number;
   offset?: number;
 };
@@ -167,6 +190,8 @@ export async function browseTemplates(query: BrowseQuery, viewer: Viewer) {
   if (query.media) conds.push(eq(templates.mediaType, query.media));
   if (query.creatorId) conds.push(eq(templates.creatorId, query.creatorId));
   if (query.vipOnly) conds.push(eq(templates.isVip, true));
+  if (query.tag) conds.push(sql`${query.tag.trim().toLowerCase()} = any(${templates.tags})`);
+  if (query.excludeIds?.length) conds.push(notInArray(templates.id, query.excludeIds));
   const limit = Math.min(query.limit ?? 24, 60);
   const rows = await selectCards()
     .where(and(...conds))
@@ -209,6 +234,17 @@ export async function recentlyViewed(viewer: SignedInViewer, limit = 12) {
     .orderBy(desc(sql`max(${discoveryEvents.createdAt})`))
     .limit(limit);
   return cardsByIds(recent.map((r) => r.id), viewer);
+}
+
+/** "Saved inspirations": the viewer's own favorited templates, most recently saved first. */
+export async function savedTemplates(viewer: SignedInViewer, limit = 12) {
+  const saved = await getDb()
+    .select({ id: favorites.targetId })
+    .from(favorites)
+    .where(and(eq(favorites.userId, viewer.id), eq(favorites.targetType, "template")))
+    .orderBy(desc(favorites.createdAt))
+    .limit(limit);
+  return cardsByIds(saved.map((r) => r.id), viewer);
 }
 
 export async function followingFeed(viewer: SignedInViewer, limit = 12) {

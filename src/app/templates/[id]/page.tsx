@@ -1,21 +1,21 @@
 import { eq } from "drizzle-orm";
-import { GitBranch, Star } from "lucide-react";
+import { ArrowRight, GitBranch, Star } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CreatePanel } from "@/components/create-panel";
 import { Avatar } from "@/components/shell";
-import { FollowButton, RateStars, ReportButton, TemplateMedia } from "@/components/template-detail";
+import { FollowButton, MakeBar, RateStars, ReportButton, TemplateMedia } from "@/components/template-detail";
 import { TemplateRail } from "@/components/template-card";
 import { Badge, SectionHeading } from "@/components/ui";
 import { viewerAccess } from "@/server/age/access";
 import { createContext } from "@/server/create-context";
 import { getDb } from "@/server/db";
 import { discoveryEvents, userPreferences } from "@/server/db/schema";
-import { similarTemplates, cardsByIds } from "@/server/discovery/templates";
+import { browseTemplates, cardsByIds, isDemoModelKey, similarTemplates, type TemplateCard } from "@/server/discovery/templates";
 import { compact } from "@/lib/format";
 import { templateForViewer } from "@/server/templates/queries";
 import type { GenerationParams } from "@/server/db/schema";
-import type { GenerationMode } from "@/server/ai/registry";
+import { estimateCost, type GenerationMode } from "@/server/ai/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +37,21 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
   const [ctx, related, [card]] = await Promise.all([createContext(user), similarTemplates(t.id, viewer, 10), cardsByIds([t.id], viewer)]);
   const locked = t.isVip && !ctx.vip && !data.own;
   const rating = t.ratingCount ? (t.ratingSum / t.ratingCount).toFixed(1) : null;
+  const demo = isDemoModelKey(data.version.modelKey);
+
+  // The price on the phone "Make it" bar: the same starting model the Create panel picks.
+  const usable = ctx.models.filter((m) => m.output === t.mediaType);
+  const startModel = usable.find((m) => m.key === data.version.modelKey && m.available) ?? usable.find((m) => m.available) ?? usable[0];
+  const makeCost = startModel?.available ? estimateCost(startModel, data.version.defaults as GenerationParams, startModel.priceMultiplierPct) : null;
+
+  // "More in #tag" for the first two tags; each rail skips what an earlier rail already shows.
+  const seen = new Set([t.id, ...related.map((r) => r.id)]);
+  const tagRails: { tag: string; cards: TemplateCard[] }[] = [];
+  for (const tag of t.tags.slice(0, 2)) {
+    const { items } = await browseTemplates({ tag, excludeIds: [...seen], sort: "trending", limit: 8 }, viewer);
+    if (items.length) tagRails.push({ tag, cards: items });
+    for (const c of items) seen.add(c.id);
+  }
 
   return (
     <div className="space-y-12">
@@ -56,6 +71,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
           <div className="flex flex-wrap gap-1.5">
             {t.isVip ? <Badge tone="vip">VIP</Badge> : null}
             {t.quality === "4k" ? <Badge>4K</Badge> : null}
+            {demo ? <Badge tone="demo">Demo media</Badge> : null}
             <Badge tone={t.mediaType === "video" ? "video" : "plain"}>{t.mediaType === "video" ? `Video${t.durationS ? ` · ${t.durationS}s` : ""}` : "Image"}</Badge>
             {data.category ? (
               <Link href={`/explore?category=${data.category.slug}`}>
@@ -114,7 +130,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
             </ul>
           ) : null}
 
-          <div className="mt-7 rounded-[24px_8px_24px_8px] bg-ink-900/70 p-4 hairline sm:p-6">
+          <div className="panel mt-7 bg-ink-900/70 p-4 hairline sm:p-6">
             <CreatePanel
               output={t.mediaType}
               models={ctx.models}
@@ -162,6 +178,25 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
           <TemplateRail cards={related} signedIn={Boolean(user)} />
         </section>
       ) : null}
+
+      {tagRails.map(({ tag, cards }) => (
+        <section key={tag}>
+          <SectionHeading
+            kicker="Same tag"
+            title={`More in #${tag}`}
+            action={
+              <Link href={`/explore?q=${encodeURIComponent(tag)}`} className="inline-flex items-center gap-1 text-[13px] text-bone-300 hover:text-bone-50">
+                See all <ArrowRight size={14} aria-hidden />
+              </Link>
+            }
+          />
+          <TemplateRail cards={cards} signedIn={Boolean(user)} />
+        </section>
+      ))}
+
+      <MakeBar cost={makeCost} locked={locked} demo={demo} />
+      {/* Room for the phone "Make it" bar above the tab bar. */}
+      <div className="h-14 lg:hidden" aria-hidden />
     </div>
   );
 }
