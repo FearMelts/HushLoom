@@ -263,8 +263,8 @@ describe("R05 attack: membership probe at sign-up", () => {
 
   // HOLE (acknowledged residual (b) in the R05 report, still open): sign-up answers 409 email_taken for an
   // address that has an account and 201 for one that does not, so anyone can check whether a given person
-  // is a member of an adults-only site (ten probes an hour per address, unlimited over IPv6 as above).
-  // Closing it needs email verification, which is a product decision.
+  // is a member of an adults-only site (ten probes an hour per IPv4 address or IPv6 /64, and site-wide with
+  // no proxy configured). Closing it needs email verification, which is a product decision.
   it.fails("signing up with a member's email answers the same as with a new one", async () => {
     await member("kim@example.test", "kim");
     const body = (email: string, handle: string) => ({ email, password: "a fine long password", handle, displayName: "Probe", dateOfBirth: "1990-01-01", acceptTerms: true, confirmAdult: true });
