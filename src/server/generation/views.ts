@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lt, sql, type SQL } from "drizzle-orm";
+import type { Viewer } from "@/server/age/service";
 import { getDb } from "@/server/db";
 import { favorites, generationJobs, generationOutputs, mediaAssets, projects, templates, userProfiles } from "@/server/db/schema";
 import { assetUrl } from "@/server/media";
@@ -19,9 +20,15 @@ export type CreationListItem = {
   templateTitle: string | null;
   projectId: string | null;
   relation: string | null;
-  output: { assetId: string; kind: "image" | "video"; url: string | null; posterUrl: string | null; width: number | null; height: number | null } | null;
+  output: { assetId: string; kind: "image" | "video"; url: string | null; posterUrl: string | null; width: number | null; height: number | null; mediaWithheld: boolean } | null;
   isFavorited: boolean;
 };
+
+/**
+ * The viewer's age-rule decision for this request (viewerAccess() or viewerAccessFor()). Someone who
+ * now needs a verification they lack gets their own creations without media URLs too (addendum §2).
+ */
+export type MediaAccess = Pick<Viewer, "explicitAllowed">;
 
 export type CreationFilters = {
   media?: "image" | "video";
@@ -53,7 +60,7 @@ export function utcDay(value: string | undefined): Date | undefined {
   return Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value ? undefined : d;
 }
 
-export async function listCreations(userId: string, f: CreationFilters): Promise<CreationListItem[]> {
+export async function listCreations(userId: string, f: CreationFilters, access: MediaAccess): Promise<CreationListItem[]> {
   const db = getDb();
   const conds: (SQL | undefined)[] = [eq(generationJobs.userId, userId), isNull(generationJobs.deletedAt)];
   if (f.active) conds.push(inArray(generationJobs.status, ["queued", "processing"]));
@@ -80,7 +87,7 @@ export async function listCreations(userId: string, f: CreationFilters): Promise
     .orderBy(f.sort === "oldest" ? generationJobs.createdAt : desc(generationJobs.createdAt))
     .limit(Math.min(f.limit ?? 60, 200))
     .offset(f.offset ?? 0);
-  return hydrate(userId, jobs);
+  return hydrate(userId, jobs, access);
 }
 
 /**
@@ -116,7 +123,7 @@ export async function libraryFacets(userId: string) {
 
 const posterUrl =async (asset: typeof mediaAssets.$inferSelect | undefined, userId: string) => (asset ? assetUrl(asset, userId) : null);
 
-async function hydrate(userId: string, jobs: { job: typeof generationJobs.$inferSelect; templateTitle: string | null }[]): Promise<CreationListItem[]> {
+async function hydrate(userId: string, jobs: { job: typeof generationJobs.$inferSelect; templateTitle: string | null }[], access: MediaAccess): Promise<CreationListItem[]> {
   const db = getDb();
   const ids = jobs.map((j) => j.job.id);
   const outs = ids.length
@@ -157,10 +164,11 @@ async function hydrate(userId: string, jobs: { job: typeof generationJobs.$infer
           ? {
               assetId: out.asset.id,
               kind: out.asset.kind,
-              url: await assetUrl(out.asset, userId),
-              posterUrl: await posterUrl(posters.find((p) => p.id === out.posterAssetId), userId),
+              url: access.explicitAllowed ? await assetUrl(out.asset, userId) : null,
+              posterUrl: access.explicitAllowed ? await posterUrl(posters.find((p) => p.id === out.posterAssetId), userId) : null,
               width: out.asset.width,
               height: out.asset.height,
+              mediaWithheld: !access.explicitAllowed,
             }
           : null,
         isFavorited: favs.some((f) => f.id === job.id),
@@ -169,18 +177,18 @@ async function hydrate(userId: string, jobs: { job: typeof generationJobs.$infer
   );
 }
 
-export async function getCreation(userId: string, jobId: string): Promise<CreationListItem | null> {
+export async function getCreation(userId: string, jobId: string, access: MediaAccess): Promise<CreationListItem | null> {
   const rows = await getDb()
     .select({ job: generationJobs, templateTitle: templates.title })
     .from(generationJobs)
     .leftJoin(templates, eq(templates.id, generationJobs.templateId))
     .where(and(eq(generationJobs.id, jobId), eq(generationJobs.userId, userId), isNull(generationJobs.deletedAt)));
-  const [item] = await hydrate(userId, rows);
+  const [item] = await hydrate(userId, rows, access);
   return item ?? null;
 }
 
 /** Jobs related by lineage (parent, children, siblings), for version comparison. */
-export async function lineage(userId: string, jobId: string): Promise<CreationListItem[]> {
+export async function lineage(userId: string, jobId: string, access: MediaAccess): Promise<CreationListItem[]> {
   const [job] = await getDb().select().from(generationJobs).where(and(eq(generationJobs.id, jobId), eq(generationJobs.userId, userId)));
   if (!job) return [];
   const root = job.parentJobId ?? job.id;
@@ -198,5 +206,5 @@ export async function lineage(userId: string, jobId: string): Promise<CreationLi
     )
     .orderBy(generationJobs.createdAt)
     .limit(24);
-  return hydrate(userId, rows);
+  return hydrate(userId, rows, access);
 }

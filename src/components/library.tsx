@@ -11,6 +11,7 @@ import { STATUS_LABEL, elapsed, relativeTime } from "@/lib/format";
 import { useOnline } from "@/lib/use-online";
 import { JOB_STARTED_EVENT } from "./job-tray";
 import { OFFLINE_MESSAGE, OfflineGuard } from "./offline";
+import { WithheldMedia } from "./template-card";
 import { Badge, Button, ButtonLink, Chip, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
 
 type Query = { media: string; status: string; favorites: string; folder: string; model: string; sort: string };
@@ -89,6 +90,9 @@ export function CreationThumb({ item, selectable, selected, onSelect }: { item: 
             // eslint-disable-next-line @next/next/no-img-element -- signed URL
             <img src={item.output.url} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />
           )
+        ) : item.output?.mediaWithheld ? (
+          // The server sent no media URL: the age rules here need a verification first. The tile is a link, so no nested link.
+          <WithheldMedia signedIn compact link={false} label="Verify your age to see this" />
         ) : running ? (
           <div className="skeleton absolute inset-0 grid place-items-center">
             <div className="text-center">

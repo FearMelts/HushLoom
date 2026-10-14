@@ -8,7 +8,8 @@ import { logger } from "@/server/log";
 /**
  * Where the provider sends the person back after a check (Yoti appends ?sessionId=...). For a
  * signed-in owner of that pending check, the outcome is fetched from the provider's API; the
- * redirect itself proves nothing and never changes a status on its own.
+ * redirect itself proves nothing and never changes a status on its own, and it always ends in
+ * Settings, even when the provider's result API fails.
  */
 export const GET = route(async (req) => {
   const user = await getCurrentUser();
@@ -19,8 +20,9 @@ export const GET = route(async (req) => {
     try {
       await syncVerification(user, ref);
     } catch (err) {
-      if (!(err instanceof HttpError)) throw err;
-      logger.warn("age verification return could not sync", { code: err.code });
+      // A provider API that errors, times out or answers in an unexpected shape leaves the check
+      // pending: the webhook or the next visit settles it, and the person still lands in Settings.
+      logger.warn("age verification return could not sync", { code: err instanceof HttpError ? err.code : "provider_result_unavailable", error: err instanceof Error ? err.name : "unknown" });
     }
   }
   return NextResponse.redirect(home);

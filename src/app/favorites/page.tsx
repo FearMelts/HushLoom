@@ -37,7 +37,7 @@ export default async function FavoritesPage({ searchParams }: { searchParams: Pr
       <EmptyState title="No saved templates" body="Tap the heart on any template to keep it here." action={<ButtonLink href="/explore" variant="ember">Explore templates</ButtonLink>} />
     );
   } else {
-    const items = await listCreations(user.id, { favorites: true, limit: 120 });
+    const items = await listCreations(user.id, { favorites: true, limit: 120 }, viewer);
     body = items.length ? (
       <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {items.map((i) => (

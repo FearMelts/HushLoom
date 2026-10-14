@@ -323,7 +323,7 @@ describe("remix lineage", () => {
     expect(remix).toMatchObject({ parentJobId: source.id, relation: "remix" });
     await confirmJob(user, remix.id, remix.costCredits);
     await processJob(remix.id);
-    const versions = await lineage(user.id, source.id);
+    const versions = await lineage(user.id, source.id, { explicitAllowed: true });
     expect(versions.map((v) => v.id)).toEqual([source.id, remix.id]);
   });
 });

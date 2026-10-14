@@ -21,15 +21,29 @@ export function configuredRegions(): string[] {
   return [...base, ...e.AGE_ASSURANCE_STRICT_REGIONS.split(",")].map((s) => s.trim().toUpperCase()).filter(Boolean);
 }
 
+/** Country values edges send when they do not know the location: Cloudflare's XX (unknown) and T1 (Tor), GeoIP's A1 (anonymous proxy) and A2 (satellite). */
+const UNKNOWN_COUNTRIES = new Set(["XX", "T1", "A1", "A2"]);
+
+/**
+ * True when `code` does not say where the request is: an edge's unknown marker, or a bare country
+ * whose rules are per region with no region given ("US" while "US-TX" is configured).
+ */
+function locationUnknown(code: string, regions: readonly string[]): boolean {
+  const upper = code.toUpperCase();
+  if (UNKNOWN_COUNTRIES.has(upper)) return true;
+  return !upper.includes("-") && regions.some((r) => r.startsWith(`${upper}-`));
+}
+
 /** True when `code` ("GB", "US-TX", or null for unknown) requires a provider check under the current configuration. */
 export function jurisdictionRequired(code: string | null): boolean {
   const e = env();
   if (e.AGE_VERIFICATION_ENFORCE !== "true") return false;
   const regions = configuredRegions();
   if (!regions.length) return false;
-  // Unknown location while rules exist: AGE_VERIFICATION_FAIL_CLOSED decides.
-  if (!code) return e.AGE_VERIFICATION_FAIL_CLOSED === "true";
-  return jurisdictionRequiresVerification(code, regions);
+  if (code && jurisdictionRequiresVerification(code, regions)) return true;
+  // Unknown location while rules exist (no header, an unknown marker, or "US" without a state): AGE_VERIFICATION_FAIL_CLOSED decides.
+  if (!code || locationUnknown(code, regions)) return e.AGE_VERIFICATION_FAIL_CLOSED === "true";
+  return false;
 }
 
 export function contextJurisdiction(ctx: AgeContext): string | null {
@@ -44,8 +58,13 @@ export function contextFromHeaders(h: HeaderReader): AgeContext {
   return { country, region };
 }
 
+/**
+ * The jurisdiction to store on the account at signup or sign-in. Null (keep what was stored) when the
+ * headers do not pin the location down, so an unknown marker or a stateless "US" never sticks.
+ */
 export function jurisdictionFromHeaders(h: HeaderReader): string | null {
-  return contextJurisdiction(contextFromHeaders(h));
+  const code = contextJurisdiction(contextFromHeaders(h));
+  return code && !locationUnknown(code, configuredRegions()) ? code : null;
 }
 
 /** A verification is good for AGE_VERIFICATION_VALID_DAYS after it completed; after that it reads as expired. */

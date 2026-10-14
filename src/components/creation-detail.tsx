@@ -12,6 +12,7 @@ import { STATUS_LABEL, elapsed, relativeTime } from "@/lib/format";
 import { useOnline } from "@/lib/use-online";
 import { JOB_STARTED_EVENT } from "./job-tray";
 import { OFFLINE_MESSAGE, OfflineGuard } from "./offline";
+import { WithheldMedia } from "./template-card";
 import { Badge, Button, ButtonLink, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
 
 type Details = {
@@ -32,6 +33,14 @@ type Details = {
 type Pending = { id: string; costCredits: number; label: string; isDemo: boolean };
 
 function Media({ item, className }: { item: CreationListItem; className?: string }) {
+  if (item.output?.mediaWithheld) {
+    // The server sent no media URL: the age rules here need a verification first.
+    return (
+      <div className={cn("petal relative aspect-[4/5] overflow-hidden hairline", className)}>
+        <WithheldMedia signedIn label="Verify your age to see this" />
+      </div>
+    );
+  }
   if (!item.output?.url) {
     const running = item.status === "queued" || item.status === "processing";
     return (
@@ -261,7 +270,7 @@ export function CreationDetail({
               <Button onClick={toggleFav} aria-pressed={fav}>
                 <Heart size={16} className={fav ? "fill-ember-500 text-ember-500" : undefined} aria-hidden /> {fav ? "Saved" : "Save"}
               </Button>
-              {done ? (
+              {done && !item.output?.mediaWithheld ? (
                 <a href={`/api/generations/${item.id}/download`} className={buttonClass("ghost")} download>
                   <Download size={16} aria-hidden /> Download
                 </a>

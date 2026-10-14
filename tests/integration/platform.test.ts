@@ -329,7 +329,7 @@ describe("projects", () => {
   it("keeps scene order, copies continuity forward, and selects only finished takes", async () => {
     const u = await makeUser({ credits: 50 });
     const p = await createProject(u.id, { title: "Night swim", description: "" });
-    let detail = await getProjectDetail(u.id, p.id);
+    let detail = await getProjectDetail(u.id, p.id, { explicitAllowed: true });
     const first = detail.scenes[0]!;
     const { updateScene } = await import("@/server/projects");
     await updateScene(u.id, first.id, { continuity: { lighting: "neon", palette: "teal and plum" } });
@@ -338,19 +338,19 @@ describe("projects", () => {
 
     await expect(reorderScenes(u.id, p.id, [second.id])).rejects.toMatchObject({ status: 422 });
     await reorderScenes(u.id, p.id, [second.id, first.id]);
-    detail = await getProjectDetail(u.id, p.id);
+    detail = await getProjectDetail(u.id, p.id, { explicitAllowed: true });
     expect(detail.scenes.map((s) => s.id)).toEqual([second.id, first.id]);
 
     const { job } = await makeCreation(u, { projectId: p.id, sceneId: second.id });
-    detail = await getProjectDetail(u.id, p.id);
+    detail = await getProjectDetail(u.id, p.id, { explicitAllowed: true });
     const version = detail.scenes[0]!.versions[0]!;
     expect(version.creation.id).toBe(job.id);
     await selectVersion(u.id, second.id, version.id);
-    detail = await getProjectDetail(u.id, p.id);
+    detail = await getProjectDetail(u.id, p.id, { explicitAllowed: true });
     expect(detail.scenes[0]!.versions[0]!.isSelected).toBe(true);
 
     const other = await makeUser();
-    await expect(getProjectDetail(other.id, p.id)).rejects.toMatchObject({ status: 404 });
+    await expect(getProjectDetail(other.id, p.id, { explicitAllowed: true })).rejects.toMatchObject({ status: 404 });
     await expect(selectVersion(other.id, second.id, version.id)).rejects.toMatchObject({ status: 404 });
     await expect(makeCreation(other, { projectId: p.id })).rejects.toMatchObject({ status: 404 });
   });
@@ -510,7 +510,7 @@ describe("library filters", () => {
     await db.update(generationJobs).set({ createdAt: new Date("2026-03-02T00:30:00Z"), templateId: tB.id }).where(eq(generationJobs.id, fourK.id));
     await db.update(generationJobs).set({ createdAt: new Date("2026-03-05T12:00:00Z") }).where(eq(generationJobs.id, plain.id));
 
-    const ids = async (f: CreationFilters) => (await listCreations(u.id, f)).map((i) => i.id).sort();
+    const ids = async (f: CreationFilters) => (await listCreations(u.id, f, { explicitAllowed: true })).map((i) => i.id).sort();
     const sorted = (...xs: string[]) => [...xs].sort();
     expect(await ids({})).toEqual(sorted(hd.id, fourK.id, plain.id));
     // A creation made without a quality setting counts as HD.
@@ -539,7 +539,7 @@ describe("library filters", () => {
 
     // Filters only ever narrow your own Library.
     const other = await makeUser();
-    expect(await listCreations(other.id, { templateCreatorId: creatorA.id })).toEqual([]);
+    expect(await listCreations(other.id, { templateCreatorId: creatorA.id }, { explicitAllowed: true })).toEqual([]);
     expect(await libraryFacets(other.id)).toEqual({ projects: [], templates: [], creators: [] });
   });
 });

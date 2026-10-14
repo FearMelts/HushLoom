@@ -1,5 +1,5 @@
 import { constants, generateKeyPairSync, sign } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_AGE_VERIFICATION_REGIONS, jurisdictionCode, jurisdictionRequiresVerification } from "@/config/jurisdictions";
 import { sandboxCallback, sandboxCallbackSchema, signSandboxBody } from "@/server/age/providers/sandbox";
 import { mapYotiStatus, verifyYotiNotification } from "@/server/age/providers/yoti";
@@ -16,6 +16,48 @@ describe("jurisdiction codes", () => {
     expect(jurisdictionRequiresVerification("US-CA", ["US"])).toBe(true);
     expect(jurisdictionRequiresVerification("GB", ["gb"])).toBe(true);
     expect(jurisdictionRequiresVerification(null, ["GB"])).toBe(false);
+  });
+});
+
+describe("R14: locations the edge could not pin down", () => {
+  // env() caches its first parse, so each case loads a fresh copy of the rules with its own settings.
+  async function rules(vars: Record<string, string>) {
+    vi.resetModules();
+    for (const [k, v] of Object.entries(vars)) vi.stubEnv(k, v);
+    return import("@/server/age/rules");
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it("treats a US location without a state, and the edges' unknown markers, as an unknown location under fail-closed", async () => {
+    const r = await rules({ AGE_VERIFICATION_FAIL_CLOSED: "true" });
+    for (const code of [null, "US", "us", "XX", "T1", "A1", "A2"]) expect(r.jurisdictionRequired(code), String(code)).toBe(true);
+    expect(r.jurisdictionRequired("US-TX")).toBe(true);
+    expect(r.jurisdictionRequired("US-CA")).toBe(false);
+    expect(r.jurisdictionRequired("DE")).toBe(false);
+  });
+
+  it("keeps them open when fail-closed is off, and a bare US is covered when US itself is configured", async () => {
+    const open = await rules({ AGE_VERIFICATION_FAIL_CLOSED: "false" });
+    for (const code of [null, "US", "XX", "T1"]) expect(open.jurisdictionRequired(code), String(code)).toBe(false);
+    const wholeCountry = await rules({ AGE_VERIFICATION_FAIL_CLOSED: "false", AGE_VERIFICATION_REGIONS: "US" });
+    expect(wholeCountry.jurisdictionRequired("US")).toBe(true);
+    expect(wholeCountry.jurisdictionRequired("US-CA")).toBe(true);
+  });
+
+  it("never yields a location to store on the account when the headers do not pin it down", async () => {
+    const r = await rules({});
+    const from = (h: Record<string, string>) => r.jurisdictionFromHeaders(new Headers(h));
+    expect(from({ "x-country-code": "US" })).toBeNull();
+    expect(from({ "x-country-code": "US", "x-region-code": "Texas" })).toBeNull();
+    expect(from({ "x-country-code": "T1" })).toBeNull();
+    expect(from({ "x-country-code": "XX" })).toBeNull();
+    expect(from({ "x-country-code": "US", "x-region-code": "TX" })).toBe("US-TX");
+    expect(from({ "x-country-code": "GB" })).toBe("GB");
+    expect(from({ "x-country-code": "DE" })).toBe("DE");
   });
 });
 

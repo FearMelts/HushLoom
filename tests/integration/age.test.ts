@@ -1,37 +1,49 @@
 import sharp from "sharp";
 import { NextRequest } from "next/server";
+import { ZodError } from "zod";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 
 // Route handlers read the session cookie and the geo headers through next/headers, which only
 // works inside a Next request. The tests stand in for that request scope.
-const requestScope = vi.hoisted(() => ({ token: null as string | null, headers: {} as Record<string, string> }));
+// ageGate stands for the step-one gate's hl_age_ok cookie; visitors have passed it unless a test says otherwise.
+const requestScope = vi.hoisted(() => ({ token: null as string | null, headers: {} as Record<string, string>, ageGate: true }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({
-    get: (name: string) => (name === "hl_session" && requestScope.token ? { name, value: requestScope.token } : undefined),
+    get: (name: string) =>
+      name === "hl_session" && requestScope.token ? { name, value: requestScope.token } : name === "hl_age_ok" && requestScope.ageGate ? { name, value: "1" } : undefined,
     set: () => undefined,
     delete: () => undefined,
   }),
   headers: async () => new Headers(requestScope.headers),
 }));
 
+import { GET as returnRoute } from "@/app/api/age-verification/return/route";
+import { POST as charactersRoute } from "@/app/api/characters/route";
+import { POST as deriveRoute } from "@/app/api/generations/[id]/derive/route";
+import { GET as downloadRoute } from "@/app/api/generations/[id]/download/route";
+import { GET as creationRoute } from "@/app/api/generations/[id]/route";
+import { GET as generationsRoute } from "@/app/api/generations/route";
 import { GET as meRoute } from "@/app/api/me/route";
-import { GET as templatesRoute } from "@/app/api/templates/route";
+import { GET as projectRoute } from "@/app/api/projects/[id]/route";
+import { GET as projectsRoute } from "@/app/api/projects/route";
+import { GET as templatesRoute, POST as templatesPost } from "@/app/api/templates/route";
 import { POST as uploadsRoute } from "@/app/api/uploads/route";
 import { POST as ageWebhook } from "@/app/api/webhooks/age-verification/[provider]/route";
 import { ageVerificationStatus } from "@/server/age";
 import { viewerAccess } from "@/server/age/access";
 import { assertAgeVerified } from "@/server/age/gate";
-import { SANDBOX_SIGNATURE_HEADER, sandboxCallback } from "@/server/age/providers/sandbox";
+import { SANDBOX_SIGNATURE_HEADER, sandboxCallback, sandboxProvider } from "@/server/age/providers/sandbox";
 import { configuredRegions, jurisdictionRequired } from "@/server/age/rules";
 import { applyResult, handleCallback, requirementFor, startVerification, viewerAccessFor } from "@/server/age/service";
 import { createSession, type SessionUser } from "@/server/auth/session";
 import { closeDb, getDb } from "@/server/db";
-import { ageVerifications, auditLogs, generationJobs, users } from "@/server/db/schema";
+import { ageVerifications, auditLogs, characterReferences, generationJobs, templates, uploads, users } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { browseTemplates } from "@/server/discovery/templates";
 import { confirmJob, createDraft } from "@/server/generation/service";
 import { processJob } from "@/server/generation/processor";
+import { createProject } from "@/server/projects";
 import { closeRedis } from "@/server/redis";
 import { publishTemplate } from "@/server/templates/publish";
 import { key, makeUser, resetDb } from "../helpers";
@@ -61,9 +73,10 @@ async function signIn(user: SessionUser, headers: Record<string, string> = {}) {
   requestScope.headers = headers;
 }
 
-function anonymous(headers: Record<string, string> = {}) {
+function anonymous(headers: Record<string, string> = {}, opts: { ageGate?: boolean } = {}) {
   requestScope.token = null;
   requestScope.headers = headers;
+  requestScope.ageGate = opts.ageGate ?? true;
 }
 
 async function userRow(id: string) {
@@ -399,5 +412,258 @@ describe("settings", () => {
     expect(data.ageVerification).toMatchObject({ jurisdiction: "US-TX", required: true });
     const elsewhere = new NextRequest("http://localhost/api/me", { headers: { "x-country-code": "DE" } });
     expect(((await (await meRoute(elsewhere, undefined as never)).json()) as { ageVerification: Record<string, unknown> }).ageVerification).toMatchObject({ jurisdiction: "DE", required: false });
+  });
+});
+
+describe("R03: the current request's location counts as well as the stored one", () => {
+  it("requires verification from GB or US-TX although the account stored an uncovered place, and keeps the stored value", async () => {
+    const t = await publishedTemplate();
+    // Stored at signup or the last sign-in over a VPN that exits in the Netherlands.
+    const nl = await userIn("NL");
+    await expect(createDraft(nl, draftInput(), { country: "GB" })).rejects.toMatchObject({ status: 451, details: { jurisdiction: "GB" } });
+    await expect(createDraft(nl, draftInput(), { country: "US", region: "TX" })).rejects.toMatchObject({ status: 451, details: { jurisdiction: "US-TX" } });
+    expect(await viewerAccessFor(nl, { country: "GB" })).toMatchObject({ required: true, explicitAllowed: false });
+
+    // The request-scoped paths: template media and the upload route.
+    await signIn(nl, { "x-country-code": "GB" });
+    expect((await viewerAccess()).explicitAllowed).toBe(false);
+    const list = (await (await templatesRoute(new NextRequest("http://localhost/api/templates?sort=new"), undefined as never)).json()) as { items: { id: string; posterUrl: string | null; mediaWithheld: boolean }[] };
+    expect(list.items.find((c) => c.id === t.id)).toMatchObject({ posterUrl: null, mediaWithheld: true });
+    const form = new FormData();
+    form.set("file", new File([await png()], "a.png", { type: "image/png" }));
+    form.set("consent", "true");
+    const upload = await uploadsRoute(new NextRequest("http://localhost/api/uploads", { method: "POST", body: form, headers: { "x-country-code": "GB" } }), undefined as never);
+    expect(upload.status).toBe(451);
+
+    // From an uncovered place, or with no location on the request, the account still works, and the stored value is unchanged.
+    await expect(createDraft(nl, draftInput(), { country: "DE" })).resolves.toMatchObject({ status: "awaiting_confirmation" });
+    await expect(createDraft(nl, draftInput(), ctx)).resolves.toMatchObject({ status: "awaiting_confirmation" });
+    expect((await userRow(nl.id)).jurisdiction).toBe("NL");
+
+    // Verifying unlocks the covered request.
+    await verifyThroughSandbox(nl);
+    await expect(createDraft(nl, draftInput(), { country: "GB" })).resolves.toMatchObject({ status: "awaiting_confirmation" });
+    expect((await viewerAccess()).explicitAllowed).toBe(true);
+  });
+});
+
+describe("R04: character photos go through the same gate as uploads", () => {
+  const characterForm = async () => {
+    const form = new FormData();
+    form.set("file", new File([await png()], "me.png", { type: "image/png" }));
+    form.set("name", "Mara");
+    form.set("consentAdult", "true");
+    form.set("consentLikeness", "true");
+    return form;
+  };
+  const postCharacter = async (headers: Record<string, string> = {}) =>
+    charactersRoute(new NextRequest("http://localhost/api/characters", { method: "POST", body: await characterForm(), headers }), undefined as never);
+
+  it("returns 451 to an unverified user in a covered place and stores nothing until verified", async () => {
+    const gb = await userIn("GB");
+    await signIn(gb);
+    const blocked = await postCharacter();
+    expect(blocked.status).toBe(451);
+    expect(await blocked.json()).toMatchObject({ error: { code: "age_verification_required", details: { verifyPath: "/settings#age-verification" } } });
+    const tx = await userIn(null);
+    await signIn(tx);
+    expect((await postCharacter({ "x-country-code": "US", "x-region-code": "TX" })).status).toBe(451);
+    expect(await getDb().select().from(characterReferences)).toHaveLength(0);
+    expect(await getDb().select().from(uploads)).toHaveLength(0);
+
+    await signIn(gb);
+    await verifyThroughSandbox(gb);
+    expect((await postCharacter()).status).toBe(201);
+    expect(await getDb().select().from(characterReferences).where(eq(characterReferences.userId, gb.id))).toHaveLength(1);
+  });
+});
+
+describe("R14: derived drafts see the request's US state", () => {
+  it("returns 451 to an unverified Texas user who derives a variation of their own earlier job", async () => {
+    // No stored jurisdiction (an older account, or a signup without geo headers) and an earlier job made elsewhere.
+    const user = await userIn(null);
+    const src = await createDraft(user, draftInput(), ctx);
+    await signIn(user);
+    const derive = (headers: Record<string, string>) =>
+      deriveRoute(
+        new NextRequest(`http://localhost/api/generations/${src.id}/derive`, {
+          method: "POST",
+          body: JSON.stringify({ relation: "variation", idempotencyKey: key() }),
+          headers: { "content-type": "application/json", ...headers },
+        }),
+        { params: Promise.resolve({ id: src.id }) },
+      );
+    const tx = await derive({ "x-country-code": "US", "x-region-code": "TX" });
+    expect(tx.status).toBe(451);
+    expect(await tx.json()).toMatchObject({ error: { code: "age_verification_required", details: { jurisdiction: "US-TX" } } });
+    expect((await derive({ "x-country-code": "US", "x-region-code": "CA" })).status).toBe(201);
+  });
+});
+
+describe("R15: a user's own creations once they need verification", () => {
+  type Output = { url: string | null; posterUrl: string | null; mediaWithheld?: boolean } | null;
+
+  it("withholds their own media and refuses download and publishing until verified", async () => {
+    // Made while the account was in an uncovered place.
+    const user = await userIn("DE");
+    const project = await createProject(user.id, { title: "Night swim", description: "" });
+    const draft = await createDraft(user, { ...draftInput(), projectId: project.id }, ctx);
+    await confirmJob(user, draft.id, draft.costCredits);
+    await processJob(draft.id);
+    // Then a sign-in from GB refreshes the stored jurisdiction; the account is unverified there.
+    await getDb().update(users).set({ jurisdiction: "GB" }).where(eq(users.id, user.id));
+    await signIn(user, { "x-country-code": "GB" });
+    const gbHeaders = { "x-country-code": "GB" };
+    const params = { params: Promise.resolve({ id: draft.id }) };
+
+    const surfaces = async () => {
+      const list = (await (await generationsRoute(new NextRequest("http://localhost/api/generations", { headers: gbHeaders }), undefined as never)).json()) as { items: { id: string; output: Output }[] };
+      const one = (await (await creationRoute(new NextRequest(`http://localhost/api/generations/${draft.id}`, { headers: gbHeaders }), params)).json()) as { job: { output: Output } };
+      const projectList = (await (await projectsRoute(new NextRequest("http://localhost/api/projects", { headers: gbHeaders }), undefined as never)).json()) as { projects: { id: string; cover: Output }[] };
+      const detail = (await (await projectRoute(new NextRequest(`http://localhost/api/projects/${project.id}`, { headers: gbHeaders }), { params: Promise.resolve({ id: project.id }) })).json()) as { loose: { id: string; output: Output }[] };
+      return [list.items.find((i) => i.id === draft.id)!.output, one.job.output, projectList.projects.find((p) => p.id === project.id)!.cover, detail.loose.find((i) => i.id === draft.id)!.output];
+    };
+    const download = () => downloadRoute(new NextRequest(`http://localhost/api/generations/${draft.id}/download`, { headers: gbHeaders }), params);
+    const publish = () =>
+      templatesPost(
+        new NextRequest("http://localhost/api/templates", { method: "POST", headers: { ...gbHeaders, "content-type": "application/json" }, body: JSON.stringify({ jobId: draft.id, title: "Night Swim", tags: [] }) }),
+        undefined as never,
+      );
+
+    for (const output of await surfaces()) expect(output).toMatchObject({ url: null, posterUrl: null });
+    const blocked = await download();
+    expect(blocked.status).toBe(451);
+    expect(blocked.headers.get("location")).toBeNull();
+    expect((await publish()).status).toBe(451);
+    expect(await getDb().select().from(templates)).toHaveLength(0);
+
+    await verifyThroughSandbox(user);
+    for (const output of await surfaces()) expect(output!.url).toMatch(/\/api\/media/);
+    expect((await download()).status).toBe(302);
+    expect((await publish()).status).toBe(201);
+  });
+});
+
+describe("R16: sandbox results on a live site", () => {
+  /** Runs `fn` as if this were a live deployment (APP_ENV=production on the cached env), then restores it. */
+  async function asLiveSite<T>(fn: () => Promise<T>): Promise<T> {
+    const e = env();
+    const before = e.APP_ENV;
+    e.APP_ENV = "production";
+    try {
+      return await fn();
+    } finally {
+      e.APP_ENV = before;
+    }
+  }
+
+  it("does not count a sandbox 'verified' status once the site is live, but keeps a real provider's", async () => {
+    // Verified through the sandbox during a private preview, then the same database goes live.
+    const preview = await userIn("GB");
+    await verifyThroughSandbox(preview);
+    expect((await userRow(preview.id)).ageVerificationProvider).toBe("sandbox");
+    const real = await userIn("GB");
+    await getDb().update(users).set({ ageVerificationStatus: "verified", ageVerificationProvider: "yoti", ageVerifiedAt: new Date() }).where(eq(users.id, real.id));
+
+    await asLiveSite(async () => {
+      const req = await requirementFor({ id: preview.id }, ctx);
+      expect(req).toMatchObject({ required: true, status: "unverified" });
+      await expect(assertAgeVerified({ id: preview.id }, ctx)).rejects.toMatchObject({ status: 451, details: { status: "unverified" } });
+      expect((await viewerAccessFor(preview, ctx)).explicitAllowed).toBe(false);
+      expect(await requirementFor({ id: real.id }, ctx)).toMatchObject({ required: true, status: "verified" });
+      await expect(assertAgeVerified({ id: real.id }, ctx)).resolves.toBeUndefined();
+    });
+    // Off a live site the sandbox result still counts, as before.
+    expect((await requirementFor({ id: preview.id }, ctx)).status).toBe("verified");
+  });
+});
+
+describe("R48: a new check opened while an earlier one completes", () => {
+  it("keeps the verified status that the earlier check set while the provider was opening the new one", async () => {
+    const gb = await userIn("GB");
+    const first = await startVerification(gb, ctx);
+    const realStart = sandboxProvider.start;
+    const start = vi.spyOn(sandboxProvider, "start").mockImplementationOnce(async (input) => {
+      // The first check's signed callback lands after the new check read the status, before it is recorded.
+      const signed = sandboxCallback(first.providerRef, "verified");
+      expect((await sandboxWebhook(signed.body, signed.signature)).status).toBe(200);
+      return realStart(input);
+    });
+    try {
+      await startVerification(gb, ctx);
+    } finally {
+      start.mockRestore();
+    }
+    expect((await userRow(gb.id)).ageVerificationStatus).toBe("verified");
+    await expect(assertAgeVerified({ id: gb.id }, ctx)).resolves.toBeUndefined();
+  });
+
+  it("still marks an expired account pending when it starts a new check", async () => {
+    const gb = await userIn("GB");
+    await verifyThroughSandbox(gb);
+    await getDb()
+      .update(users)
+      .set({ ageVerifiedAt: new Date(Date.now() - (env().AGE_VERIFICATION_VALID_DAYS + 1) * 86_400_000) })
+      .where(eq(users.id, gb.id));
+    await startVerification(gb, ctx);
+    expect((await userRow(gb.id)).ageVerificationStatus).toBe("pending");
+  });
+});
+
+describe("R45: coming back from the provider when its result API fails", () => {
+  it("still sends the person to Settings with the check left pending, whatever the provider's API does", async () => {
+    const gb = await userIn("GB");
+    const started = await startVerification(gb, ctx);
+    await signIn(gb);
+    const failures: (() => Promise<never>)[] = [
+      async () => {
+        throw new Error("Yoti GET /api/v1/sessions/x/result returned 503");
+      },
+      async () => {
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      },
+      async () => {
+        throw new ZodError([{ code: "invalid_type", expected: "string", received: "undefined", path: ["status"], message: "Required" }]);
+      },
+    ];
+    try {
+      for (const failure of failures) {
+        sandboxProvider.fetchResult = failure;
+        const res = await returnRoute(new NextRequest(`http://localhost/api/age-verification/return?sessionId=${started.providerRef}`), undefined as never);
+        expect(res.status).toBe(307);
+        expect(new URL(res.headers.get("location")!).pathname + new URL(res.headers.get("location")!).hash).toBe("/settings#age-verification");
+      }
+    } finally {
+      delete sandboxProvider.fetchResult;
+    }
+    expect((await userRow(gb.id)).ageVerificationStatus).toBe("pending");
+    expect((await verificationRow(started.providerRef)).status).toBe("pending");
+  });
+});
+
+describe("R36: the step-one age gate outside the layout", () => {
+  it("issues no media to an anonymous visitor who has not passed the gate, through the API or the pages' viewer", async () => {
+    const t = await publishedTemplate();
+    const card = async () => {
+      const res = await templatesRoute(new NextRequest("http://localhost/api/templates?sort=new"), undefined as never);
+      const body = (await res.json()) as { items: { id: string; posterUrl: string | null; previewUrl: string | null; mediaWithheld: boolean }[] };
+      return body.items.find((c) => c.id === t.id)!;
+    };
+
+    // From an uncovered place, without the gate's cookie: the layout shows the gate, and nothing else hands out media.
+    anonymous({ "x-country-code": "DE" }, { ageGate: false });
+    expect((await viewerAccess()).explicitAllowed).toBe(false);
+    expect(await card()).toMatchObject({ title: "Candle Toast", posterUrl: null, previewUrl: null, mediaWithheld: true });
+
+    // Through the gate, the same visitor gets the media.
+    anonymous({ "x-country-code": "DE" });
+    expect((await viewerAccess()).explicitAllowed).toBe(true);
+    expect((await card()).posterUrl).toMatch(/\/api\/media/);
+
+    // A member passed the date-of-birth check at signup, so the layout does not ask them again either.
+    await signIn(await userIn("DE"), { "x-country-code": "DE" });
+    requestScope.ageGate = false;
+    expect((await viewerAccess()).explicitAllowed).toBe(true);
+    expect((await card()).posterUrl).toMatch(/\/api\/media/);
   });
 });
