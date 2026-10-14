@@ -444,6 +444,29 @@ describe("stripe provider", () => {
     // Nothing was left to claw back after the refund, so no chargeback ledger row and no debt flag.
     expect((await listLedger(u.id)).filter((l) => l.kind === "chargeback")).toHaveLength(0);
   });
+
+  it("R39: a refund or dispute of a pass invoice finds that invoice's grant through its payment intent", async () => {
+    const u = await makeUser();
+    const start = { id: "evt_s0", object: "event", type: "checkout.session.completed", data: { object: { id: "cs_sub", object: "checkout.session", mode: "subscription", payment_status: "paid", amount_total: 1999, currency: "usd", subscription: "sub_1", customer: "cus_1", metadata: { userId: u.id, itemKey: "plan_member" } } } };
+    expect(await (await send(start)).json()).toMatchObject({ outcome: "processed" });
+    const invoicePaid = (eventId: string, invoice: Record<string, unknown>) => ({ id: eventId, object: "event", type: "invoice.paid", data: { object: { object: "invoice", subscription: "sub_1", amount_paid: 1999, currency: "usd", lines: { data: [] }, ...invoice } } });
+
+    // API versions before 2025-03-31 put the payment intent on the invoice.
+    expect(await (await send(invoicePaid("evt_i1", { id: "in_1", payment_intent: "pi_in_1" }))).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(400);
+    const refund = { id: "evt_ir1", object: "event", type: "charge.refunded", data: { object: { id: "ch_in_1", object: "charge", payment_intent: "pi_in_1", invoice: "in_1", amount: 1999, amount_refunded: 1999, currency: "usd" } } };
+    expect(await (await send(refund)).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(0);
+
+    // Later versions list the payments when the invoice includes them; a dispute names only the payment intent.
+    const payments = { object: "list", data: [{ object: "invoice_payment", id: "inpay_2", status: "paid", payment: { type: "payment_intent", payment_intent: "pi_in_2" } }] };
+    expect(await (await send(invoicePaid("evt_i2", { id: "in_2", payments }))).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(400);
+    const dispute = { id: "evt_id2", object: "event", type: "charge.dispute.created", data: { object: { id: "dp_2", object: "dispute", charge: "ch_in_2", payment_intent: "pi_in_2", amount: 1999, currency: "usd", reason: "fraudulent" } } };
+    expect(await (await send(dispute)).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect((await openFlags(u.id)).map((f) => f.kind)).toEqual(["chargeback"]);
+  });
 });
 
 // ── CCBill ───────────────────────────────────────────────────────────────────
