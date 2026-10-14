@@ -408,7 +408,7 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
         </section>
       ) : null}
 
-      <SequencePlayer open={playing} onClose={() => setPlaying(false)} clips={sequence.map((v) => ({ id: v!.id, url: v!.creation.output!.url! }))} />
+      <SequencePlayer open={playing} onClose={() => setPlaying(false)} clips={sequence.map((v) => ({ id: v!.id, url: v!.creation.output!.url!, isDemo: v!.creation.isDemo }))} />
       <RenameSheet open={renaming} onClose={() => setRenaming(false)} project={data.project} />
       <Sheet open={Boolean(pending)} onClose={dismissPending} title={pending?.relation === "continuation" ? "Continue this clip?" : "Make a variation?"}>
         {pending ? (
@@ -607,7 +607,7 @@ function RenameSheet({ open, onClose, project }: { open: boolean; onClose: () =>
 }
 
 /** Plays each scene's chosen clip in order. */
-function SequencePlayer({ open, onClose, clips }: { open: boolean; onClose: () => void; clips: { id: string; url: string }[] }) {
+function SequencePlayer({ open, onClose, clips }: { open: boolean; onClose: () => void; clips: { id: string; url: string; isDemo: boolean }[] }) {
   const [index, setIndex] = useState(0);
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
@@ -621,7 +621,14 @@ function SequencePlayer({ open, onClose, clips }: { open: boolean; onClose: () =
     <Sheet open={open} onClose={onClose} title="Sequence" wide>
       {clip ? (
         <div>
-          <video ref={ref} key={clip.id} src={clip.url} controls playsInline className="aspect-video w-full rounded-xl bg-black" onEnded={() => setIndex((i) => (i + 1 < clips.length ? i + 1 : i))} />
+          <div className="relative">
+            <video ref={ref} key={clip.id} src={clip.url} controls playsInline className="aspect-video w-full rounded-xl bg-black" onEnded={() => setIndex((i) => (i + 1 < clips.length ? i + 1 : i))} />
+            {clip.isDemo ? (
+              <div className="pointer-events-none absolute left-2 top-2 flex gap-1">
+                <Badge tone="demo">Demo</Badge>
+              </div>
+            ) : null}
+          </div>
           <p className="mt-2 font-mono text-[12px] text-bone-400">
             Clip {index + 1} of {clips.length}. Scenes without a finished clip are skipped.
           </p>

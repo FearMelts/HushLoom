@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { getDb } from "@/server/db";
-import { creatorProfiles, discoveryEvents, follows, mediaAssets, templateCollectionItems, templateCollections, templates } from "@/server/db/schema";
-import { browseTemplates, cardsByIds, type Viewer } from "@/server/discovery/templates";
+import { creatorProfiles, discoveryEvents, follows, mediaAssets, templateCollectionItems, templateCollections, templates, templateVersions } from "@/server/db/schema";
+import { browseTemplates, cardsByIds, isDemoModelKey, type Viewer } from "@/server/discovery/templates";
 import { assetUrl } from "@/server/media";
 import { profileByHandle } from "@/server/social";
 
@@ -57,11 +57,13 @@ export async function creatorAnalytics(creatorId: string, explicitAllowed: boole
     .select({
       t: templates,
       poster: mediaAssets,
+      modelKey: templateVersions.modelKey,
       views30: sql<number>`(select count(*)::int from ${discoveryEvents} de where de.template_id = ${templates.id} and de.event = 'view' and de.created_at > now() - interval '30 days')`,
       generations30: sql<number>`(select count(*)::int from ${discoveryEvents} de where de.template_id = ${templates.id} and de.event = 'generate' and de.created_at > now() - interval '30 days')`,
     })
     .from(templates)
     .leftJoin(mediaAssets, eq(mediaAssets.id, templates.posterAssetId))
+    .leftJoin(templateVersions, and(eq(templateVersions.templateId, templates.id), eq(templateVersions.version, templates.currentVersion)))
     .where(and(eq(templates.creatorId, creatorId), isNull(templates.deletedAt), ne(templates.status, "removed")))
     .orderBy(desc(templates.createdAt));
   return Promise.all(
@@ -75,6 +77,8 @@ export async function creatorAnalytics(creatorId: string, explicitAllowed: boole
       mediaType: r.t.mediaType,
       version: r.t.currentVersion,
       posterUrl: explicitAllowed && r.poster ? await assetUrl(r.poster, creatorId) : null,
+      // As on the template's card: the current version runs on a demo model, so its cover is a labeled placeholder.
+      isDemo: isDemoModelKey(r.modelKey),
       favorites: r.t.favoriteCount,
       generations: r.t.generationCount,
       rating: r.t.ratingCount ? Math.round((r.t.ratingSum / r.t.ratingCount) * 10) / 10 : null,

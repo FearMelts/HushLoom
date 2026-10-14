@@ -66,6 +66,15 @@ function Media({ item, className }: { item: CreationListItem; className?: string
   );
 }
 
+/** The Demo badge over a creation's media, when that media came from the demo model. */
+function DemoMark({ item }: { item: CreationListItem }) {
+  return item.isDemo && item.output ? (
+    <span className="pointer-events-none absolute left-2 top-2 flex gap-1">
+      <Badge tone="demo">Demo</Badge>
+    </span>
+  ) : null;
+}
+
 export function CreationDetail({
   item,
   details,
@@ -189,11 +198,17 @@ export function CreationDetail({
           {compareWith ? (
             <div className="grid grid-cols-2 gap-3" aria-label="Comparison">
               <figure>
-                <Media item={item} />
+                <div className="relative">
+                  <Media item={item} />
+                  <DemoMark item={item} />
+                </div>
                 <figcaption className="mt-1.5 text-[12px] text-bone-400">This one</figcaption>
               </figure>
               <figure>
-                <Media item={compareWith} />
+                <div className="relative">
+                  <Media item={compareWith} />
+                  <DemoMark item={compareWith} />
+                </div>
                 <figcaption className="mt-1.5 flex items-center justify-between text-[12px] text-bone-400" suppressHydrationWarning>
                   {compareWith.relation ?? "original"} · {relativeTime(compareWith.createdAt)}
                   <button type="button" onClick={() => setCompareWith(null)} className="text-bone-300 hover:text-bone-50" aria-label="Close comparison">
@@ -205,7 +220,7 @@ export function CreationDetail({
           ) : (
             <Media item={item} />
           )}
-          {item.isDemo ? (
+          {item.isDemo || compareWith?.isDemo ? (
             <p className="rounded-xl bg-iris-400/10 px-3.5 py-2.5 text-[13px] text-iris-300">
               Demo output: made locally by the development placeholder model, not by an AI model.
             </p>
@@ -326,9 +341,9 @@ export function CreationDetail({
                     type="button"
                     onClick={() => (v.id === item.id ? setCompareWith(null) : setCompareWith(v))}
                     className={cn("w-24 shrink-0 text-left", v.id === item.id && "opacity-60")}
-                    aria-label={v.id === item.id ? "This version" : `Compare with ${v.relation ?? "original"}`}
+                    aria-label={`${v.id === item.id ? "This version" : `Compare with ${v.relation ?? "original"}`}${v.isDemo && v.output ? ", demo media" : ""}`}
                   >
-                    <div className="petal aspect-[4/5] overflow-hidden bg-ink-850 hairline">
+                    <div className="petal relative aspect-[4/5] overflow-hidden bg-ink-850 hairline">
                       {v.output?.url && v.output.kind === "image" ? (
                         // eslint-disable-next-line @next/next/no-img-element -- signed URL
                         <img src={v.output.url} alt="" className="size-full object-cover" />
@@ -337,6 +352,7 @@ export function CreationDetail({
                       ) : (
                         <div className="grid size-full place-items-center text-[11px] text-bone-500">{STATUS_LABEL[v.status]}</div>
                       )}
+                      <DemoMark item={v} />
                     </div>
                     <p className="mt-1 truncate text-[11px] text-bone-400">{v.id === item.id ? "this" : (v.relation ?? "original")}</p>
                   </button>
