@@ -60,7 +60,7 @@ export function AccountFlags() {
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={TONE[f.kind]}>{LABEL[f.kind]}</Badge>
             <span className="text-sm text-bone-100">{f.user.handle ? `@${f.user.handle}` : f.user.email}</span>
-            <span className="font-mono text-[11px] text-bone-500">{relativeTime(f.createdAt)}</span>
+            <span className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>{relativeTime(f.createdAt)}</span>
           </div>
           <p className="mt-1.5 text-[13px] text-bone-300">{f.reason}</p>
           {typeof f.details.shortfall === "number" && f.details.shortfall > 0 ? (

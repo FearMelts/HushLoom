@@ -95,9 +95,9 @@ export function AgeVerificationCard({ data }: { data: { ageVerification?: AgeVer
         {v.status === "verified" && v.verifiedAt ? (
           <div>
             <dt className="text-bone-500">Verified</dt>
-            <dd className="text-bone-100">
+            <dd className="text-bone-100" suppressHydrationWarning>
               {relativeTime(v.verifiedAt)}
-              {v.expiresAt ? <span className="text-bone-400"> · good until {new Date(v.expiresAt).toLocaleDateString()}</span> : null}
+              {v.expiresAt ? <span className="text-bone-400" suppressHydrationWarning> · good until {new Date(v.expiresAt).toLocaleDateString()}</span> : null}
             </dd>
           </div>
         ) : null}
@@ -147,7 +147,7 @@ export function AgeVerificationCard({ data }: { data: { ageVerification?: AgeVer
           <summary className="cursor-pointer text-[13px] text-bone-400">{v.history.length} {v.history.length === 1 ? "attempt" : "attempts"}</summary>
           <ul className="mt-2 space-y-1 text-[12.5px] text-bone-500">
             {v.history.map((h) => (
-              <li key={h.id}>
+              <li key={h.id} suppressHydrationWarning>
                 {h.status} · {h.provider}
                 {h.method ? ` · ${h.method}` : ""} · started {relativeTime(h.startedAt)}
                 {h.completedAt ? ` · finished ${relativeTime(h.completedAt)}` : ""}

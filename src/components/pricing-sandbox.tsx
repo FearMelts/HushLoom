@@ -55,7 +55,7 @@ export function SandboxCheckout({ token, mode, purchases, passes }: { token?: st
                 <p className="text-sm text-bone-100">
                   {p.label} <Badge tone="demo">sandbox</Badge>
                 </p>
-                <p className="font-mono text-[11px] text-bone-500">
+                <p className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>
                   {p.amount} · {p.credits} credits · {relativeTime(p.when)} · {p.transactionRef}
                 </p>
               </div>

@@ -89,7 +89,7 @@ export function TrainView({ characters, statement }: { characters: Character[]; 
               <div className="mt-2 flex items-start justify-between gap-2 px-0.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm text-bone-100">{c.name}</p>
-                  <p className="flex items-center gap-1 font-mono text-[11px] text-bone-500">
+                  <p className="flex items-center gap-1 font-mono text-[11px] text-bone-500" suppressHydrationWarning>
                     <ShieldCheck size={11} aria-hidden /> consent {relativeTime(c.consentGrantedAt)}
                   </p>
                 </div>

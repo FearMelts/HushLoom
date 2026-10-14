@@ -71,7 +71,7 @@ function EscalationCard({ e }: { e: Escalation }) {
         <Badge>{ORIGIN[e.origin ?? ""] ?? e.subjectType}</Badge>
         {drill ? <Badge tone="demo">dev scanner drill</Badge> : null}
         {e.asset?.legalHold ? <Badge tone="warn">legal hold</Badge> : null}
-        <span className="font-mono text-[11px] text-bone-500">{relativeTime(e.createdAt)}</span>
+        <span className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>{relativeTime(e.createdAt)}</span>
       </div>
       <p className="mt-1.5 text-[13px] text-bone-200">
         {e.owner ? (
@@ -187,7 +187,7 @@ function TakedownCard({ t }: { t: TakedownItem }) {
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={urgent ? "danger" : "plain"}>{CATEGORY[t.category]}</Badge>
         <Badge>{t.targetType}</Badge>
-        <span className={`font-mono text-[11px] ${urgent && hours >= 24 ? "text-brass-300" : "text-bone-500"}`}>
+        <span className={`font-mono text-[11px] ${urgent && hours >= 24 ? "text-brass-300" : "text-bone-500"}`} suppressHydrationWarning>
           open {hours < 1 ? "under an hour" : `${hours}h`} · {t.requester}
         </span>
       </div>
@@ -237,7 +237,7 @@ export function ClosedList({ escalations, takedowns }: { escalations: Escalation
     <ul className="divide-y divide-bone-50/5 text-[12.5px]">
       {escalations.map((e) => (
         <li key={e.id} className="flex flex-wrap gap-x-3 gap-y-1 py-2">
-          <span className="text-bone-500">{e.resolvedAt ? relativeTime(e.resolvedAt) : ""}</span>
+          <span className="text-bone-500" suppressHydrationWarning>{e.resolvedAt ? relativeTime(e.resolvedAt) : ""}</span>
           <span className="text-bone-100">{e.resolution?.kind === "false_positive" ? "Cleared as false positive" : "Report recorded"}</span>
           {e.resolution?.reportRef ? (
             <span className="font-mono text-bone-400">
@@ -250,7 +250,7 @@ export function ClosedList({ escalations, takedowns }: { escalations: Escalation
       ))}
       {takedowns.map((t) => (
         <li key={t.id} className="flex flex-wrap gap-x-3 gap-y-1 py-2">
-          <span className="text-bone-500">{t.resolvedAt ? relativeTime(t.resolvedAt) : ""}</span>
+          <span className="text-bone-500" suppressHydrationWarning>{t.resolvedAt ? relativeTime(t.resolvedAt) : ""}</span>
           <span className="text-bone-100">Takedown {t.status}</span>
           <span className="text-bone-400">{CATEGORY[t.category]}</span>
           {t.resolutionNote ? <span className="text-bone-500">“{t.resolutionNote}”</span> : null}
