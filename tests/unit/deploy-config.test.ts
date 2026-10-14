@@ -44,6 +44,18 @@ describe(".gitignore", () => {
   });
 });
 
+describe(".github/workflows/ci.yml", () => {
+  // actions/checkout writes the job's token into .git/config unless told not to, and every later step
+  // (npm ci's install scripts from hundreds of packages, the build, the browser tests) could read it.
+  it("never leaves the job's GitHub token in .git/config for later steps (I07)", () => {
+    const steps = read(".github/workflows/ci.yml")
+      .split(/\n(?= {6}- )/)
+      .filter((step) => /uses: actions\/checkout@/.test(step));
+    expect(steps.length).toBeGreaterThan(0);
+    expect(steps.filter((step) => !/\n {10}persist-credentials: false\n/.test(`${step}\n`))).toEqual([]);
+  });
+});
+
 describe("docker-compose.yml", () => {
   const ports = publishedPorts();
 
