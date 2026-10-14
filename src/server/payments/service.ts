@@ -60,7 +60,7 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
     case "purchase_completed": {
       const item = checkoutItem(event.itemKey);
       if (!item || item.kind !== "pack") return { outcome: "ignored", patch: { metadata: { reason: "unknown_pack", itemKey: event.itemKey } } };
-      const problem = event.review ?? notPaidInFull(event, item);
+      const problem = event.review ?? notPaidInFull(event, item) ?? (await cannotBuy(tx, event.userId));
       if (problem) return holdForReview(tx, provider, event.userId, row, event, item.key, problem);
       await grant(tx, event.userId, item.credits, "purchase", `${provider}:${event.providerEventId}`, row.id, `${item.label} pack`);
       return {
@@ -72,7 +72,7 @@ async function apply(tx: Tx, provider: ProviderKey, event: PaymentEvent, row: Ev
     case "subscription_started": {
       const plan = pricing.plans.find((p) => p.key === event.itemKey);
       if (!plan) return { outcome: "ignored", patch: { metadata: { reason: "unknown_plan", itemKey: event.itemKey } } };
-      const problem = event.review ?? notPaidInFull(event, { label: plan.label, priceCents: plan.priceCents, currency: pricing.currency });
+      const problem = event.review ?? notPaidInFull(event, { label: plan.label, priceCents: plan.priceCents, currency: pricing.currency }) ?? (await cannotBuy(tx, event.userId));
       if (problem) return holdForReview(tx, provider, event.userId, row, event, plan.key, problem);
       await tx
         .insert(subscriptions)
@@ -167,6 +167,21 @@ function notPaidInFull(paid: { amountCents: number; currency: string }, item: { 
   if (paid.currency.toLowerCase() !== item.currency.toLowerCase()) return `paid in ${paid.currency.toUpperCase()}, ${item.label} is priced in ${item.currency.toUpperCase()}`;
   if (!(paid.amountCents >= item.priceCents)) return `paid ${toMoneyString(paid.amountCents)}, ${item.label} costs ${toMoneyString(item.priceCents)}`;
   return null;
+}
+
+/**
+ * A checkout link stays payable after it was issued, so the checks /api/checkout makes are made again when
+ * the sale lands: an account paused by a chargeback, or deleted since, gets nothing automatically.
+ */
+async function cannotBuy(tx: Tx, userId: string): Promise<string | null> {
+  const [owner] = await tx.select({ status: users.status, deletedAt: users.deletedAt }).from(users).where(eq(users.id, userId));
+  if (owner && (owner.status === "deleted" || owner.deletedAt)) return "the account was deleted before this sale";
+  const [flag] = await tx
+    .select({ id: accountFlags.id })
+    .from(accountFlags)
+    .where(and(eq(accountFlags.userId, userId), eq(accountFlags.kind, "chargeback"), isNull(accountFlags.clearedAt)))
+    .limit(1);
+  return flag ? "buying is paused on this account by an open chargeback flag" : null;
 }
 
 /** Records a confirmed payment that must not be granted automatically and puts it in front of an operator. Nothing is granted. */

@@ -173,6 +173,24 @@ describe("sandbox provider", () => {
     expect(await getDb().select().from(auditLogs).where(eq(auditLogs.action, "flag.clear"))).toHaveLength(1);
   });
 
+  it("R38: a sale from a saved checkout link after a chargeback, or after the account was deleted, is held for review, not granted", async () => {
+    const u = await makeUser();
+    await sale(u.id);
+    await send({ kind: "chargeback", eventId: "sbx_cb_r38" });
+    await expect(startCheckout(u, "pack_small")).rejects.toMatchObject({ status: 403, code: "account_flagged" });
+    // The link saved before the chargeback still pays at the processor; the webhook must not grant it.
+    expect(await (await sale(u.id, "sbx_sale_r38", "pack_large", { amountCents: 8999, transactionRef: "sbx_txn_r38" })).json()).toMatchObject({ outcome: "ignored" });
+    expect(await (await sale(u.id, "sbx_plan_r38", "plan_member", { amountCents: 1999, transactionRef: "sbx_txn_r38p", subscriptionRef: "sbx_sub_r38" })).json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(u.id)).available).toBe(0);
+    expect(await getDb().select().from(subscriptions).where(eq(subscriptions.userId, u.id))).toHaveLength(0);
+    expect((await openFlags(u.id)).map((f) => f.kind).sort()).toEqual(["chargeback", "manual_review", "manual_review"]);
+
+    const gone = await registerUser({ email: "r38@example.test", password: "long-enough-pass", handle: "r38_gone", displayName: "G", dateOfBirth: "1990-05-05", acceptTerms: true, confirmAdult: true });
+    await deleteAccount(gone.id, "long-enough-pass");
+    expect(await (await sale(gone.id, "sbx_sale_r38g", "pack_small", { transactionRef: "sbx_txn_r38g" })).json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(gone.id)).available).toBe(0);
+  });
+
   it("R18: two reversals of one payment processed at the same time claw the grant back once", async () => {
     const u = await makeUser();
     const admin = await makeUser({ role: "admin" });
