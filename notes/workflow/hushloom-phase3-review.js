@@ -1,0 +1,92 @@
+export const meta = {
+  name: 'hushloom-phase3-review',
+  description: 'Adversarial review of the merged Hushloom build: seven finders, triage and dedup, then reproduce-or-refute each serious finding',
+  phases: [
+    { title: 'Find', detail: 'seven attack-surface reviewers, read-only on a frozen snapshot' },
+    { title: 'Triage', detail: 'dedup, calibrate severity, assign ids' },
+    { title: 'Verify', detail: 'reproduce each critical/high/medium finding with a failing test, or refute it' },
+  ],
+}
+
+const SNAP = '/home/claude/review-f8d5ef3'
+const MAIN = '/home/claude/hushloom'
+const CTX = '/tmp/claude-0/-home-claude-hushloom/ef68adc1-eb6d-56e0-b7e4-cbc2303fcdd6/scratchpad/ctx'
+
+const COMMON = `
+You are reviewing Hushloom, an adults-only AI image/video creation web app (Next.js 15 App Router, React 19, strict TypeScript, Drizzle + Postgres, BullMQ + Redis worker, local or S3 storage). A frozen snapshot of the merged code is at ${SNAP} (commit f8d5ef3). Read code there. Do not edit anything in ${SNAP} or ${MAIN}, never push, never call mcp__hearthbot__ tools, never touch GitHub.
+Context: ${MAIN}/notes/progress.md (what each track built, known open issues; do not re-report a listed open issue unless you found it is worse than stated), ${CTX}/addendum.md (the launch-readiness requirements: payments, age verification, CSAM scanning, web app). Code conventions: route() wrapper and HttpError in src/server/http.ts, requireUser/requireAdmin, zod input schemas, audit() logs, an idempotent credit ledger (src/server/credits), generation state machine in src/server/generation, media serving in src/app/api/media/route.ts and src/server/media.ts, age logic in src/server/age, payments in src/server/payments, scanning in src/server/safety/scan, push in src/server/push, service worker public/sw.js.
+Severity rubric:
+- critical: a user or outsider can, under realistic conditions, bypass age verification for explicit content, get credits or paid access without paying, see or download another user's private content, get matched/unscanned content served or shared, take over another account or gain admin, or the app leaks secrets.
+- high: a real security or integrity flaw needing an unusual but plausible condition (race, specific config, crafted input), lost or corrupted money/credit state, evidence destroyed contrary to the hold rules, or a crash/500 reachable by any user that breaks a core flow.
+- medium: defense-in-depth gap, missing rate limit on a sensitive endpoint, information disclosure of low value, inconsistent validation without a demonstrated exploit.
+- low: hygiene.
+Only report what you can point at in code (file:line) with a concrete scenario: inputs or sequence → wrong outcome. No speculation without a path. Prefer fewer, solid findings over many weak ones. Never claim you ran something you did not run.`
+
+const FINDING = {
+  type: 'object',
+  properties: {
+    title: { type: 'string' },
+    severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'] },
+    area: { type: 'string' },
+    locations: { type: 'array', items: { type: 'string' }, description: 'file:line references in the snapshot' },
+    scenario: { type: 'string', description: 'concrete steps/inputs and the wrong outcome' },
+    evidence: { type: 'string', description: 'the code facts that make the scenario work' },
+    suggestedFix: { type: 'string' },
+  },
+  required: ['title', 'severity', 'area', 'locations', 'scenario', 'evidence', 'suggestedFix'],
+}
+const FINDINGS = { type: 'object', properties: { findings: { type: 'array', items: FINDING }, checkedAndFine: { type: 'array', items: { type: 'string' }, description: 'things you checked that hold up, one line each' } }, required: ['findings', 'checkedAndFine'] }
+
+const DIMENSIONS = [
+  { key: 'age', prompt: `Dimension: AGE-GATE AND AGE-VERIFICATION BYPASS. Try to see explicit media or create/upload without a valid verification in a covered jurisdiction (GB, US states). Check: the first-step age gate cookie (src/app/api/age-gate, middleware if any); how the jurisdiction is decided (geo headers, users.jurisdiction stored at signup/login, what happens if a user signs up from an uncovered place then browses from GB, header spoofing by clients when no edge strips them, unknown jurisdiction + AGE_VERIFICATION_FAIL_CLOSED); viewerAccess()/explicitAllowed applied on EVERY path that issues template, creator, rail, search, API (/api/templates, /api/me, /api/generations, lineage, remix prefill), OG/metadata images, signed /api/media URLs (can a signed URL obtained once be reused after status expires? are template media URLs signed per viewer?), service worker caches; expiry handling (verified older than VALID_DAYS); sandbox callback signature and replay; Yoti notification signature check (RSA-PSS) and replay; status transitions (pending→verified only via provider result, failed/expired handling); race between start and callback; audit on every change. Files: src/server/age/**, src/config/jurisdictions.ts, src/server/request.ts, src/server/discovery/**, src/app/templates/**, src/app/creators/**, src/app/page.tsx, src/app/explore/**, src/app/api/templates/**, src/app/api/age-verification/**, src/app/api/webhooks/age-verification/**, src/app/api/media/route.ts, src/server/media.ts, src/app/api/auth/**, src/server/auth/**.` },
+  { key: 'payments', prompt: `Dimension: PAYMENT AND CREDIT ABUSE. Try to get credits or a pass without paying, keep credits after a refund/chargeback, or corrupt the ledger. Check: every webhook route (/api/webhooks/payments/[provider], /api/webhooks/stripe) — signature verification per provider (sandbox HMAC, CCBill digest + token, Segpay secret, Stripe), provider parameter confusion (can a request name provider X but be verified with Y's secret or with a weaker scheme; can a sandbox-signed event be accepted when PAYMENT_PROVIDER is ccbill; is the sandbox's dev-only constant secret usable on a live site), replay and duplicate handling (unique key; what counts as the event id for CCBill/Segpay; can an attacker vary a non-signed field to create a "new" event), amount/credit source (credits from server config, never from the request?), item key manipulation at /api/checkout, subscription renewals granting more than once per period, refund for more than granted, refund/chargeback races with spending (parallel requests), negative balances, flagged-account bypass (other routes that start payments), the sandbox pricing API (/api/pricing/sandbox) — can a user refund/chargeback/complete someone else's purchase or token, can it run when not sandbox, admin flag clearing authorization, admin credit grants idempotency. Also the ledger itself: applyMovement concurrency (SELECT ... FOR UPDATE? unique idempotency key?), reserve/settle/release for generation jobs under concurrent confirm/cancel/retry. Files: src/server/payments/**, src/server/credits/**, src/app/api/checkout/**, src/app/api/webhooks/**, src/app/api/pricing/**, src/app/pricing/**, src/app/api/admin/**, src/server/generation/**.` },
+  { key: 'scan', prompt: `Dimension: HOSTILE SCAN INPUT AND SCAN BYPASS. Try to get matched or unscanned content stored-for-display, served, shared, published or downloaded, or to crash/hang the pipeline. Check: upload acceptance (src/server/media.ts acceptUpload): type sniffing vs declared MIME, polyglots, SVG/HTML, decompression bombs (sharp limitInputPixels), giant videos, ffmpeg invocation (argument injection, hostile containers, timeouts, keyframe extraction limits), what exactly is hashed vs what is stored (re-encode: does the scanned byte stream equal what is served? could a file scan clean as one representation but serve another?), scan timeouts and fail-closed paths (SCAN_FAIL_CLOSED true/false), every place an asset can be served or copied (media route, signed URLs, posters/thumbnails, derived assets, image_to_image inputs, character references, template covers, public copies, downloads, push payloads), status checks (only "clean" served), the legal hold (purge jobs, account deletion, consent withdrawal, admin delete, takedown actions must skip held assets), the review queue actions (clear false positive authorization and audit; confirm), takedown endpoint abuse (rate limiting, signed-out spam, email field injection, using takedowns to delete other users' content without admin action). Files: src/server/media.ts, src/server/safety/**, src/app/api/media/**, src/app/api/uploads/**, src/app/api/takedowns/**, src/app/api/admin/review/**, src/app/api/admin/takedowns/**, src/server/generation/processor.ts, src/server/templates/**, src/server/auth/account.ts, scripts/scan-backfill.ts.` },
+  { key: 'auth', prompt: `Dimension: AUTHENTICATION, SESSIONS AND AUTHORIZATION. Check: signup (DOB checks, adult consent, handle/email uniqueness races, email normalization), login (rate limiting, timing, enumeration messages), session cookie flags and lifetime, session revocation on suspension/password change/account deletion/logout ("sign out everywhere" vs this device), suspended users still able to call APIs with an existing session, CSRF protection (Origin check: which methods/routes; GET routes with side effects; webhook routes exempt correctly), requireAdmin on EVERY admin page and API route (enumerate src/app/admin/** and src/app/api/admin/**), IDOR across user-owned resources (generations, projects, scenes, folders, presets, characters, favorites, follows, push subscriptions, uploads/assets, templates manage endpoints, creator versioning PATCH), push subscription endpoints (can a user register or delete another's endpoint), the age-gate cookie as an auth surface. Files: src/server/auth/**, src/app/api/auth/**, src/server/http.ts, middleware.ts if present, src/app/api/**, src/app/admin/**.` },
+  { key: 'validation', prompt: `Dimension: INPUT VALIDATION AND ERROR HANDLING. Find inputs any user can send that cause a 500, an unhandled rejection, a stack trace or internal detail in a response, a hang, or unbounded resource use. Check every route handler under src/app/api/** for a zod schema on body, query and params (UUID params that reach Postgres as invalid uuid → 22P02 handling), pagination limits, string length limits, enum checks, JSON body size, numeric ranges (credits, durations, seeds), path traversal into storage keys, open redirects (next= / returnTo parameters in auth, age verification return, sandbox pages), header injection, error responses leaking SQL/messages, logger calls that log prompts, emails, tokens, media bytes or secrets (the addendum forbids logging prompts, media or secrets), the error webhook if present. Files: src/app/api/**, src/server/http.ts, src/server/log.ts, src/lib/api.ts, src/app/auth/**, src/app/verify/**, src/app/pricing/sandbox/**.` },
+  { key: 'races', prompt: `Dimension: RACES AND DATA INTEGRITY. Look for check-then-act sequences without locks or unique constraints, and multi-step writes outside a transaction. Check: generation lifecycle (createDraft idempotency, confirm vs cancel vs reconcile sweep vs worker completion, retries/maxAttempts, requeue on scanner outage holding a reservation, output creation then scan then fail paths), credit ledger reserve/settle/release under concurrent confirm of two drafts with insufficient balance, payment event processing under concurrent duplicate webhooks (unique violation handling), refund/chargeback processed before the purchase event arrives (out-of-order webhooks), subscription period grants, follow/favorite counters, template publishing/versioning concurrency, account deletion while jobs run (worker writes to a deleted user), legal hold vs purge job concurrency, migration 0003 (FKs SET NULL) interplay with code that assumes non-null, push subscription upsert on endpoint across users, session table cleanup. Prefer findings you can describe as an interleaving: T1 does X, T2 does Y, result Z. Files: src/server/generation/**, src/server/credits/**, src/server/payments/**, src/server/**, drizzle/*.sql, src/server/db/schema.ts.` },
+  { key: 'privacy', prompt: `Dimension: PRIVACY AND CONTENT LEAKS. The addendum requires: no explicit or private content leaks through notifications, caches, logs or unscanned storage; private creations stay private. Check: push payloads (buildPushPayload; anything else sent to push services), the service worker (public/sw.js): what it caches (could a signed-in page or /api/media or a private response with credentials end up cached; Vary/cookies; navigation fallback serving cached public pages to a different user), Cache-Control headers on private pages and API responses (src/app/api/**, next.config.ts headers, media route), signed media URL scope and TTL (bound to the user? shareable?), metadata in uploads (EXIF on images, container metadata on video), the public profile/creator pages exposing private generations, lineage/remix prefill exposing another user's private prompt or asset, template publishing copying private assets, admin pages exposing data beyond need, logs (logger calls with prompts/emails), error webhook payloads (if present), OG/metadata tags with private titles, referrer leakage of signed URLs to third parties (Referrer-Policy), CSP. Files: public/sw.js, src/lib/pwa.ts, src/server/push/**, src/app/api/media/**, src/server/media.ts, next.config.ts, src/app/**/page.tsx metadata, src/server/views.ts, src/server/discovery/**, src/server/log.ts, src/instrumentation.ts if present.` },
+]
+
+phase('Find')
+const found = await parallel(DIMENSIONS.map(d => () =>
+  agent(`${COMMON}\n\n${d.prompt}\n\nReturn your findings (with severity per the rubric) and the list of things you checked that hold up.`, { label: `find:${d.key}`, phase: 'Find', schema: FINDINGS })
+    .then(r => r ? { key: d.key, ...r } : null)))
+const ok = found.filter(Boolean)
+log(`finders returned ${ok.length}/${DIMENSIONS.length}; ${ok.reduce((n, r) => n + r.findings.length, 0)} raw findings`)
+
+phase('Triage')
+const TRIAGED = {
+  type: 'object',
+  properties: {
+    findings: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, ...FINDING.properties, mergedFrom: { type: 'array', items: { type: 'string' } }, triageNote: { type: 'string' } }, required: ['id', ...FINDING.required, 'mergedFrom', 'triageNote'] } },
+    dropped: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, reason: { type: 'string' } }, required: ['title', 'reason'] } },
+  },
+  required: ['findings', 'dropped'],
+}
+const triage = await agent(`${COMMON}\n\nYou are the triage lead. Seven reviewers returned these raw findings (JSON):\n${JSON.stringify(ok, null, 1)}\n\n1. Merge duplicates (same root cause) into one finding, listing the merged titles in mergedFrom.\n2. Check each finding's locations quickly in the snapshot; drop any whose cited code does not exist or plainly does not do what is claimed (list under dropped with the reason). Do not drop a finding merely because it is hard to exploit; lower its severity instead.\n3. Calibrate severity strictly by the rubric (say why in triageNote when you change it).\n4. Assign ids R01, R02, ... ordered by severity (critical first).\nReturn every surviving finding in full.`, { label: 'triage', phase: 'Triage', schema: TRIAGED })
+if (!triage) return { found: ok, error: 'triage returned nothing' }
+
+const serious = triage.findings.filter(f => f.severity !== 'low')
+const lows = triage.findings.filter(f => f.severity === 'low')
+log(`${triage.findings.length} findings after triage (${serious.length} to verify, ${lows.length} low recorded only); ${triage.dropped.length} dropped`)
+
+phase('Verify')
+const VERDICT = {
+  type: 'object',
+  properties: {
+    id: { type: 'string' },
+    verdict: { type: 'string', enum: ['confirmed', 'refuted', 'inconclusive'] },
+    severity: { type: 'string', enum: ['critical', 'high', 'medium', 'low'], description: 'your calibrated severity if confirmed; else the original' },
+    method: { type: 'string', enum: ['failing-test', 'script', 'code-reading'] },
+    reproTestPath: { type: 'string', description: 'path of the test you wrote, relative to the repo root, or empty' },
+    reproTestContent: { type: 'string', description: 'the full content of the reproduction test, or empty' },
+    output: { type: 'string', description: 'the relevant output lines of the run you did (quoted), or empty' },
+    reasoning: { type: 'string' },
+    fixHint: { type: 'string' },
+  },
+  required: ['id', 'verdict', 'severity', 'method', 'reproTestPath', 'reproTestContent', 'output', 'reasoning', 'fixHint'],
+}
+const verdicts = await pipeline(serious, (f, _orig, i) => agent(`${COMMON}\n\nYou are an adversarial verifier. You run in your own fresh git worktree (current directory). FIRST: run "git rev-parse HEAD"; if it is not f8d5ef3, run "git reset --hard f8d5ef3". Then "ln -s ${MAIN}/node_modules node_modules". Postgres (user playbox, localhost:5432) and Redis (localhost:6379) run locally; if not, "bash ${MAIN}/notes/workflow/start-services.sh". Use your own test database: "createdb -h localhost -U playbox playbox_test_rv${i}" and Redis db ${11 + (i % 5)}.\n\nFinding to verify:\n${JSON.stringify(f, null, 1)}\n\nYour job is to REFUTE it if it is wrong and to PROVE it if it is right. Default to refuted when the claimed path does not actually exist in the code. To prove it, write the smallest failing test that demonstrates the wrong outcome through the real code path (an integration test in tests/integration/ using the existing helpers and patterns of tests/integration/*.test.ts, or a unit test), and run ONLY that file: TEST_DATABASE_URL=postgres://playbox@localhost:5432/playbox_test_rv${i} TEST_REDIS_URL=redis://localhost:6379/${11 + (i % 5)} STORAGE_LOCAL_DIR=.storage-test-rv${i} npx vitest run <your file>. A test that FAILS because the bug exists is proof (method failing-test); quote the failure. If a test cannot express it (deployment config, browser-only behavior, timing you cannot force), you may use a script or careful code reading, but then the verdict is "inconclusive" unless the code path is unambiguous. Calibrate severity by the rubric. Do not fix the bug. Do not commit. Leave your test file in place and return its full content.`,
+  { label: `verify:${f.id}`, phase: 'Verify', schema: VERDICT, isolation: 'worktree' }))
+
+return { triage, verdicts: verdicts.filter(Boolean), lows, dropped: triage.dropped, checked: ok.map(r => ({ key: r.key, checkedAndFine: r.checkedAndFine })) }

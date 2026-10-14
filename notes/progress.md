@@ -23,7 +23,7 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 2 Production build and existing e2e after four tracks | verified | `npm run test:e2e` at 0686f87 (APP_ENV=test): next build ok, Playwright 8/8 in 2.3 min, exit 0 |
 | 2 Merge fix track A, then fix track B | verified | merges 0d06957 (typecheck 0, lint 0, vitest 232/232) and b28583c (typecheck 0, lint 0, vitest 241/241); the two tracks changed no file in common |
 | 2 Merge remaining tracks, full verification, browser journey | not done | |
-| 3 Adversarial review | not done | |
+| 3 Adversarial review | not done | started 2026-10-14 01:2x on a frozen snapshot of f8d5ef3 (all tracks but infra); infra code gets its own pass after it merges |
 | 4 Visual review | not done | |
 | 5 Deliverables: vision, information architecture | implemented but not verified | drafts in the session scratchpad; critiques returned "revise"; finishing in phase 5 against the merged build |
 | 5 Deliverables: design system, engineering, deployment, verification | not done | |
@@ -136,6 +136,10 @@ vitest suite before merging.
 - 2026-10-14 01:12 Fix tracks A and B finished green and merged in slot order (232/232, then 241/241).
   Track A also edited two files outside its list (src/lib/copilot.ts, src/server/templates/publish.ts),
   both small; reviewed in the merge and kept. Infra track started on the merged head.
+- 2026-10-14 01:2x Started in parallel with the infra track: the phase 2 launch journey (worktree,
+  production build, writes tests/e2e/launch.spec.ts and evidence capture) and the phase 3 adversarial
+  review (seven finders on a frozen snapshot of f8d5ef3, triage, then reproduce-or-refute with a
+  failing test per finding). Neither is a build track, so the two-track limit still holds.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 
