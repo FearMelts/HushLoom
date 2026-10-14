@@ -1,5 +1,5 @@
 import { env } from "@/server/env";
-import { causeOf, logger, redactQueryParams, setErrorSink, type ErrorSink } from "@/server/log";
+import { causeOf, logger, redactQueryParams, redactStack, setErrorSink, type ErrorSink } from "@/server/log";
 
 /**
  * Error monitoring hook (spec part VI, audit gap G8). Every logger.error entry is a JSON line on
@@ -49,7 +49,7 @@ function errorOf(value: unknown): ErrorEvent["error"] {
     return {
       name: value.name,
       message: clip(redactQueryParams(value.message), MAX_MESSAGE),
-      stack: value.stack ? clip(redactQueryParams(value.stack), MAX_STACK) : undefined,
+      stack: value.stack ? clip(redactStack(value) ?? "", MAX_STACK) : undefined,
       digest: typeof digest === "string" ? digest : undefined,
       cause: cause ? { name: cause.name, message: clip(cause.message, MAX_MESSAGE) } : undefined,
     };

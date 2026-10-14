@@ -1,3 +1,4 @@
+import { DrizzleQueryError } from "drizzle-orm/errors";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { logger, setErrorSink } from "@/server/log";
 import { createErrorWebhook, installErrorWebhook, toErrorEvent } from "@/server/observability";
@@ -101,6 +102,31 @@ describe("error webhook", () => {
     // The wrapped reason travels too, in the event and on stdout.
     expect(sentError.cause).toEqual({ name: "Error", message: "connect ECONNREFUSED 127.0.0.1:5432" });
     expect(JSON.parse(stderr[0]!).err.cause).toEqual({ name: "Error", message: "connect ECONNREFUSED 127.0.0.1:5432" });
+  });
+
+  it("redacts every query parameter even when one holds a line that starts with 'at ' (I01)", async () => {
+    const { fetch, calls } = fakeFetch();
+    setErrorSink(createErrorWebhook({ url: URL_, source: "web", fetch }));
+    // A prompt typed over several lines: the blank line before "at" looks like the start of a stack frame.
+    const prompt = "two adults in a velvet booth\n\nat a masquerade ball, masks half lifted";
+    const query = `insert into "generation_jobs" ("prompt", "negative_prompt") values ($1, $2)`;
+    const err = new DrizzleQueryError(query, [prompt, "watermark"], new Error("canceling statement due to statement timeout"));
+    logger.error("unhandled route error", { path: "/api/generations", err });
+    await flush();
+
+    const sent = String(calls[0]!.init.body);
+    for (const leaked of ["masquerade", "masks half lifted", "watermark"]) {
+      expect(stderr.join("\n")).not.toContain(leaked);
+      expect(sent).not.toContain(leaked);
+    }
+    const sentError = calls[0]!.event.error as { message: string; stack: string };
+    expect(sentError.message).toBe(`Failed query: ${query}\nparams: [redacted]`);
+    // The stack keeps its frames after the redacted message.
+    expect(sentError.stack).toContain(`Failed query: ${query}\nparams: [redacted]\n`);
+    expect(sentError.stack).toMatch(/\n\s+at .*observability\.test\.ts/);
+    const line = JSON.parse(stderr[0]!) as { err: { message: string; stack: string } };
+    expect(line.err.message).toBe(`Failed query: ${query}\nparams: [redacted]`);
+    expect(line.err.stack).toMatch(/\n\s+at .*observability\.test\.ts/);
   });
 
   it("returns at once and survives a monitor that hangs, rejects, answers 500 or throws", async () => {

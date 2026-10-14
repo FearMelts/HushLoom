@@ -2,12 +2,27 @@ type Level = "debug" | "info" | "warn" | "error";
 
 /**
  * Drizzle's query errors carry the bound parameters in their message and stack ("params: ..."), and
- * those can hold prompts or emails. Logs keep the query text and drop the values.
+ * those can hold prompts or emails. Logs keep the query text and drop the values. The parameters end
+ * the message, and one can hold newlines (a prompt typed over several lines, even a line that starts
+ * with "at "), so everything after "params: " goes: never cut at what merely looks like a stack frame.
  */
 export function redactQueryParams(text: string): string;
 export function redactQueryParams(text: string | undefined): string | undefined;
 export function redactQueryParams(text: string | undefined): string | undefined {
-  return text?.replace(/\nparams: [\s\S]*?(?=\n\s+at |$)/, "\nparams: [redacted]");
+  return text?.replace(/\nparams: [\s\S]*$/, "\nparams: [redacted]");
+}
+
+/**
+ * The error's stack with its message redacted as above and its frames kept. The stack repeats the
+ * message verbatim, so that copy is swapped for the redacted one; a stack that does not hold the
+ * message as is loses everything after "params: ", frames included.
+ */
+export function redactStack(err: Error): string | undefined {
+  const { stack, message } = err;
+  if (!stack) return stack;
+  const redacted = redactQueryParams(message);
+  const at = redacted === message ? -1 : stack.indexOf(message);
+  return at >= 0 ? stack.slice(0, at) + redacted + stack.slice(at + message.length) : redactQueryParams(stack);
 }
 
 /** The direct cause's name and message (a wrapped query error's real reason, such as ECONNREFUSED). */
@@ -20,7 +35,7 @@ function serialize(meta: Record<string, unknown> | undefined) {
   if (!meta) return {};
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(meta)) {
-    out[k] = v instanceof Error ? { name: v.name, message: redactQueryParams(v.message), stack: redactQueryParams(v.stack), cause: causeOf(v) } : v;
+    out[k] = v instanceof Error ? { name: v.name, message: redactQueryParams(v.message), stack: redactStack(v), cause: causeOf(v) } : v;
   }
   return out;
 }
