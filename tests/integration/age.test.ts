@@ -6,10 +6,12 @@ import { and, eq } from "drizzle-orm";
 
 // Route handlers read the session cookie and the geo headers through next/headers, which only
 // works inside a Next request. The tests stand in for that request scope.
-const requestScope = vi.hoisted(() => ({ token: null as string | null, headers: {} as Record<string, string> }));
+// ageGate stands for the step-one gate's hl_age_ok cookie; visitors have passed it unless a test says otherwise.
+const requestScope = vi.hoisted(() => ({ token: null as string | null, headers: {} as Record<string, string>, ageGate: true }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({
-    get: (name: string) => (name === "hl_session" && requestScope.token ? { name, value: requestScope.token } : undefined),
+    get: (name: string) =>
+      name === "hl_session" && requestScope.token ? { name, value: requestScope.token } : name === "hl_age_ok" && requestScope.ageGate ? { name, value: "1" } : undefined,
     set: () => undefined,
     delete: () => undefined,
   }),
@@ -71,9 +73,10 @@ async function signIn(user: SessionUser, headers: Record<string, string> = {}) {
   requestScope.headers = headers;
 }
 
-function anonymous(headers: Record<string, string> = {}) {
+function anonymous(headers: Record<string, string> = {}, opts: { ageGate?: boolean } = {}) {
   requestScope.token = null;
   requestScope.headers = headers;
+  requestScope.ageGate = opts.ageGate ?? true;
 }
 
 async function userRow(id: string) {
@@ -635,5 +638,32 @@ describe("R45: coming back from the provider when its result API fails", () => {
     }
     expect((await userRow(gb.id)).ageVerificationStatus).toBe("pending");
     expect((await verificationRow(started.providerRef)).status).toBe("pending");
+  });
+});
+
+describe("R36: the step-one age gate outside the layout", () => {
+  it("issues no media to an anonymous visitor who has not passed the gate, through the API or the pages' viewer", async () => {
+    const t = await publishedTemplate();
+    const card = async () => {
+      const res = await templatesRoute(new NextRequest("http://localhost/api/templates?sort=new"), undefined as never);
+      const body = (await res.json()) as { items: { id: string; posterUrl: string | null; previewUrl: string | null; mediaWithheld: boolean }[] };
+      return body.items.find((c) => c.id === t.id)!;
+    };
+
+    // From an uncovered place, without the gate's cookie: the layout shows the gate, and nothing else hands out media.
+    anonymous({ "x-country-code": "DE" }, { ageGate: false });
+    expect((await viewerAccess()).explicitAllowed).toBe(false);
+    expect(await card()).toMatchObject({ title: "Candle Toast", posterUrl: null, previewUrl: null, mediaWithheld: true });
+
+    // Through the gate, the same visitor gets the media.
+    anonymous({ "x-country-code": "DE" });
+    expect((await viewerAccess()).explicitAllowed).toBe(true);
+    expect((await card()).posterUrl).toMatch(/\/api\/media/);
+
+    // A member passed the date-of-birth check at signup, so the layout does not ask them again either.
+    await signIn(await userIn("DE"), { "x-country-code": "DE" });
+    requestScope.ageGate = false;
+    expect((await viewerAccess()).explicitAllowed).toBe(true);
+    expect((await card()).posterUrl).toMatch(/\/api\/media/);
   });
 });

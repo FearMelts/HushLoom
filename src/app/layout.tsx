@@ -3,6 +3,7 @@ import { cookies, headers } from "next/headers";
 import { AgeGate } from "@/components/age-gate";
 import { ServiceWorkerRegistrar } from "@/components/service-worker";
 import { Shell, type ShellUser } from "@/components/shell";
+import { AGE_GATE_COOKIE } from "@/server/age/access";
 import { getCurrentUser } from "@/server/auth/session";
 import { getBalance } from "@/server/credits/ledger";
 import "./globals.css";
@@ -36,8 +37,6 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-const AGE_COOKIE = "hl_age_ok";
-
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const path = (await headers()).get("x-pathname") ?? "/";
   // The offline page is the same for everyone (the service worker caches it): no shell, no account, no gate.
@@ -53,7 +52,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const shellUser: ShellUser = user
     ? { id: user.id, handle: user.handle, displayName: user.displayName, role: user.role, credits: (await getBalance(user.id)).available }
     : null;
-  const ageOk = Boolean(user) || (await cookies()).get(AGE_COOKIE)?.value === "1";
+  const ageOk = Boolean(user) || (await cookies()).get(AGE_GATE_COOKIE)?.value === "1";
   const gated = !ageOk && !path.startsWith("/policies");
 
   return (
