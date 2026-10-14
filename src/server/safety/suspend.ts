@@ -1,7 +1,21 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { audit } from "@/server/audit";
 import type { Tx } from "@/server/db";
-import { pushSubscriptions, sessions, users } from "@/server/db/schema";
+import { accountFlags, pushSubscriptions, sessions, users } from "@/server/db/schema";
+
+/** details.source on the manual_review flag an admin suspension records, so a cleared scan case never lifts it. */
+export const ADMIN_SUSPENSION = "admin_suspension";
+
+/**
+ * Open flags that keep an account suspended: an abuse case (csam_match, from a scanner match or a
+ * CSAM takedown) or an admin's suspension.
+ */
+export function suspensionCauses(t: Tx, userId: string) {
+  return t
+    .select({ id: accountFlags.id, kind: accountFlags.kind })
+    .from(accountFlags)
+    .where(and(eq(accountFlags.userId, userId), isNull(accountFlags.clearedAt), or(eq(accountFlags.kind, "csam_match"), sql`${accountFlags.details}->>'source' = ${ADMIN_SUSPENSION}`)));
+}
 
 /**
  * The account side of an abuse case (addendum §3): the owner is suspended and signed out on every

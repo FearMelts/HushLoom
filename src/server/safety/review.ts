@@ -1,16 +1,18 @@
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "@/server/audit";
 import { getDb } from "@/server/db";
 import { accountFlags, mediaAssets, moderationEvents, userProfiles, users } from "@/server/db/schema";
 import { HttpError, notFound } from "@/server/http";
+import { suspensionCauses } from "@/server/safety/suspend";
 
 /**
  * The human review queue for abuse-scan matches (addendum §3). A match opens a moderation event
  * with action "escalate"; an admin either confirms it and records the report reference (the
  * evidence stays on legal hold, the account stays suspended) or clears it as a false positive
- * (the asset becomes servable, the hold lifts, the flag clears and the account is reinstated
- * when no other abuse flag is open). The queue never shows the matched media itself.
+ * (the flag clears; the asset becomes servable and its hold lifts unless another case on the
+ * same file is open or confirmed; the account is reinstated only when no other abuse case is
+ * open and no admin suspended it). The queue never shows the matched media itself.
  */
 export type Escalation = {
   id: string;
@@ -134,11 +136,25 @@ export async function resolveEscalation(adminId: string, eventId: string, input:
       return;
     }
 
-    // False positive: the asset is cleared and servable again, the hold lifts, the flag clears.
-    await tx
-      .update(mediaAssets)
-      .set({ scanStatus: "clean", legalHold: false, scanRef: `review-cleared:${e.id}`, scannedAt: now })
-      .where(eq(mediaAssets.id, assetId));
+    // False positive: the asset is cleared and servable again, the hold lifts, the flag clears. A
+    // file another case still needs (open, or confirmed and reported) keeps its verdict and hold.
+    const [otherCase] = await tx
+      .select({ id: moderationEvents.id })
+      .from(moderationEvents)
+      .where(
+        and(
+          eq(moderationEvents.subjectId, assetId),
+          ne(moderationEvents.id, e.id),
+          or(and(eq(moderationEvents.action, "escalate"), eq(moderationEvents.status, "open")), eq(moderationEvents.action, "hold")),
+        ),
+      )
+      .limit(1);
+    if (!otherCase) {
+      await tx
+        .update(mediaAssets)
+        .set({ scanStatus: "clean", legalHold: false, scanRef: `review-cleared:${e.id}`, scannedAt: now })
+        .where(eq(mediaAssets.id, assetId));
+    }
     await tx
       .update(moderationEvents)
       .set({ status: "resolved", resolvedAt: now, actorId: adminId, details: sql`${moderationEvents.details} || ${JSON.stringify({ resolution: "false_positive", resolutionNote: input.note })}::jsonb` })
@@ -158,15 +174,12 @@ export async function resolveEscalation(adminId: string, eventId: string, input:
       .set({ clearedAt: now, clearedBy: adminId, details: sql`${accountFlags.details} || ${JSON.stringify({ clearNote: input.note })}::jsonb` })
       .where(and(sql`${accountFlags.details}->>'escalationId' = ${e.id}`, isNull(accountFlags.clearedAt)))
       .returning({ userId: accountFlags.userId });
-    await audit(adminId, "scan.false_positive_cleared", "media_asset", assetId, { escalationId: e.id, note: input.note }, tx);
+    await audit(adminId, "scan.false_positive_cleared", "media_asset", assetId, { escalationId: e.id, note: input.note, ...(otherCase ? { holdKeptFor: otherCase.id } : {}) }, tx);
     const ownerId = cleared[0]?.userId ?? (typeof e.details.ownerId === "string" ? e.details.ownerId : null);
     if (!ownerId) return;
-    const [stillFlagged] = await tx
-      .select({ id: accountFlags.id })
-      .from(accountFlags)
-      .where(and(eq(accountFlags.userId, ownerId), eq(accountFlags.kind, "csam_match"), isNull(accountFlags.clearedAt)))
-      .limit(1);
-    if (stillFlagged) return;
+    // Another open case, or an admin's own suspension, keeps the account suspended.
+    const [otherCause] = await suspensionCauses(tx, ownerId).limit(1);
+    if (otherCause) return;
     const [reinstated] = await tx
       .update(users)
       .set({ status: "active", updatedAt: now })

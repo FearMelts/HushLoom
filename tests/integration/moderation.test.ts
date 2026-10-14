@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { suspendUser } from "@/server/admin";
 import { createSession, userForToken, type SessionUser } from "@/server/auth/session";
 import { closeDb, getDb, type Tx } from "@/server/db";
 import {
@@ -16,8 +17,10 @@ import {
 } from "@/server/db/schema";
 import { confirmJob, createDraft } from "@/server/generation/service";
 import { processJob } from "@/server/generation/processor";
+import { purgeDeletedMedia } from "@/server/media";
 import { closeRedis } from "@/server/redis";
 import { resolveEscalation } from "@/server/safety/review";
+import { recordVerdict } from "@/server/safety/scan";
 import { resolveTakedown, type TakedownCategory } from "@/server/safety/takedowns";
 import { publishTemplate, updateTemplate } from "@/server/templates/publish";
 import { key, makeUser, resetDb } from "../helpers";
@@ -220,5 +223,60 @@ describe("R11 template edits never write back what they read before a concurrent
     const versions = await getDb().select().from(templateVersions).where(eq(templateVersions.templateId, t.id));
     expect(versions.map((v) => v.version).sort()).toEqual([1, 2, 3, 4]);
     expect((await row()).currentVersion).toBe(4);
+  });
+});
+
+describe("R21 clearing a false positive lifts only what that case caused", () => {
+  /** A later scan of a creation the account already has (a backfill), matching it as CSAM. */
+  async function scannerMatch(owner: SessionUser, jobId?: string) {
+    const { asset } = await sourceOf(jobId ?? (await finished(owner)).id);
+    await recordVerdict({ assetId: asset.id, mime: asset.mime, kind: "image", sha256: asset.sha256, ownerId: owner.id, origin: "backfill" }, { status: "matched", provider: "dev", ref: "drill", category: "csam" });
+    const [esc] = await getDb().select().from(moderationEvents).where(and(eq(moderationEvents.action, "escalate"), eq(moderationEvents.subjectId, asset.id)));
+    return { asset, esc: esc! };
+  }
+  const statusOf = async (id: string) => (await getDb().select({ s: users.status }).from(users).where(eq(users.id, id)))[0]!.s;
+
+  it("keeps an admin's suspension when a match made afterwards is cleared", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const u = await makeUser({ credits: 50 });
+    const job = await finished(u);
+    await suspendUser(admin.id, u.id, "Harassment reports");
+    const { esc } = await scannerMatch(u, job.id);
+
+    await resolveEscalation(admin.id, esc.id, { action: "clear", note: "Drill fixture, not real material" });
+    expect(await statusOf(u.id)).toBe("suspended");
+    expect(await getDb().select().from(auditLogs).where(and(eq(auditLogs.action, "user.reinstate"), eq(auditLogs.targetId, u.id)))).toHaveLength(0);
+  });
+
+  it("lets an admin add a reason to an account a match suspended, and clearing the match keeps it", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const u = await makeUser({ credits: 50 });
+    const { esc } = await scannerMatch(u);
+    expect(await statusOf(u.id)).toBe("suspended");
+
+    await expect(suspendUser(admin.id, u.id, "Separate harassment reports")).resolves.toMatchObject({ unpublishedTemplates: expect.any(Number) });
+    await resolveEscalation(admin.id, esc.id, { action: "clear", note: "Drill fixture, not real material" });
+    expect(await statusOf(u.id)).toBe("suspended");
+  });
+
+  it("clearing a duplicate case keeps the hold a confirmed case on the same file needs", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const creator = await makeUser({ credits: 50 });
+    const t = await publish(creator, (await finished(creator)).id);
+    // Two people report the same template; both requests are actioned.
+    for (const email of ["one@example.test", "two@example.test"]) {
+      const [req] = await getDb().insert(takedownRequests).values({ requesterEmail: email, targetType: "template", targetRef: t.id, category: "csam" }).returning();
+      await resolveTakedown(admin.id, req!.id, { action: "action", note: "" });
+    }
+    const cases = await getDb().select().from(moderationEvents).where(and(eq(moderationEvents.action, "escalate"), eq(moderationEvents.subjectId, t.posterAssetId!)));
+    expect(cases).toHaveLength(2);
+    await resolveEscalation(admin.id, cases[0]!.id, { action: "confirm", reportRef: "CT-2026-000888", reportedTo: "ncmec_cybertipline", note: "" });
+    await resolveEscalation(admin.id, cases[1]!.id, { action: "clear", note: "Duplicate of the confirmed report" });
+
+    const [evidence] = await getDb().select().from(mediaAssets).where(eq(mediaAssets.id, t.posterAssetId!));
+    expect(evidence).toMatchObject({ legalHold: true });
+    await getDb().update(mediaAssets).set({ deletedAt: new Date(Date.now() - 90 * 86_400_000) }).where(eq(mediaAssets.id, t.posterAssetId!));
+    expect(await purgeDeletedMedia(30)).toBe(0);
+    expect(await statusOf(creator.id)).toBe("suspended");
   });
 });
