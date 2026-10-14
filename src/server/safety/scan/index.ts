@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "@/server/audit";
 import { getDb, type Tx } from "@/server/db";
@@ -227,10 +227,18 @@ export async function recordVerdict(subject: Omit<ScanSubject, "bytes">, verdict
   const now = new Date();
   const log = { assetId: subject.assetId, origin: subject.origin, provider: verdict.provider };
   if (verdict.status !== "matched") {
-    await (tx ?? getDb())
+    // A match stands until a person clears it in the review queue: a later verdict for the same asset
+    // (a live scan that lost a race with the backfill, a retry) never overwrites it, and the caller is
+    // told the asset is matched, so nothing treats the held evidence as unscanned and discards it.
+    const [updated] = await (tx ?? getDb())
       .update(mediaAssets)
       .set({ scanStatus: verdict.status, scanProvider: verdict.provider, scanRef: verdict.status === "clean" ? (verdict.ref ?? null) : null, scannedAt: now })
-      .where(eq(mediaAssets.id, subject.assetId));
+      .where(and(eq(mediaAssets.id, subject.assetId), ne(mediaAssets.scanStatus, "matched")))
+      .returning({ id: mediaAssets.id });
+    if (!updated) {
+      const [row] = await (tx ?? getDb()).select({ status: mediaAssets.scanStatus }).from(mediaAssets).where(eq(mediaAssets.id, subject.assetId));
+      if (row?.status === "matched") return "matched";
+    }
     if (verdict.status === "unavailable") logger.warn("scan.unavailable", { ...log, detail: verdict.detail, failClosed: scanFailClosed() });
     return verdict.status;
   }

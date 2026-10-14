@@ -191,9 +191,11 @@ async function stripVideoMetadata(clip: Buffer): Promise<Buffer> {
   }
 }
 
-/** Removes an upload the scanner could not check: its rows go, and its bytes are deleted now. */
+/** Removes an upload the scanner could not check: its rows go, and its bytes are deleted now. Held evidence is left alone. */
 async function discardUnscannedUpload(assetId: string) {
   await getDb().transaction(async (tx) => {
+    const [asset] = await tx.select({ legalHold: mediaAssets.legalHold }).from(mediaAssets).where(eq(mediaAssets.id, assetId)).for("update");
+    if (!asset || asset.legalHold) return;
     const [row] = await tx.delete(uploads).where(eq(uploads.assetId, assetId)).returning({ consentRecordId: uploads.consentRecordId });
     if (row?.consentRecordId) await tx.delete(consentRecords).where(eq(consentRecords.id, row.consentRecordId));
     await tx.update(mediaAssets).set({ deletedAt: new Date() }).where(and(eq(mediaAssets.id, assetId), eq(mediaAssets.legalHold, false)));
@@ -225,13 +227,26 @@ export async function purgeAssetsNow(assetIds: string[]): Promise<number> {
   return purgeRows(rows);
 }
 
+/**
+ * Deletes each file under a lock on its row, after reading the row again: a hold placed since the
+ * batch was chosen (a takedown, a scan match) wins, and a hold placed during the delete waits for it.
+ */
 async function purgeRows(rows: { id: string; key: string }[]): Promise<number> {
   let n = 0;
   for (const r of rows) {
     try {
-      await storage().delete(r.key);
-      await getDb().update(mediaAssets).set({ bytes: 0, storageKey: `purged/${r.id}` }).where(eq(mediaAssets.id, r.id));
-      n++;
+      const purged = await getDb().transaction(async (tx) => {
+        const [still] = await tx
+          .select({ id: mediaAssets.id })
+          .from(mediaAssets)
+          .where(and(eq(mediaAssets.id, r.id), eq(mediaAssets.storageKey, r.key), isNotNull(mediaAssets.deletedAt), eq(mediaAssets.legalHold, false)))
+          .for("update");
+        if (!still) return false;
+        await storage().delete(r.key);
+        await tx.update(mediaAssets).set({ bytes: 0, storageKey: `purged/${r.id}` }).where(eq(mediaAssets.id, r.id));
+        return true;
+      });
+      if (purged) n++;
     } catch (err) {
       logger.warn("purge failed for asset", { assetId: r.id, err });
     }
