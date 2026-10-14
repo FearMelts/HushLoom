@@ -7,6 +7,7 @@ import { audit } from "@/server/audit";
 import { getDb } from "@/server/db";
 import { consentRecords, discoveryEvents, sessions, templates, userPreferences, userProfiles } from "@/server/db/schema";
 import { HttpError } from "@/server/http";
+import { pushStatus } from "@/server/push";
 
 export const profileSchema = z.object({
   displayName: z.string().trim().min(1).max(40),
@@ -26,6 +27,8 @@ export const preferencesSchema = z
     autoplayPreviews: z.boolean(),
     copilotEnabled: z.boolean(),
     interests: z.array(z.string().trim().toLowerCase().min(1).max(24)).max(12),
+    /** Opt-in push when a creation finishes (addendum §4); devices subscribe separately via /api/push/subscriptions. */
+    notifyOnFinish: z.boolean(),
   })
   .partial();
 
@@ -78,7 +81,9 @@ export async function settingsFor(userId: string, ctx: AgeContext = { country: n
       autoplayPreviews: prefs?.autoplayPreviews ?? false,
       copilotEnabled: prefs?.copilotEnabled ?? true,
       interests: prefs?.interests ?? [],
+      notifyOnFinish: prefs?.notifyOnFinish ?? false,
     },
+    pushEnabled: pushStatus().enabled,
     consents: consents.map((c) => ({
       id: c.id,
       kind: c.kind,

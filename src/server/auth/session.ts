@@ -4,7 +4,7 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { cache } from "react";
 import { getDb } from "@/server/db";
-import { sessions, userProfiles, users } from "@/server/db/schema";
+import { pushSubscriptions, sessions, userProfiles, users } from "@/server/db/schema";
 import { env } from "@/server/env";
 
 export const SESSION_COOKIE = "hl_session";
@@ -83,6 +83,18 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   return userForToken(token);
 });
 
+/** The id of this request's live session row, or null. Push subscriptions are tied to it (one per signed-in device). */
+export const currentSessionId = cache(async (): Promise<string | null> => {
+  const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  const [row] = await getDb()
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, new Date())))
+    .limit(1);
+  return row?.id ?? null;
+});
+
 export async function destroyCurrentSession() {
   const jar = await cookies();
   const token = jar.get(SESSION_COOKIE)?.value;
@@ -91,5 +103,7 @@ export async function destroyCurrentSession() {
 }
 
 export async function destroyAllSessions(userId: string) {
+  // Every device signs out, so no device keeps receiving pushes (the session FK cascade would also do it).
+  await getDb().delete(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   await getDb().delete(sessions).where(eq(sessions.userId, userId));
 }

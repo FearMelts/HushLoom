@@ -7,6 +7,8 @@ import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 import { Badge, Button, Chip, Field, Sheet, Toggle, inputClass, useToast } from "./ui";
+import { InstallCard } from "./install-card";
+import { NotificationsCard } from "./notifications-card";
 
 type Settings = {
   profile: { displayName: string; handle: string; bio: string };
@@ -199,6 +201,8 @@ export function SettingsView({ data, email }: { data: Settings; email: string })
       </Section>
 
       <AgeVerificationCard data={data} />
+
+      <InstallCard><NotificationsCard data={data} /></InstallCard>
 
       <Section title="Account">
         <div className="flex flex-wrap items-center justify-between gap-3">

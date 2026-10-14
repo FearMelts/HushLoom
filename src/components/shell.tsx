@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { JobTray } from "./job-tray";
+import { OfflineBanner } from "./offline";
 import { ToastProvider, buttonClass } from "./ui";
 
 export type ShellUser = { id: string; handle: string; displayName: string; role: string; credits: number } | null;
@@ -154,7 +155,7 @@ export function Shell({ user, children }: { user: ShellUser; children: ReactNode
       </aside>
 
       {/* Top bar */}
-      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-ink-950/80 backdrop-blur lg:pl-[236px]">
+      <header className="sticky top-0 z-30 border-b border-[var(--line)] bg-ink-950/80 pt-[env(safe-area-inset-top)] backdrop-blur lg:pl-[236px]">
         <div className="mx-auto flex h-16 max-w-[1600px] items-center gap-3 px-4 sm:px-6">
           <Link href="/" className="lg:hidden" aria-label="Hushloom home">
             <Wordmark />
@@ -177,6 +178,7 @@ export function Shell({ user, children }: { user: ShellUser; children: ReactNode
             )}
           </div>
         </div>
+        <OfflineBanner />
       </header>
 
       <main id="main" className="pb-28 lg:pb-12 lg:pl-[236px]">
