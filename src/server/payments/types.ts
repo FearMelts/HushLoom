@@ -60,7 +60,11 @@ export type PaymentEvent = (
       transactionRef: string;
       amountCents: number;
       currency: string;
-      /** The processor's subscription / purchase id, for processors whose refund carries a new transaction id. */
+      /**
+       * The processor's subscription / purchase id, only when transactionRef is the reversal's own new id: the reversal is
+       * then matched to that purchase's latest credited charge. A reversal whose transactionRef names the charge it reverses
+       * leaves this out, so one that overtakes its charge (a rebill) waits for it instead of taking another charge's credits.
+       */
       subscriptionRef?: string;
       /** True when amountCents is the total refunded so far (Stripe), false when it is this refund alone. */
       cumulative?: boolean;

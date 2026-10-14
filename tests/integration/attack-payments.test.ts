@@ -8,6 +8,7 @@ import { getBalance, listLedger } from "@/server/credits/ledger";
 import { closeDb, getDb } from "@/server/db";
 import { accountFlags, paymentEvents, subscriptions } from "@/server/db/schema";
 import { activePlan } from "@/server/generation/service";
+import { SANDBOX_SIGNATURE_HEADER, signSandboxBody } from "@/server/payments/providers/sandbox";
 import { compactUserId } from "@/server/payments/providers/segpay";
 import { openFlags } from "@/server/payments/service";
 import { closeRedis } from "@/server/redis";
@@ -423,17 +424,37 @@ describe("attack R10: reversals that overtake their purchase", () => {
   // and a later reversal of the first charge owes nothing ("already reversed"). Both charges are refunded and the buyer
   // keeps a period's credits. Segpay's relatedtranid is documented as the original transaction, so this is the expected
   // shape of a Credit for a rebill; the same fallback exists for CCBill and the sandbox.
-  it.fails("HOLE: a refund of a rebill that overtakes the rebill is taken from the first charge, and the rebill still grants", async () => {
+  // Closed for Segpay and the sandbox: a reversal that names its charge (relatedtranid) carries no purchase id to fall back
+  // on, so it waits for that charge. CCBill keeps the fallback until its reversal id is confirmed (ccbill.ts, question 2).
+  it("HOLE: a refund of a rebill that overtakes the rebill is taken from the first charge, and the rebill still grants", async () => {
     const u = await makeUser();
     expect(outcome(await segpaySale(u.id, "plan_member", "TG1", "PG1"))).toBe("processed");
     expect((await getBalance(u.id)).available).toBe(400);
     // Segpay rebills TG2, the postback fails (deploy, timeout) and is queued for retry; the rebill is refunded meanwhile.
     expect((await segpay({ action: "Transaction", trantype: "Credit", stage: "Rebill", approved: "Yes", tranid: "TG3", relatedtranid: "TG2", purchaseid: "PG1", price: "19.99", currencycode: "USD" })).status).toBe(200);
+    // It waits for TG2: the first charge's credits are not taken for it.
+    expect((await getBalance(u.id)).available).toBe(400);
     // The rebill postback is retried and lands.
     expect((await segpay({ action: "Transaction", trantype: "Sale", stage: "Rebill", approved: "Yes", tranid: "TG2", purchaseid: "PG1", price: "19.99", currencycode: "USD" })).status).toBe(200);
+    expect((await getBalance(u.id)).available).toBe(400);
     // The first charge is refunded too.
     expect((await segpay({ action: "Transaction", trantype: "Credit", stage: "Initial", approved: "Yes", tranid: "TG4", relatedtranid: "TG1", purchaseid: "PG1", price: "19.99", currencycode: "USD" })).status).toBe(200);
     // Both charges were refunded: nothing paid, so nothing kept.
+    expect((await getBalance(u.id)).available).toBe(0);
+  });
+
+  it("a sandbox refund of a renewal that overtakes the renewal waits for it instead of taking the pass's first charge", async () => {
+    const u = await makeUser();
+    const sbx = (body: Record<string, unknown>) => {
+      const raw = JSON.stringify({ amountCents: 1999, currency: "usd", subscriptionRef: "sbx_atk_sub", ...body });
+      return webhook("sandbox", raw, { headers: { "content-type": "application/json", [SANDBOX_SIGNATURE_HEADER]: signSandboxBody(raw) } });
+    };
+    expect(await (await sbx({ kind: "sale", eventId: "sbx_atk_start", userId: u.id, itemKey: "plan_member", transactionRef: "sbx_atk_t1" })).json()).toMatchObject({ outcome: "processed" });
+    expect(await (await sbx({ kind: "refund", eventId: "sbx_atk_rf2", transactionRef: "sbx_atk_t2" })).json()).toMatchObject({ outcome: "ignored" });
+    expect((await getBalance(u.id)).available).toBe(400);
+    expect(await (await sbx({ kind: "renewal", eventId: "sbx_atk_renew", transactionRef: "sbx_atk_t2" })).json()).toMatchObject({ outcome: "processed" });
+    expect((await getBalance(u.id)).available).toBe(400);
+    expect(await (await sbx({ kind: "refund", eventId: "sbx_atk_rf1", transactionRef: "sbx_atk_t1" })).json()).toMatchObject({ outcome: "processed" });
     expect((await getBalance(u.id)).available).toBe(0);
   });
 

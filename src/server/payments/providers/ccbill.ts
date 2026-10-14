@@ -32,7 +32,9 @@ import { checkoutItem, currencyFromNumeric, currencyToNumeric, hmacHex, md5, par
  *  1. That FlexForms echoes URL parameters prefixed "X-" back in webhooks (pass-through), and
  *     under which key spelling (this adapter reads only "X-hlUser", in any case; never the bare "hlUser").
  *  2. Whether the Refund / Chargeback / Return `transactionId` is the original sale's id or a
- *     new id (this adapter tries the transaction id first, then the subscriptionId).
+ *     new id (this adapter tries the transaction id first, then the subscriptionId). If it is the
+ *     refunded charge's id, drop subscriptionRef from reversals, as Segpay does with relatedtranid:
+ *     otherwise a refund of a rebill that overtakes the rebill is taken from the pass's first charge.
  *  3. Whether the webhook URL keeps its own query string, which CCBILL_WEBHOOK_TOKEN relies on.
  *  4. The exact `timestamp` and `nextRenewalDate` formats (only the "YYYY-MM-DD HH:MM:SS" example is documented).
  *  5. `initialPeriod` for one-time packs (30 days here; CCBill allows 2–365).

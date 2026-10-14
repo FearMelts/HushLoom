@@ -198,11 +198,14 @@ export function segpayEventFromParams(c: Cfg, p: Record<string, string>, headers
     if (approved === "no") return { type: "ignored", providerEventId: `declined:${tranId}`, raw: "segpay declined rebill", metadata: meta };
     return { type: "subscription_renewed", providerEventId: `rebill:${tranId}`, providerSubscriptionId: purchaseId ?? "", amountCents, currency, transactionRef: tranId!, currentPeriodEnd: parseTime(field(p, "nextbilldate")), metadata: meta };
   }
+  // relatedtranid names the charge a reversal reverses: it is matched to that charge alone and waits for it if it has not
+  // landed yet. Only a reversal without it is matched to the purchase's latest credited charge instead.
+  const reversed = relatedTranId ? { transactionRef: relatedTranId } : { transactionRef: tranId!, subscriptionRef: purchaseId };
   if (trantype === "credit" || trantype === "void") {
-    return { type: "refund", providerEventId: `${trantype}:${tranId}`, transactionRef: relatedTranId ?? tranId!, subscriptionRef: purchaseId, amountCents, currency, metadata: meta };
+    return { type: "refund", providerEventId: `${trantype}:${tranId}`, ...reversed, amountCents, currency, metadata: meta };
   }
   if (trantype === "charge") {
-    return { type: "chargeback", providerEventId: `chargeback:${tranId}`, transactionRef: relatedTranId ?? tranId!, subscriptionRef: purchaseId, amountCents, currency, metadata: meta };
+    return { type: "chargeback", providerEventId: `chargeback:${tranId}`, ...reversed, amountCents, currency, metadata: meta };
   }
   if (action === "disable" || action === "cancel" || action === "cancellation") {
     // Cancellation stops rebilling; the pass stays paid until its period ends, when Segpay sends Disable.
