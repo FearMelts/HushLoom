@@ -196,7 +196,9 @@ describe("R28 unhandled-error logs", () => {
     try {
       // Postgres rejects the impossible date (22008) and quotes it in its own message, which Drizzle wraps as the cause.
       const handler = route(async () => {
-        await getDb().insert(users).values({ email: PRIVATE[0]!, passwordHash: PRIVATE[1]!, dateOfBirth: PRIVATE[2]! });
+        await getDb()
+          .insert(users)
+          .values({ email: PRIVATE[0]!, passwordHash: PRIVATE[1]!, dateOfBirth: PRIVATE[2]!, ageAssuranceMethod: "self_declaration", ageAssuredAt: new Date() });
         return new Response(null, { status: 204 });
       });
       expect((await call(handler as Handler, "POST", "/api/anything")).status).toBe(500);
