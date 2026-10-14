@@ -5,8 +5,9 @@ import { mediaAssets } from "@/server/db/schema";
 import { storage, verifyLocalSignature } from "@/server/storage";
 
 /**
- * Serves local-driver media. Access is granted only by a valid, unexpired
- * signature, which the server issues after its own ownership check.
+ * Serves all stored media, from the local disk or the S3 bucket alike (the bucket is never linked
+ * directly). Access is granted only by a valid, unexpired signature, which the server issues after
+ * its own ownership check.
  * Supports Range requests so video can seek on mobile.
  * Only assets the abuse scanner cleared are served; anything else is the same 404 as a deleted
  * asset, even with a link signed before the verdict changed (addendum §3).

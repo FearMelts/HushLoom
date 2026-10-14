@@ -36,7 +36,7 @@ Nothing in this pipeline logs or audits image bytes or prompts. Logs and audit r
 | `unavailable`, fail-closed (default) | deleted now (rows removed, bytes purged) | nothing | **503** `scan_unavailable`, "We couldn't check this file right now. Try again in a few minutes." | back to **queued** with the credit reservation held; after `max_attempts` (3) **failed**, `scan_unavailable`, credits returned |
 | `unavailable`, fail-closed off | kept as `unavailable`, never served or usable | nothing | 201 with warning `scan_pending` | completes; the output exists but has no URL until a rescan clears it |
 
-"Never served" is enforced in three places: `assetUrl()` signs only clean assets; `/api/media` returns 404 for anything not clean even with a validly signed link issued earlier; downloads go through `assetUrl()` and 404 the same way. Library, projects, characters, creator pages and the gallery all build URLs through `assetUrl()`.
+"Never served" is enforced in three places: `assetUrl()` signs only clean assets; `/api/media` returns 404 for anything not clean even with a validly signed link issued earlier (with S3 storage too: the bucket is never linked directly, and its files are served through `/api/media`); downloads go through `assetUrl()` and 404 the same way. Library, projects, characters, creator pages and the gallery all build URLs through `assetUrl()`.
 
 ## 3 What happens on a match
 

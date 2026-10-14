@@ -2,14 +2,13 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { env, mediaSigningSecret } from "@/server/env";
 
 export interface StorageDriver {
   put(key: string, body: Buffer, mime: string): Promise<void>;
   get(key: string): Promise<Buffer>;
   delete(key: string): Promise<void>;
-  /** A short-lived URL. Callers must check ownership before asking for one. */
+  /** A short-lived /api/media URL (mediaUrl). Callers must check ownership before asking for one. */
   signedUrl(key: string, ttlSeconds: number, opts?: { download?: string }): Promise<string>;
 }
 
@@ -21,7 +20,7 @@ export function sha256(buf: Buffer): string {
   return createHash("sha256").update(buf).digest("hex");
 }
 
-// ── Local driver: files on disk, served by /api/media with an HMAC signature ──
+// ── Media links: every driver's files are served by /api/media with an HMAC signature ──
 
 function signLocal(key: string, exp: number, download: string): string {
   return createHmac("sha256", mediaSigningSecret()).update(`${key}\n${exp}\n${download}`).digest("base64url");
@@ -33,6 +32,25 @@ export function verifyLocalSignature(key: string, exp: number, download: string,
   const given = Buffer.from(sig);
   return expected.length === given.length && timingSafeEqual(expected, given);
 }
+
+/**
+ * The link for a stored file, whichever driver holds it. It always points at /api/media, never at
+ * the bucket: that route re-reads the asset row on every request and refuses anything deleted,
+ * held or not cleared by the abuse scan, so a removed or matched asset stops being served at once,
+ * even through a link issued before. A presigned bucket URL would keep serving until it expired,
+ * and nothing could revoke it.
+ */
+export function mediaUrl(key: string, ttlSeconds: number, opts?: { download?: string }): string {
+  // Round expiry up to a window boundary so URLs stay stable (and cacheable) within a window.
+  const now = Math.floor(Date.now() / 1000);
+  const exp = Math.ceil((now + ttlSeconds) / ttlSeconds) * ttlSeconds;
+  const download = opts?.download ?? "";
+  const q = new URLSearchParams({ k: key, e: String(exp), s: signLocal(key, exp, download) });
+  if (download) q.set("d", download);
+  return `/api/media?${q.toString()}`;
+}
+
+// ── Local driver: files on disk ──
 
 function safeLocalPath(root: string, key: string): string {
   if (!/^[a-z]+\/[0-9a-zA-Z-]+\/[0-9a-zA-Z-]+\.[a-z0-9]+$/.test(key)) throw new Error("invalid storage key");
@@ -55,17 +73,11 @@ class LocalDriver implements StorageDriver {
     await rm(safeLocalPath(this.root, key), { force: true });
   }
   async signedUrl(key: string, ttlSeconds: number, opts?: { download?: string }) {
-    // Round expiry up to a window boundary so URLs stay stable (and cacheable) within a window.
-    const now = Math.floor(Date.now() / 1000);
-    const exp = Math.ceil((now + ttlSeconds) / ttlSeconds) * ttlSeconds;
-    const download = opts?.download ?? "";
-    const q = new URLSearchParams({ k: key, e: String(exp), s: signLocal(key, exp, download) });
-    if (download) q.set("d", download);
-    return `/api/media?${q.toString()}`;
+    return mediaUrl(key, ttlSeconds, opts);
   }
 }
 
-// ── S3-compatible driver (AWS S3, R2, MinIO, …) ──
+// ── S3-compatible driver (AWS S3, R2, MinIO, …): a private bucket, read only by the app ──
 
 class S3Driver implements StorageDriver {
   private client: S3Client;
@@ -93,16 +105,9 @@ class S3Driver implements StorageDriver {
   async delete(key: string) {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
+  /** Not a presigned bucket URL: S3 media is served through /api/media too, so removal takes effect at once (mediaUrl). */
   async signedUrl(key: string, ttlSeconds: number, opts?: { download?: string }) {
-    return getSignedUrl(
-      this.client,
-      new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-        ResponseContentDisposition: opts?.download ? `attachment; filename="${opts.download}"` : undefined,
-      }),
-      { expiresIn: ttlSeconds },
-    );
+    return mediaUrl(key, ttlSeconds, opts);
   }
 }
 
