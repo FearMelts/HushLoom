@@ -8,6 +8,9 @@ export const BASE_URL = `http://localhost:${PORT}`;
 // Everything the e2e stack needs, isolated from the dev database, Redis db and storage.
 const env = {
   NODE_ENV: "production",
+  // A production build, but not a live site: the payment sandbox, the sandbox age check and the
+  // development scanner may run (see isLiveDeployment in src/server/env.ts).
+  APP_ENV: "test",
   APP_URL: BASE_URL,
   DATABASE_URL: process.env.E2E_DATABASE_URL ?? "postgres://playbox@localhost:5432/playbox_e2e",
   REDIS_URL: process.env.E2E_REDIS_URL ?? "redis://localhost:6379/2",

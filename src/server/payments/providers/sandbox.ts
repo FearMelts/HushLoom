@@ -1,6 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { z } from "zod";
-import { env } from "@/server/env";
+import { env, isLiveDeployment } from "@/server/env";
 import type { PaymentEvent, PaymentProvider } from "../types";
 import { WebhookRejected } from "../types";
 import { checkoutItem, safeEqual } from "../util";
@@ -10,7 +10,7 @@ import { checkoutItem, safeEqual } from "../util";
  * (checkout → webhook → ledger → refund / chargeback clawback) runs end to end
  * on a developer machine or a staging server without any real processor.
  *
- * It refuses to run with NODE_ENV=production: a live site must name a real processor.
+ * It refuses to run on a live site (see isLiveDeployment in src/server/env.ts): a live site must name a real processor.
  * Everything it renders carries the "demo" tone and says so.
  */
 
@@ -28,7 +28,7 @@ const SIGNATURE_WINDOW_S = 5 * 60;
 const hmac = (s: string) => createHmac("sha256", SANDBOX_WEBHOOK_SECRET).update(s).digest("base64url");
 
 export function sandboxAllowed(): boolean {
-  return env().NODE_ENV !== "production";
+  return !isLiveDeployment();
 }
 
 // ── Checkout token: carried in the /pricing/sandbox URL ──

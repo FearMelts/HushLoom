@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { env } from "@/server/env";
+import { env, isLiveDeployment } from "@/server/env";
 import { CallbackRejected, type AgeVerificationProvider } from "../types";
 
 /**
@@ -38,7 +38,7 @@ export function sandboxCallback(providerRef: string, outcome: SandboxCallback["o
 }
 
 function refuseInProduction() {
-  if (env().NODE_ENV === "production") throw new Error("The sandbox age-verification provider cannot run in production");
+  if (isLiveDeployment()) throw new Error("The sandbox age-verification provider cannot run on a live site");
 }
 
 export const sandboxProvider: AgeVerificationProvider = {
@@ -46,7 +46,7 @@ export const sandboxProvider: AgeVerificationProvider = {
   label: "Sandbox check (proves nothing)",
   isSandbox: true,
   methods: ["sandbox"],
-  isConfigured: () => env().NODE_ENV !== "production",
+  isConfigured: () => !isLiveDeployment(),
 
   async start() {
     refuseInProduction();

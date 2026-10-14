@@ -1,4 +1,4 @@
-import { env } from "@/server/env";
+import { env, isLiveDeployment } from "@/server/env";
 import type { ScanInput, ScanProvider, ScanVerdict } from "../types";
 
 /**
@@ -37,11 +37,11 @@ export const devScanProvider: ScanProvider = {
   label: "Development scanner (matches test hashes only)",
   isDev: true,
   capabilities: { hashMatch: true, classifier: false, video: true, preStorage: true },
-  isConfigured: () => env().NODE_ENV !== "production",
+  isConfigured: () => !isLiveDeployment(),
 
   async scan(input) {
-    if (env().NODE_ENV === "production") {
-      return { status: "unavailable", provider: "dev", detail: "the development scanner refuses to run in production" };
+    if (isLiveDeployment()) {
+      return { status: "unavailable", provider: "dev", detail: "the development scanner refuses to run on a live site" };
     }
     const forced = override?.(input);
     if (forced === "unavailable" || (!forced && env().SCAN_DEV_SIMULATE_OUTAGE === "true")) {

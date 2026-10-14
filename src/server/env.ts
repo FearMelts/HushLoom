@@ -3,6 +3,14 @@ import { z } from "zod";
 
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  /**
+   * What kind of deployment this is, separate from NODE_ENV (which only says how the code was built).
+   * Unset means "same as NODE_ENV", so a production build is treated as a live site. Sandbox payments,
+   * the sandbox age check and the development scanner refuse to run on a live site. The e2e stack sets
+   * "test" so a production build can exercise the sandboxes; "staging" is for a private preview.
+   * Never set it on a public site.
+   */
+  APP_ENV: z.enum(["development", "test", "staging", "production"]).optional(),
   APP_URL: z.string().url().default("http://localhost:3000"),
   DATABASE_URL: z.string().default("postgres://playbox@localhost:5432/playbox"),
   REDIS_URL: z.string().default("redis://localhost:6379"),
@@ -116,16 +124,23 @@ export function env(): Env {
   if (parsed.STORAGE_DRIVER === "s3" && !parsed.S3_BUCKET) {
     throw new Error("S3_BUCKET must be set when STORAGE_DRIVER=s3");
   }
-  if (parsed.NODE_ENV === "production" && parsed.SCAN_PROVIDER === "dev" && parsed.SCAN_FAIL_CLOSED === "true") {
+  const live = (parsed.APP_ENV ?? parsed.NODE_ENV) === "production";
+  if (live && parsed.SCAN_PROVIDER === "dev" && parsed.SCAN_FAIL_CLOSED === "true") {
     // The dev scanner matches nothing real. Production must name a real scanner or explicitly opt out of fail-closed.
     throw new Error("SCAN_PROVIDER=dev cannot run in production; configure photodna or cloudflare");
   }
-  if (parsed.NODE_ENV === "production" && parsed.AGE_VERIFICATION_PROVIDER === "sandbox" && parsed.AGE_VERIFICATION_ENFORCE === "true") {
+  if (live && parsed.AGE_VERIFICATION_PROVIDER === "sandbox" && parsed.AGE_VERIFICATION_ENFORCE === "true") {
     // The sandbox check proves nothing about anyone's age. Production must name a real provider or explicitly turn enforcement off.
     throw new Error("AGE_VERIFICATION_PROVIDER=sandbox cannot run in production when AGE_VERIFICATION_ENFORCE=true; configure yoti");
   }
   cached = parsed;
   return parsed;
+}
+
+/** True on a live site: APP_ENV=production, or APP_ENV unset on a production build. Sandboxes refuse to run there. */
+export function isLiveDeployment(): boolean {
+  const e = env();
+  return (e.APP_ENV ?? e.NODE_ENV) === "production";
 }
 
 /** Dev/test fallback so local runs work without configuring a secret. Production refuses to start without one. */

@@ -7,7 +7,7 @@ import { VERIFY_PATH } from "@/server/age/service";
 import { getCurrentUser } from "@/server/auth/session";
 import { getDb } from "@/server/db";
 import { ageVerifications } from "@/server/db/schema";
-import { env } from "@/server/env";
+import { isLiveDeployment } from "@/server/env";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Sandbox age check" };
@@ -17,7 +17,7 @@ export const metadata = { title: "Sandbox age check" };
  * open it, and it never exists in production or when another provider is active.
  */
 export default async function SandboxVerifyPage({ searchParams }: { searchParams: Promise<{ ref?: string }> }) {
-  if (env().NODE_ENV === "production" || ageVerificationProvider().key !== "sandbox") notFound();
+  if (isLiveDeployment() || ageVerificationProvider().key !== "sandbox") notFound();
   const user = await getCurrentUser();
   const { ref } = await searchParams;
   if (!user) redirect(`/auth?next=${encodeURIComponent(`/verify/sandbox?ref=${ref ?? ""}`)}`);
