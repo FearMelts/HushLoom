@@ -226,14 +226,15 @@ describe("R11 template edits never write back what they read before a concurrent
   });
 });
 
+/** A later scan of a creation the account already has (a backfill), matching it as CSAM. */
+async function scannerMatch(owner: SessionUser, jobId?: string) {
+  const { asset } = await sourceOf(jobId ?? (await finished(owner)).id);
+  await recordVerdict({ assetId: asset.id, mime: asset.mime, kind: "image", sha256: asset.sha256, ownerId: owner.id, origin: "backfill" }, { status: "matched", provider: "dev", ref: "drill", category: "csam" });
+  const [esc] = await getDb().select().from(moderationEvents).where(and(eq(moderationEvents.action, "escalate"), eq(moderationEvents.subjectId, asset.id)));
+  return { asset, esc: esc! };
+}
+
 describe("R21 clearing a false positive lifts only what that case caused", () => {
-  /** A later scan of a creation the account already has (a backfill), matching it as CSAM. */
-  async function scannerMatch(owner: SessionUser, jobId?: string) {
-    const { asset } = await sourceOf(jobId ?? (await finished(owner)).id);
-    await recordVerdict({ assetId: asset.id, mime: asset.mime, kind: "image", sha256: asset.sha256, ownerId: owner.id, origin: "backfill" }, { status: "matched", provider: "dev", ref: "drill", category: "csam" });
-    const [esc] = await getDb().select().from(moderationEvents).where(and(eq(moderationEvents.action, "escalate"), eq(moderationEvents.subjectId, asset.id)));
-    return { asset, esc: esc! };
-  }
   const statusOf = async (id: string) => (await getDb().select({ s: users.status }).from(users).where(eq(users.id, id)))[0]!.s;
 
   it("keeps an admin's suspension when a match made afterwards is cleared", async () => {
@@ -278,5 +279,35 @@ describe("R21 clearing a false positive lifts only what that case caused", () =>
     await getDb().update(mediaAssets).set({ deletedAt: new Date(Date.now() - 90 * 86_400_000) }).where(eq(mediaAssets.id, t.posterAssetId!));
     expect(await purgeDeletedMedia(30)).toBe(0);
     expect(await statusOf(creator.id)).toBe("suspended");
+  });
+});
+
+describe("R24 an abuse suspension takes down the account's other live templates", () => {
+  const statusOf = async (id: string) => (await getDb().select({ s: templates.status }).from(templates).where(eq(templates.id, id)))[0]!.s;
+
+  it("a scanner match on a private creation unpublishes every template the account has live, as an admin suspension does", async () => {
+    const creator = await makeUser({ credits: 50 });
+    const bystander = await makeUser({ credits: 50 });
+    const a = await publish(creator, (await finished(creator)).id, "First");
+    const b = await publish(creator, (await finished(creator)).id, "Second");
+    const other = await publish(bystander, (await finished(bystander)).id, "Someone else");
+
+    await scannerMatch(creator);
+    expect(await statusOf(a.id)).toBe("unpublished");
+    expect(await statusOf(b.id)).toBe("unpublished");
+    expect(await statusOf(other.id)).toBe("published");
+    const [entry] = await getDb().select().from(auditLogs).where(and(eq(auditLogs.action, "user.suspend"), eq(auditLogs.targetId, creator.id)));
+    expect(entry!.metadata).toMatchObject({ reason: "scan_match", unpublishedTemplates: 2 });
+  });
+
+  it("so does an actioned CSAM takedown of one of them", async () => {
+    const admin = await makeUser({ role: "admin" });
+    const creator = await makeUser({ credits: 50 });
+    const reported = await publish(creator, (await finished(creator)).id, "Reported");
+    const unrelated = await publish(creator, (await finished(creator)).id, "Unrelated");
+    const [req] = await getDb().insert(takedownRequests).values({ requesterEmail: "tips@example.test", targetType: "template", targetRef: reported.id, category: "csam" }).returning();
+    await resolveTakedown(admin.id, req!.id, { action: "action", note: "" });
+    expect(await statusOf(reported.id)).toBe("removed");
+    expect(await statusOf(unrelated.id)).toBe("unpublished");
   });
 });
