@@ -137,10 +137,10 @@ describe("R08 attack: getting a taken-down creation back up", () => {
     expect(await liveTemplates(creator.id)).toHaveLength(0);
   });
 
-  // HOLE (R08): the same gap through the Library's own Retry button. A retry draft made before the
-  // takedown keeps the source's seed; confirmJob does not look at the (now deleted) parent, so it
-  // runs after the takedown, yields the identical file and publishes.
-  it.fails("a retry drafted before the takedown and confirmed after it cannot put the same file back up", async () => {
+  // Was a hole (R08): the same gap through the Library's own Retry button. A retry draft made before
+  // the takedown keeps the source's seed; confirmJob does not look at the (now deleted) parent, so it
+  // runs after the takedown and yields the identical file. Closed by the same SHA-256 check at publish.
+  it("a retry drafted before the takedown and confirmed after it cannot put the same file back up", async () => {
     const admin = await makeUser({ role: "admin" });
     const creator = await makeUser({ credits: 50 });
     const job = await finished(creator);
