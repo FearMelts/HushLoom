@@ -110,6 +110,18 @@ function SearchBox({ className }: { className?: string }) {
   );
 }
 
+/**
+ * Hands the page to React through a component instead of straight into the content <div>. On a cold load the
+ * page's part of the RSC payload can still be resolving when React hydrates the shell, so the element holding
+ * it suspends. React 19.2 (the version Next 15.5 bundles) replays a suspended host element without rewinding its
+ * hydration cursor, finds the element's own first child where the element should be, and throws error #418:
+ * the whole document is then thrown away and rendered again on the client. A component replays without touching
+ * the cursor. React 19.3 fixes the replay itself; this changes no markup.
+ */
+function PageSlot({ children }: { children: ReactNode }) {
+  return children;
+}
+
 export function Shell({ user, children }: { user: ShellUser; children: ReactNode }) {
   const pathname = usePathname();
   const navLink = (item: (typeof primary)[number], compact = false) => {
@@ -222,7 +234,9 @@ export function Shell({ user, children }: { user: ShellUser; children: ReactNode
         id="main"
         className="pb-[calc(7rem+env(safe-area-inset-bottom)+var(--tray-h,0px)+var(--dock-h,0px))] lg:pb-[calc(3rem+var(--tray-h,0px))] lg:pl-[236px]"
       >
-        <div className="mx-auto max-w-[1600px] px-4 pt-5 sm:px-6">{children}</div>
+        <div className="mx-auto max-w-[1600px] px-4 pt-5 sm:px-6">
+          <PageSlot>{children}</PageSlot>
+        </div>
       </main>
 
       {user ? <JobTray /> : null}
