@@ -44,6 +44,42 @@ describe(".gitignore", () => {
   });
 });
 
+describe(".dockerignore", () => {
+  /**
+   * Whether the Docker build context leaves `file` out. Patterns are anchored at the context root,
+   * "*" stays within one path segment, "**" spans any number, a match on a folder covers what is in
+   * it, and the last matching pattern wins ("!" re-includes).
+   */
+  function excluded(file: string): boolean {
+    const patterns = read(".dockerignore")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l && !l.startsWith("#"));
+    const toRegex = (glob: string) =>
+      new RegExp(
+        `^${glob
+          .replace(/^\//, "")
+          .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+          .replace(/\*\*\/|\*\*|\*|\?/g, (t) => (t === "**/" ? "(?:.*/)?" : t === "**" ? ".*" : t === "*" ? "[^/]*" : "[^/]"))}$`,
+      );
+    const prefixes = file.split("/").map((_, i, parts) => parts.slice(0, i + 1).join("/"));
+    let out = false;
+    for (const p of patterns) {
+      const negate = p.startsWith("!");
+      const re = toRegex(negate ? p.slice(1) : p);
+      if (prefixes.some((prefix) => re.test(prefix))) out = !negate;
+    }
+    return out;
+  }
+
+  // The worker image copies the whole build context into its final layer (COPY . .).
+  it("keeps environment files out of the build context at any depth (I08)", () => {
+    const files = [".env", ".env.production", "scripts/.env", "src/server/.env.local", "drizzle/.env.production"];
+    expect(files.filter((file) => !excluded(file))).toEqual([]);
+    expect(["src/server/env.ts", "scripts/seed.ts", "drizzle/0000_init.sql", "package.json"].filter(excluded)).toEqual([]);
+  });
+});
+
 describe(".github/workflows/ci.yml", () => {
   // actions/checkout writes the job's token into .git/config unless told not to, and every later step
   // (npm ci's install scripts from hundreds of packages, the build, the browser tests) could read it.
