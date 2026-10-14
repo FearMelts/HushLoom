@@ -1,5 +1,4 @@
 import { env } from "@/server/env";
-import { logger } from "@/server/log";
 import type { PaymentEvent, PaymentProvider } from "../types";
 import { WebhookRejected } from "../types";
 import { checkoutItem, currencyFromNumeric, currencyToNumeric, hmacHex, md5, parseMoneyCents, safeEqual, toMoneyString, webhookParams } from "../util";
@@ -44,15 +43,19 @@ const PACK_PERIOD_DAYS = 30;
 const PLAN_PERIOD_DAYS = 30;
 const PLAN_REBILLS = 99;
 
-type Cfg = { account: string; subaccount: string; flexId: string; salt: string; token: string | null };
+type Cfg = { account: string; subaccount: string; flexId: string; salt: string; token: string };
 
+/**
+ * The webhook token is required: refunds, chargebacks, renewals and cancellations carry no signature,
+ * so without it CCBill would take sales and silently drop every reversal. It stays off instead.
+ */
 function cfg(): Cfg | null {
   const e = env();
-  if (!e.CCBILL_ACCOUNT || !e.CCBILL_SUBACCOUNT || !e.CCBILL_FLEXFORM_ID || !e.CCBILL_SALT) return null;
-  return { account: e.CCBILL_ACCOUNT, subaccount: e.CCBILL_SUBACCOUNT, flexId: e.CCBILL_FLEXFORM_ID, salt: e.CCBILL_SALT, token: e.CCBILL_WEBHOOK_TOKEN ?? null };
+  if (!e.CCBILL_ACCOUNT || !e.CCBILL_SUBACCOUNT || !e.CCBILL_FLEXFORM_ID || !e.CCBILL_SALT || !e.CCBILL_WEBHOOK_TOKEN) return null;
+  return { account: e.CCBILL_ACCOUNT, subaccount: e.CCBILL_SUBACCOUNT, flexId: e.CCBILL_FLEXFORM_ID, salt: e.CCBILL_SALT, token: e.CCBILL_WEBHOOK_TOKEN };
 }
 
-const missing = () => (["CCBILL_ACCOUNT", "CCBILL_SUBACCOUNT", "CCBILL_FLEXFORM_ID", "CCBILL_SALT"] as const).filter((k) => !env()[k]);
+const missing = () => (["CCBILL_ACCOUNT", "CCBILL_SUBACCOUNT", "CCBILL_FLEXFORM_ID", "CCBILL_SALT", "CCBILL_WEBHOOK_TOKEN"] as const).filter((k) => !env()[k]);
 
 /** Binds the signed-in user to the item so a tampered pass-through pair is detected on the webhook. */
 export const passthroughSignature = (salt: string, userId: string, itemKey: string) => hmacHex(salt, `ccbill:${userId}:${itemKey}`);
@@ -103,11 +106,9 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
   if (!eventType) throw new WebhookRejected("malformed", "Missing eventType.");
   const account = field(p, "clientAccnum");
   if (account && !safeEqual(account, c.account)) throw new WebhookRejected("bad_signature", "Event is for another CCBill account.");
-  if (c.token) {
-    const given = field(p, "token");
-    if (!given) throw new WebhookRejected("unsigned", "Missing webhook token.");
-    if (!safeEqual(given, c.token)) throw new WebhookRejected("bad_signature", "Webhook token does not match.");
-  }
+  const given = field(p, "token");
+  if (!given) throw new WebhookRejected("unsigned", "Missing webhook token.");
+  if (!safeEqual(given, c.token)) throw new WebhookRejected("bad_signature", "Webhook token does not match.");
 
   const subscriptionId = field(p, "subscriptionId");
   const transactionId = field(p, "transactionId");
@@ -123,10 +124,6 @@ export function ccbillEventFromParams(c: Cfg, p: Record<string, string>): Paymen
     }
   } else if (digest) {
     if (!subscriptionId || !safeEqual(digest, validationDigest(c.salt, subscriptionId, true))) throw new WebhookRejected("bad_signature", "dynamicPricingValidationDigest does not match.");
-  } else if (!c.token) {
-    // Lifecycle events carry no digest. Without a shared token there is nothing to authenticate them with.
-    logger.warn("ccbill lifecycle event rejected: set CCBILL_WEBHOOK_TOKEN (and allowlist CCBill's IPs at the edge) to accept them", { eventType });
-    throw new WebhookRejected("unsigned", `CCBill ${eventType} events need CCBILL_WEBHOOK_TOKEN to be accepted.`);
   }
 
   const ref = transactionId ?? subscriptionId;

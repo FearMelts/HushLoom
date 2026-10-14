@@ -479,6 +479,50 @@ describe("ccbill provider (digests computed locally from the documented formulas
     expect(flags[0]!.details).toMatchObject({ provider: "ccbill", itemKey: expect.any(String) });
   });
 
+  it("R20: without CCBILL_WEBHOOK_TOKEN CCBill reports itself unconfigured and takes no webhook, not sales without their refunds", async () => {
+    vi.stubEnv("CCBILL_WEBHOOK_TOKEN", undefined);
+    vi.stubEnv("PAYMENT_PROVIDER", "ccbill");
+    vi.resetModules();
+    try {
+      const { providerByKey: fresh } = await import("@/server/payments");
+      const { POST: freshWebhook } = await import("@/app/api/webhooks/payments/[provider]/route");
+      const c = fresh("ccbill")!;
+      expect(c.isConfigured()).toBe(false);
+      expect(c.webhookConfigured()).toBe(false);
+      expect(c.configurationProblem()).toMatch(/CCBILL_WEBHOOK_TOKEN/);
+
+      const u = await makeUser();
+      const digest = md5(`2000000077${"1"}${CCBILL_SALT}`);
+      const send = (eventType: string, fields: Record<string, string>) => {
+        const url = new URL("http://localhost/api/webhooks/payments/ccbill");
+        for (const [k, v] of Object.entries({ clientAccnum: "900000", clientSubacc: "0000", eventType })) url.searchParams.set(k, v);
+        return freshWebhook(new NextRequest(url, { method: "POST", body: form({ ...base, ...fields }), headers: FORM }), { params: Promise.resolve({ provider: "ccbill" }) });
+      };
+      const saleRes = await send("NewSaleSuccess", {
+        subscriptionId: "2000000077",
+        transactionId: "txn_r20_1",
+        billedInitialPrice: "19.99",
+        billedCurrencyCode: "840",
+        nextRenewalDate: "2026-11-11",
+        dynamicPricingValidationDigest: digest,
+        "X-hlUser": u.id,
+        "X-hlItem": "plan_member",
+        "X-hlSig": passSig(u.id, "plan_member"),
+      });
+      expect(saleRes.status).toBe(503);
+      // The sale's digest replayed on a lifecycle event in place of the token (R19) is refused too.
+      for (const timestamp of ["2026-11-11 00:00:00", "2026-12-11 00:00:00"]) {
+        const renewal = await send("RenewalSuccess", { subscriptionId: "2000000077", transactionId: `txn_${timestamp}`, billedAmount: "19.99", billedCurrencyCode: "840", timestamp, dynamicPricingValidationDigest: digest });
+        expect(renewal.status).toBe(503);
+      }
+      expect((await getBalance(u.id)).available).toBe(0);
+      expect(await events("ccbill")).toHaveLength(0);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   it("Refund claws back by transaction id, Chargeback finds the sale by subscription id and flags", async () => {
     const u = await makeUser();
     await newSale(u.id, "pack_small", "1000000002", "txn_sale_1");

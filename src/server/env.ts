@@ -47,7 +47,7 @@ const schema = z.object({
   CCBILL_SUBACCOUNT: z.string().optional(),
   CCBILL_FLEXFORM_ID: z.string().optional(),
   CCBILL_SALT: z.string().optional(),
-  /** Optional shared secret appended to the registered CCBill webhook URL (?token=...); lifecycle events are rejected without it. */
+  /** Shared secret appended to the registered CCBill webhook URL (?token=...). Required: without it CCBill stays off, since its refunds, chargebacks, renewals and cancellations carry no signature. */
   CCBILL_WEBHOOK_TOKEN: z.string().min(16).optional(),
   CCBILL_DATALINK_USER: z.string().optional(),
   CCBILL_DATALINK_PASSWORD: z.string().optional(),
