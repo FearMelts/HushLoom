@@ -352,13 +352,13 @@ describe("attack R12 (upload entry point): the same evidence on the upload path"
     expect((await assetRow(asset.id)).storageKey).toBe(asset.storageKey);
   });
 
-  // HOLE: an upload is committed (asset + uploads + consent rows) before it is scanned, and its
-  // consent can be withdrawn while the scan is still running. withdrawConsent soft-deletes the
-  // still-pending asset (legal_hold=false) and purgeAssetsNow deletes the bytes immediately; the
-  // match is recorded a moment later on a row whose file is already gone (storage_key 'purged/…').
-  // No fault is needed: the uploader alone controls both requests (GET /api/me lists the new
-  // consent id while POST /api/uploads is still scanning). Present before and after the R12 fix.
-  test.fails("HOLE: withdrawing an upload's consent while its scan is in flight destroys the matched bytes", async () => {
+  // Was a hole (R12-H2): an upload is committed (asset + uploads + consent rows) before it is
+  // scanned, and its consent can be withdrawn while the scan is still running. withdrawConsent
+  // soft-deleted the still-pending asset (legal_hold=false) and purgeAssetsNow deleted the bytes at
+  // once; the match was recorded a moment later on a row whose file was already gone. No fault is
+  // needed: the uploader alone controls both requests (GET /api/me lists the new consent id while
+  // POST /api/uploads is still scanning). Purges now skip a file with no verdict yet.
+  it("withdrawing an upload's consent while its scan is in flight keeps the matched bytes", async () => {
     const u = await makeUser({ credits: 50 });
     const scan = pausedScanner(MATCH);
     const upload = acceptUpload(u.id, { bytes: await png(), declaredMime: "image/png" }, { statement: "x", subjectLabel: null }, "source").then(
@@ -380,6 +380,29 @@ describe("attack R12 (upload entry point): the same evidence on the upload path"
     // The evidence itself:
     expect(after.storageKey).toBe(asset.storageKey);
     expect(await storedBytes(asset.storageKey)).not.toBeNull();
+  });
+
+  it("withdrawing an upload's consent while a clean scan is in flight still purges the file once the verdict is in", async () => {
+    const u = await makeUser({ credits: 50 });
+    const scan = pausedScanner({ status: "clean", provider: "dev", ref: "attack:clean" });
+    const upload = acceptUpload(u.id, { bytes: await png(), declaredMime: "image/png" }, { statement: "x", subjectLabel: null }, "source").then(
+      () => "accepted",
+      (err: { code?: string }) => err.code ?? "error",
+    );
+    await scan.scanning;
+    const asset = await newestUpload(u.id);
+    await withdrawConsent(u.id, await consentOfUpload(asset.id));
+    // No verdict yet, so the withdrawal's purge leaves the file for now.
+    expect(await storedBytes(asset.storageKey)).not.toBeNull();
+    scan.release();
+    expect(await upload).toBe("upload_removed");
+
+    const after = await assetRow(asset.id);
+    expect(after).toMatchObject({ scanStatus: "clean", legalHold: false });
+    expect(after.deletedAt).not.toBeNull();
+    expect(after.storageKey).toMatch(/^purged\//);
+    expect(await storedBytes(asset.storageKey)).toBeNull();
+    expect(await assetUrl(after, u.id)).toBeNull();
   });
 
   // Was a hole (R12-H1, a regression from the R12 fix): recordVerdict took SELECT ... FOR UPDATE on

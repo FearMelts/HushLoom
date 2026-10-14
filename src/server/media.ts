@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { and, eq, inArray, isNotNull, lt, notLike } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lt, ne, notLike } from "drizzle-orm";
 import sharp from "sharp";
 import { getDb } from "@/server/db";
 import { consentRecords, mediaAssets, uploads } from "@/server/db/schema";
@@ -114,6 +114,9 @@ export async function acceptUpload(
     // Fail-open (operator's choice): kept as "unavailable", never served or usable until a rescan clears it.
     warnings.push("scan_pending");
   }
+  // The upload was removed while it was being scanned (its consent withdrawn, say). The purge then left
+  // the file alone because it had no verdict yet; now that it has one that is not a match, it goes.
+  if (await purgeAssetsNow([assetId])) throw new HttpError(410, "upload_removed", "This upload was removed while it was being checked.");
   return { assetId, kind, width, height, warnings };
 }
 
@@ -170,13 +173,26 @@ export async function purgeDeletedMedia(retentionDays: number): Promise<number> 
   return purgeRows(rows);
 }
 
-/** Removes the files of already soft-deleted assets right away, without waiting for the retention window. Held assets are skipped. */
+/**
+ * Removes the files of already soft-deleted assets right away, without waiting for the retention window.
+ * Held assets are skipped, and so is a file with no verdict yet (scan_status 'pending'): its scan may
+ * still be running and about to hold it as evidence. acceptUpload purges an upload removed mid-scan
+ * once its verdict is in; anything else left pending is rescanned by scripts/scan-backfill.ts.
+ */
 export async function purgeAssetsNow(assetIds: string[]): Promise<number> {
   if (!assetIds.length) return 0;
   const rows = await getDb()
     .select({ id: mediaAssets.id, key: mediaAssets.storageKey })
     .from(mediaAssets)
-    .where(and(inArray(mediaAssets.id, assetIds), isNotNull(mediaAssets.deletedAt), notLike(mediaAssets.storageKey, "purged/%"), eq(mediaAssets.legalHold, false)));
+    .where(
+      and(
+        inArray(mediaAssets.id, assetIds),
+        isNotNull(mediaAssets.deletedAt),
+        notLike(mediaAssets.storageKey, "purged/%"),
+        eq(mediaAssets.legalHold, false),
+        ne(mediaAssets.scanStatus, "pending"),
+      ),
+    );
   return purgeRows(rows);
 }
 
