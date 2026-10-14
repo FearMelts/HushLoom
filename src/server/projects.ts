@@ -75,8 +75,10 @@ export async function listProjects(userId: string, access: MediaAccess) {
       title: projects.title,
       description: projects.description,
       updatedAt: projects.updatedAt,
-      scenes: sql<number>`(select count(*)::int from ${projectScenes} s where s.project_id = ${projects.id})`,
-      clips: sql<number>`(select count(*)::int from ${generationJobs} j where j.project_id = ${projects.id} and j.deleted_at is null and j.status = 'completed')`,
+      // The outer column is written out qualified: inside a select field Drizzle renders ${projects.id} as a bare
+      // "id", which Postgres resolves to the subquery's own s.id / j.id, and both counts came out 0.
+      scenes: sql<number>`(select count(*)::int from ${projectScenes} s where s.project_id = ${projects}."id")`,
+      clips: sql<number>`(select count(*)::int from ${generationJobs} j where j.project_id = ${projects}."id" and j.deleted_at is null and j.status = 'completed')`,
     })
     .from(projects)
     .where(and(eq(projects.userId, userId), isNull(projects.deletedAt)))

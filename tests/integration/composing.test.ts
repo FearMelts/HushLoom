@@ -9,12 +9,12 @@ import type { SessionUser } from "@/server/auth/session";
 import { createCharacter } from "@/server/characters";
 import { generatePrefill } from "@/server/create-context";
 import { closeDb, getDb } from "@/server/db";
-import { generationJobs, mediaAssets, moderationEvents, subscriptions, templates } from "@/server/db/schema";
+import { generationJobs, mediaAssets, moderationEvents, projectScenes, subscriptions, templates } from "@/server/db/schema";
 import { confirmJob, createDraft, deleteJob } from "@/server/generation/service";
 import { processJob } from "@/server/generation/processor";
 import { acceptUpload } from "@/server/media";
 import { createPreset, presetSchema } from "@/server/presets";
-import { addScene, createProject } from "@/server/projects";
+import { addScene, createProject, listProjects } from "@/server/projects";
 import { closeRedis } from "@/server/redis";
 import { storage } from "@/server/storage";
 import { publishTemplate } from "@/server/templates/publish";
@@ -111,6 +111,24 @@ describe("Remix and Reuse settings", () => {
     expect(prefill!.params).toEqual({ lighting: "golden hour" });
     expect(prefill!.prompt).toBe("By the window. golden hour lighting, dutch tilt framing, amber palette");
     expect(prefill).toMatchObject({ projectId: project.id, sceneId: scene.id });
+  });
+});
+
+describe("the project list", () => {
+  it("counts each project's own scenes and finished takes", async () => {
+    const member = await makeUser({ credits: 50 });
+    const project = await createProject(member.id, { title: "Golden hour series", description: "" });
+    const [opening] = await getDb().select().from(projectScenes).where(eq(projectScenes.projectId, project.id));
+    await addScene(member.id, project.id, { title: "The turn" });
+    await finished(member, { projectId: project.id, sceneId: opening!.id });
+    // A second project: its counts must not pick up the first one's rows.
+    const other = await createProject(member.id, { title: "Empty", description: "" });
+
+    const list = await listProjects(member.id, { explicitAllowed: true });
+    expect(list.find((p) => p.id === project.id)).toMatchObject({ scenes: 2, clips: 1, cover: { kind: "image", mediaWithheld: false } });
+    expect(list.find((p) => p.id === project.id)!.cover!.url).toBeTruthy();
+    expect(list.find((p) => p.id === other.id)).toMatchObject({ scenes: 1, clips: 0, cover: null });
+
   });
 });
 
