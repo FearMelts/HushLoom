@@ -561,7 +561,8 @@ export function CreatePanel({
             <li
               key={s.id}
               className={cn(
-                "flex items-start gap-3 rounded-2xl px-3.5 py-3 text-[13px]",
+                // On phones the actions move under the text (max-sm:flex-wrap), so the explanation gets the full width.
+                "flex items-start gap-3 rounded-2xl px-3.5 py-3 text-[13px] max-sm:flex-wrap max-sm:gap-y-1",
                 s.severity === "block" ? "bg-danger-400/10 text-danger-400" : s.severity === "warn" ? "bg-brass-400/10" : "bg-ink-850 hairline",
               )}
             >
@@ -575,14 +576,23 @@ export function CreatePanel({
                 <p className={cn("mt-0.5", s.severity === "block" ? "" : "text-bone-300")}>{s.detail}</p>
                 {s.patch?.prompt ? <p className="mt-1.5 rounded-lg bg-ink-950/60 px-2.5 py-1.5 text-bone-200">{s.patch.prompt}</p> : null}
               </div>
-              <div className="flex shrink-0 flex-col items-end gap-1">
+              <div className="-mr-2 -mt-1.5 flex shrink-0 flex-col items-end max-sm:-mb-1.5 max-sm:mt-0 max-sm:w-full max-sm:flex-row max-sm:justify-end max-sm:gap-1">
                 {s.patch ? (
-                  <button type="button" className="font-semibold text-ember-400 hover:text-ember-300" onClick={() => applyPatch(s.patch)}>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-10 items-center rounded-full px-3 font-semibold text-ember-400 hover:bg-ink-800 hover:text-ember-300 sm:min-h-8"
+                    onClick={() => applyPatch(s.patch)}
+                  >
                     {s.patchLabel ?? "Apply"}
                   </button>
                 ) : null}
                 {s.severity !== "block" ? (
-                  <button type="button" className="text-bone-500 hover:text-bone-300" onClick={() => setDismissed((d) => [...d, s.id])} aria-label={`Dismiss: ${s.title}`}>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-10 items-center rounded-full px-3 text-bone-500 hover:bg-ink-800 hover:text-bone-300 sm:min-h-8"
+                    onClick={() => setDismissed((d) => [...d, s.id])}
+                    aria-label={`Dismiss: ${s.title}`}
+                  >
                     Dismiss
                   </button>
                 ) : null}
