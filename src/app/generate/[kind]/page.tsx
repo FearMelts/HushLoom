@@ -35,7 +35,7 @@ export default async function GeneratePage({ params, searchParams }: { params: P
       </div>
       <div className="rounded-[24px_8px_24px_8px] bg-ink-900/70 p-4 hairline sm:p-6">
         <CreatePanel
-          key={`${kind}-${sp.from ?? ""}-${sp.scene ?? ""}-${sp.character ?? ""}`}
+          key={`${kind}-${sp.from ?? ""}-${sp.reuse ?? ""}-${sp.scene ?? ""}-${sp.character ?? ""}`}
           output={kind}
           models={ctx.models}
           signedIn={Boolean(user)}
