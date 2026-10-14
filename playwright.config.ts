@@ -30,7 +30,8 @@ export default defineConfig({
   webServer: [
     {
       // Fresh database, production build, then the standalone server exactly as the Dockerfile runs it.
-      command: `npx tsx scripts/e2e-prepare.ts && npx next build && cp -r .next/static .next/standalone/.next/static && PORT=${PORT} node .next/standalone/server.js`,
+      // Standalone output copies neither .next/static nor public/ (sw.js, manifest, icons); both are copied in.
+      command: `npx tsx scripts/e2e-prepare.ts && npx next build && cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public && PORT=${PORT} node .next/standalone/server.js`,
       url: `${BASE_URL}/api/health`,
       env,
       timeout: 600_000,
