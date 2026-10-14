@@ -15,7 +15,8 @@ const PROVIDERS: Record<PaymentProvider["key"], PaymentProvider> = {
   stripe: stripeProvider,
 };
 
-export const isProviderKey = (k: string): k is PaymentProvider["key"] => k in PROVIDERS;
+/** Own keys only: `in` would also accept names inherited from Object.prototype ("constructor", "toString"). */
+export const isProviderKey = (k: string): k is PaymentProvider["key"] => Object.hasOwn(PROVIDERS, k);
 
 /** A provider by key, whether or not it is the active one (webhooks for a previous processor still arrive). */
 export function providerByKey(key: string): PaymentProvider | null {

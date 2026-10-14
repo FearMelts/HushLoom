@@ -365,6 +365,16 @@ describe("sandbox provider", () => {
   });
 });
 
+describe("webhook route", () => {
+  it("R40: a path that names no processor is 404, including names inherited from Object.prototype", async () => {
+    for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty", "nope"]) {
+      const res = await webhook(name, "{}", { headers: { "content-type": "application/json" } });
+      expect({ name, status: res.status }).toEqual({ name, status: 404 });
+    }
+    expect(providerByKey("constructor")).toBeNull();
+  });
+});
+
 // ── Stripe ───────────────────────────────────────────────────────────────────
 
 describe("stripe provider", () => {
