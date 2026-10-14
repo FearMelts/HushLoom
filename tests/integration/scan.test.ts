@@ -386,6 +386,19 @@ describe("clean content", () => {
     expect(await assetUrl(cover!, other.id)).not.toBeNull();
   });
 
+  it("redirects a download to the public origin, not the server's bind address (R44)", async () => {
+    const u = await makeUser({ credits: 50 });
+    await signIn(u);
+    const job = await makeJob(u);
+    await processJob(job.id);
+    // Behind a proxy, Next builds the request URL from the address the server binds to.
+    const dl = await downloadRoute(new NextRequest(`http://0.0.0.0:3000/api/generations/${job.id}/download`), params({ id: job.id }));
+    expect(dl.status).toBe(302);
+    const location = new URL(dl.headers.get("location")!);
+    expect(location.origin).toBe(new URL(env().APP_URL).origin);
+    expect(location.pathname).toBe("/api/media");
+  });
+
   it("scans clip keyframes and records the poster frame with the clip's verdict", async () => {
     const u = await makeUser({ credits: 50 });
     const draft = await makeJob(u, { mode: "text_to_video", modelKey: "demo-motion", params: { aspectRatio: "9:16", durationS: 3 } });
