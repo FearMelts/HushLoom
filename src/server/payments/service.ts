@@ -24,6 +24,7 @@ type EventRow = typeof paymentEvents.$inferSelect;
  */
 export async function processPaymentEvent(provider: ProviderKey, event: PaymentEvent): Promise<Outcome> {
   const outcome = await getDb().transaction(async (tx) => {
+    await lockRefs(tx, provider, event);
     const [row] = await tx
       .insert(paymentEvents)
       .values({
@@ -51,6 +52,36 @@ export async function processPaymentEvent(provider: ProviderKey, event: PaymentE
   });
   logger.info("payment event", { provider, id: event.providerEventId, type: event.type, outcome });
   return outcome;
+}
+
+/**
+ * Events that can meet in one payment run one at a time. A reversal looks for the payment it reverses and is kept
+ * pending when that is not there yet; a payment looks for reversals kept pending for it. Under READ COMMITTED neither
+ * sees the other's uncommitted row, so a refund and its sale delivered together each missed the other and the refund
+ * stayed pending for good. Each event therefore takes a transaction-scoped lock on every ref it can be matched by
+ * (its transaction ref and its subscription / purchase ref), in a fixed order, before it reads anything.
+ */
+async function lockRefs(tx: Tx, provider: ProviderKey, event: PaymentEvent) {
+  const refs = new Set<string>();
+  switch (event.type) {
+    case "purchase_completed":
+      refs.add(event.transactionRef);
+      if (typeof event.metadata?.subscriptionRef === "string") refs.add(event.metadata.subscriptionRef);
+      break;
+    case "subscription_started":
+    case "subscription_renewed":
+      refs.add(event.transactionRef);
+      refs.add(event.providerSubscriptionId);
+      break;
+    case "refund":
+    case "chargeback":
+      refs.add(event.transactionRef);
+      if (event.subscriptionRef) refs.add(event.subscriptionRef);
+      break;
+  }
+  for (const ref of [...refs].filter(Boolean).sort()) {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`payment:${provider}:${ref}`}, 0))`);
+  }
 }
 
 type Applied = { outcome: "processed" | "ignored"; patch: Partial<typeof paymentEvents.$inferInsert>; auditMeta?: Record<string, unknown> };

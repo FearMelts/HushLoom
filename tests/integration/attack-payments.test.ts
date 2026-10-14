@@ -480,7 +480,8 @@ describe("attack R10: reversals that overtake their purchase", () => {
   // (the reversal is not committed yet, so none) both commit: the reversal stays pending for good and the purchase keeps
   // its credits. This is R10's own scenario (a sale retried after a 5xx and its refund) with the two deliveries in flight
   // together. Under READ COMMITTED neither SELECT sees the other's uncommitted row; FOR UPDATE does not wait for them.
-  it.fails("HOLE: a refund and its sale processed at the same time leave the refund pending and the credits granted", async () => {
+  // Closed: both take a transaction lock on their transaction and subscription refs first, so the sale waits for the refund.
+  it("HOLE: a refund and its sale processed at the same time leave the refund pending and the credits granted", async () => {
     const u = await makeUser();
     const { atHold, release } = holdAt("payment.refund", "ignored");
     const sendRefund = () => ccbill("Refund", { subscriptionId: "5000000001", transactionId: "txn_5000000001", amount: "89.99", currencyCode: "840" });
@@ -494,6 +495,7 @@ describe("attack R10: reversals that overtake their purchase", () => {
     await sendRefund();
     await ccbillSale(u.id, "pack_large", "5000000001", { billedInitialPrice: "89.99" });
     expect((await getBalance(u.id)).available).toBe(0);
+    expect((await eventsOf("ccbill")).filter((e) => e.type === "refund" && e.metadata.pending === true)).toHaveLength(0);
   });
 
   it.fails("HOLE: a cancellation and its pass start processed at the same time leave the pass active", async () => {
