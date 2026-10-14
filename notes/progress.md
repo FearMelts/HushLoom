@@ -27,7 +27,9 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 2 Launch browser journey (age verification, payments, scanning, web app, core flows) | verified | merged f80a555; on the integration head fe21509 `npm run test:e2e`: 36 passed (5.9 min), exit 0 (notes/evidence/e2e-fe21509.log); typecheck 0, lint 0, vitest 258/258; screenshots and per-test console/network evidence JSON in /mnt/project-files/playbox-2/evidence/journey/ (109 files) |
 | 3.1 Adversarial review: find | verified | seven finders on a frozen snapshot of f8d5ef3 returned 62 raw findings (notes/analysis/review/raw-findings.json) and a checked-and-fine list per area |
 | 3.2 Triage | verified | the triage agent's output was withheld by the platform, so the main session triaged by hand: 49 findings after merging duplicates: 1 critical, 12 high, 22 medium, 14 low (notes/analysis/review/triage.json) |
-| 3.3 Reproduce and fix | not done | interrupted by the session limit at about 02:40; payments (R01 R02 R10 R18) and age (R03 R04 R14 R16) had fix commits with failing-then-passing tests; resumed 04:50 |
+| 3.3 Reproduce and fix | verified | all 49 triaged findings fixed (1 critical, 12 high, 22 medium, 14 low), each with a test that failed on the old code and passes now; the infra fixer's own pass found 12 more (I01-I12: 2 high, 2 medium, 8 low): 8 fixed, 3 low left by decision, 1 refuted. Per-finding commits, tests and before/after output: notes/analysis/review/fix-results.json (workflow wf_530a6aa5-74c, 21 agents) |
+| 3.4 Attack the fixes, patch what broke | verified | one attacker per area tried to get around each fix (90 attempts, 51 held); each of the 39 holes became a failing test, then a patch: 37 patched, 2 left for a product decision (sign-in lockout R05-H6, sign-up membership probe R05-H7, see open issues). Branch suites at their heads, all green with typecheck 0 and lint 0: payments 296, age 286, scan 321, auth 292, moderation 290, generation 281, infra 285 |
+| 3.5 Merge the seven fix branches | verified | merges f1e5f8e (payments, vitest 296/296), abded82 (age, 324/324), 09dc2a1 (scan, 387/387), aa7fba0 (auth, 421/421), 16a67db (moderation, 453/453), 0a01221 (generation, 476/476), ce84bff (infra, 503/503 in 44 files); typecheck 0 and lint 0 after each. Four conflicts resolved by hand (download route, scanner imports, media imports, log redaction), plus three merge-only test or import fixes named in the merge commits |
 | 4 Visual review | not done | |
 | 5 Deliverables: vision, information architecture | implemented but not verified | drafts in the session scratchpad; critiques returned "revise"; finishing in phase 5 against the merged build |
 | 5 Deliverables: design system, engineering, deployment, verification | not done | |
@@ -80,6 +82,14 @@ vitest suite before merging.
   session is assigned to push to. It continues `claude/playbox-2-foundation`'s history.
 - 2026-10-13 02:05 Vision and information-architecture drafts wait for phase 5 so their critique runs
   against the merged build, as the run plan asks.
+- 2026-10-14 09:00 Medium and low review findings were fixed along with the critical and high ones
+  rather than parked: each was small, inside its area's code, and came with a reproducing test.
+- 2026-10-14 (fix agents) Product calls taken inside the fixes, each reversible and listed for Jayvo:
+  a VIP template's recipe (prompt, negative prompt, defaults) is the paid part and is not sent to a
+  viewer without a pass (R35); an actioned NCII or abuse takedown also removes byte-identical copies on
+  other accounts (R08-A3, the industry norm for NCII); a sandbox age verification stored before a
+  site went live reads as unverified on the live site (R16); AGE_VERIFICATION_FAIL_CLOSED stays false
+  by default (R14).
 
 ## Open issues
 
@@ -118,6 +128,28 @@ vitest suite before merging.
   (TLS and geo-header stripping assumed at the edge). Next.js's own error printer can still print a
   Drizzle error's query params to stdout. scripts/seed.ts has no live-site guard outside compose.
   CI builds twice (checks job and e2e job).
+
+- Review, needs Jayvo (product decisions, no code-only fix):
+  - Sign-in lockout (R05-H6, medium): ten wrong guesses from anywhere lock the account's sign-in, and
+    since R05-H3 its deletion, for 15 minutes; the owner is locked out too. Options: CAPTCHA or proof of
+    work after N failures, progressive delay, a trusted-device cookie, or per-(email, address) buckets
+    with a higher per-email cap. Each changes two existing regression tests.
+  - Sign-up membership probe (R05-H7, medium): sign-up answers differently for a registered email.
+    The fix is email verification (always answer "check your inbox"), which needs an email adapter
+    that does not exist yet. Probes are rate-limited per address or IPv6 /64.
+  - AGE_VERIFICATION_FAIL_CLOSED defaults to false (R14): a request from an unknown country or US state
+    is allowed. true blocks unknown locations until the person verifies.
+- Review, left open (low, by decision): compose Redis has no password but is not published (I09;
+  a required REDIS_PASSWORD breaks every existing .env because compose interpolates inactive
+  profiles); base images pinned by tag, not digest (I10, needs registry access); the web image's
+  server files are owned by the runtime user (I11, unverifiable without Docker); first-party GitHub
+  actions pinned to tags, not SHAs (I07 remainder). I12 (MinIO default credentials) refuted: ports
+  bind to 127.0.0.1 and the bucket setup exits without keys.
+- Review, go-live questions for the processors (from the payment fixes): does CCBill echo pass-through
+  values with their X- prefix (if not, sales are held, failing closed)? Is a CCBill Refund or
+  Chargeback transactionId the original sale's or a new one? A timestamp freshness window and nonces
+  in the pass-through signatures wait on CCBill's and Segpay's real formats. Segpay still reads a
+  missing currencycode as USD (postbacks are authenticated by the postback secret).
 
 ## Log (newest last)
 
