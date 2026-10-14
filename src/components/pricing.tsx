@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { OfflineGuard } from "./offline";
 import { Button, useToast } from "./ui";
 
 export function BuyButton({
@@ -29,28 +30,31 @@ export function BuyButton({
   const toast = useToast();
   const [busy, setBusy] = useState(false);
   const off = signedIn && (!configured || Boolean(blocked));
+  // Checkout needs a connection: offline the button is disabled (the banner up top says why).
   return (
-    <Button
-      variant={featured ? "ember" : "ghost"}
-      className="w-full"
-      busy={busy}
-      disabled={off}
-      title={signedIn && blocked ? blocked : signedIn && !configured ? "Payments are not configured on this server yet." : sandbox ? "Sandbox: no money moves." : undefined}
-      onClick={async () => {
-        if (!signedIn) return router.push("/auth?next=/pricing");
-        setBusy(true);
-        try {
-          const { url } = await api<{ url: string }>("/api/checkout", { body: { itemKey } });
-          window.location.assign(url);
-        } catch (e) {
-          toast({ message: e instanceof ApiError ? e.message : "Checkout could not start.", tone: "error" });
-          setBusy(false);
-        }
-      }}
-    >
-      {label}
-      {sandbox ? <span className="tag opacity-70">· sandbox</span> : null}
-    </Button>
+    <OfflineGuard note={false} className="w-full">
+      <Button
+        variant={featured ? "ember" : "ghost"}
+        className="w-full"
+        busy={busy}
+        disabled={off}
+        title={signedIn && blocked ? blocked : signedIn && !configured ? "Payments are not configured on this server yet." : sandbox ? "Sandbox: no money moves." : undefined}
+        onClick={async () => {
+          if (!signedIn) return router.push("/auth?next=/pricing");
+          setBusy(true);
+          try {
+            const { url } = await api<{ url: string }>("/api/checkout", { body: { itemKey } });
+            window.location.assign(url);
+          } catch (e) {
+            toast({ message: e instanceof ApiError ? e.message : "Checkout could not start.", tone: "error" });
+            setBusy(false);
+          }
+        }}
+      >
+        {label}
+        {sandbox ? <span className="tag opacity-70">· sandbox</span> : null}
+      </Button>
+    </OfflineGuard>
   );
 }
 
