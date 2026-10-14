@@ -214,7 +214,14 @@ export function Shell({ user, children }: { user: ShellUser; children: ReactNode
         <OfflineBanner />
       </header>
 
-      <main id="main" className="pb-28 lg:pb-12 lg:pl-[236px]">
+      {/*
+        Bottom room for what floats over the page: the tab bar, and the job tray and docked page bar while they
+        show (both publish their height), so the last controls can always scroll clear of them.
+      */}
+      <main
+        id="main"
+        className="pb-[calc(7rem+env(safe-area-inset-bottom)+var(--tray-h,0px)+var(--dock-h,0px))] lg:pb-[calc(3rem+var(--tray-h,0px))] lg:pl-[236px]"
+      >
         <div className="mx-auto max-w-[1600px] px-4 pt-5 sm:px-6">{children}</div>
       </main>
 

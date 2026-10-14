@@ -195,9 +195,8 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
         </section>
       ))}
 
+      {/* The shell's bottom padding makes room for this bar while it shows (it publishes --dock-h). */}
       <MakeBar cost={makeCost} locked={locked} demo={demo} />
-      {/* Room for the phone "Make it" bar above the tab bar. */}
-      <div className="h-14 lg:hidden" aria-hidden />
     </div>
   );
 }
