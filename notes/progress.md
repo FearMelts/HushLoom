@@ -30,7 +30,7 @@ Statuses use exactly: verified, implemented but not verified, blocked, not done.
 | 3.3 Reproduce and fix | verified | all 49 triaged findings fixed (1 critical, 12 high, 22 medium, 14 low), each with a test that failed on the old code and passes now; the infra fixer's own pass found 12 more (I01-I12: 2 high, 2 medium, 8 low): 8 fixed, 3 low left by decision, 1 refuted. Per-finding commits, tests and before/after output: notes/analysis/review/fix-results.json (workflow wf_530a6aa5-74c, 21 agents) |
 | 3.4 Attack the fixes, patch what broke | verified | one attacker per area tried to get around each fix (90 attempts, 51 held); each of the 39 holes became a failing test, then a patch: 37 patched, 2 left for a product decision (sign-in lockout R05-H6, sign-up membership probe R05-H7, see open issues). Branch suites at their heads, all green with typecheck 0 and lint 0: payments 296, age 286, scan 321, auth 292, moderation 290, generation 281, infra 285 |
 | 3.5 Merge the seven fix branches | verified | merges f1e5f8e (payments, vitest 296/296), abded82 (age, 324/324), 09dc2a1 (scan, 387/387), aa7fba0 (auth, 421/421), 16a67db (moderation, 453/453), 0a01221 (generation, 476/476), ce84bff (infra, 503/503 in 44 files); typecheck 0 and lint 0 after each; then `npm run test:e2e` on a fresh production build at ce84bff: 36 passed (5.4 min), exit 0 (notes/evidence/e2e-ce84bff.log). Four conflicts resolved by hand (download route, scanner imports, media imports, log redaction), plus three merge-only test or import fixes named in the merge commits |
-| 4 Visual review | not done (in progress) | capture spec tests/e2e/visual.spec.ts (skipped unless VISUAL_REVIEW=1) took 223 screenshots at 390, 820 and 1440 px with overflow, tap-target, clipped-text and axe contrast checks (/mnt/project-files/playbox-2/evidence/visual/before/, manifest.json); two reviewers found 43 defects (3 high, 26 medium, 14 low); fixes are on branch visual-review (worktree /home/claude/hushloom-visual), not yet verified or merged |
+| 4 Visual review | verified | capture spec tests/e2e/visual.spec.ts (skipped unless VISUAL_REVIEW=1): 223 screenshots at 390, 820 and 1440 px with overflow, tap-target, clipped-text and axe contrast checks; two reviewers found 43 defects (3 high, 26 medium, 14 low), all fixed (35 commits on visual-review, merged) and re-verified by a second full capture: no overflow, 0 contrast violations (9 before), flagged phone targets 1916 to 369 (the rest are duplicate card title links, switches inside full-row labels, inline links and native checkboxes inside labels), no new defect. Branch checks at a802cc4: typecheck 0, lint 0, vitest 507/507, Playwright 40 passed (4 new always-on layout tests in tests/e2e/layout.spec.ts). Before and after screenshots and manifests: /mnt/project-files/playbox-2/evidence/visual/{before,after}/; results notes/analysis/visual/visual-review.json. Not captured: the route error boundary (nothing throws on demand). Residual (low): the brief 'Weaving a demo placeholder' toast overlaps Make it while it shows |
 | 5 Deliverables: vision, information architecture | implemented but not verified | drafts in the session scratchpad; critiques returned "revise"; finishing in phase 5 against the merged build |
 | 5 Deliverables: design system, engineering, deployment, verification | not done | |
 | 6 Copilot evidence: read and run main (d2d6cad) | verified | notes/analysis/copilot/ (read.md, run.json, probe scripts); its tests 5/5; server probed with curl; 27 screenshots in /mnt/project-files/playbox-2/evidence/copilot-main/ |
@@ -145,6 +145,9 @@ vitest suite before merging.
   server files are owned by the runtime user (I11, unverifiable without Docker); first-party GitHub
   actions pinned to tags, not SHAs (I07 remainder). I12 (MinIO default credentials) refuted: ports
   bind to 127.0.0.1 and the bucket setup exits without keys.
+- Visual: Next.js 15.5.27 vendors a React 19.2 canary with a hydration replay bug (worked around in
+  the shell, V-B-23); upgrading to a Next.js release with React 19.3 or later removes it. The brief
+  "Weaving a demo placeholder" toast overlaps Make it on phones while it shows (low).
 - Review, go-live questions for the processors (from the payment fixes): does CCBill echo pass-through
   values with their X- prefix (if not, sales are held, failing closed)? Is a CCBill Refund or
   Chargeback transactionId the original sale's or a new one? A timestamp freshness window and nonces
@@ -221,6 +224,11 @@ vitest suite before merging.
   Resumed at 14:45 from the workflow journals: the fixer continues in place (V-B-23, a hydration
   error seen once, then all checks), then re-capture and verify; the docs get up to two more
   critique rounds.
+- 2026-10-14 16:25 Visual review finished: every one of the 43 defects fixed and confirmed in a second
+  capture, no new defect; merged. V-B-23 (React error #418 seen once) was a React 19.2 hydration
+  replay bug that the capture's request interception made frequent (1 in 130 cold loads without
+  it); worked around in the shell with a passthrough component, 0 in 100 loads after. A Next.js
+  release that vendors React 19.3 or later removes the cause; that upgrade is a separate decision.
 
 All times 2026-10-12, UTC, from `git log` and the thread.
 

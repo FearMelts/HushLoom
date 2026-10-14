@@ -1,0 +1,1633 @@
+{
+  "capture": {
+    "manifest": "/mnt/project-files/playbox-2/evidence/visual/before/manifest.json",
+    "shots": 223,
+    "notCaptured": [
+      "You sheet (admin) at 1440x900: does not apply. At 1024 px and wider the tab bar is hidden and the rail shows every link, so there is no You sheet. It was captured at 390 and 820.",
+      "You sheet (member) at 1440x900: does not apply, for the same reason. It was captured at 390 and 820.",
+      "src/app/error.tsx (the route error boundary), all widths: no page throws on demand in the production build, and making one throw would mean changing app code for the capture.",
+      "Private and operator pages for a signed-out visitor were not captured as separate pages, all widths. Their response codes are in manifest.notes. /studio, /train, /settings, /pricing/sandbox, /verify/sandbox and /collection/<id> answer 307 to /auth?next=...; /admin and /admin/review answer 404 (the not-found page). /collection, /favorites and /projects answer 200 with no Location header (see notes), and what the browser then shows for those three was not captured."
+    ],
+    "automated": "223 shots, 0 failed capture steps, 0 axe errors.\n- **Overflow:** 0 shots at any width.\n- **Clipped text:** 0 shots at any width.\n- **Color contrast:** 3 shots per width, one node each, 9 nodes in all. Every one is the same element: the \"· sandbox\" tag inside the ember Buy button on /pricing (#572720 on #ff6a4d, 4.32:1, needs 4.5:1, 10.5px). It shows for anonymous, member and fresh member at 390, 820 and 1440.\n- **Small targets at 390 (75 shots):** 72 shots have flagged elements. 1946 elements fail the 40x40 rule: 1916 flagged and 30 recorded as by design. 807 of the 1946 are also under 24x24. The biggest groups are card favorite buttons (36x36, 356), card \"Make\" links (81x36, 356), video \"Preview\" buttons (53x36, 94), the phone wordmark home link (136x37, on 67 shots), and card title and @creator links (21 and 17 px tall).\n- **Small targets at 820 (75 shots):** 34 shots have flagged elements. 809 fail the 24x24 rule: 780 flagged, 29 by design. Most are card title and @creator links.\n- **Small targets at 1440 (73 shots):** 67 shots have flagged elements. 943 fail the 24x24 rule: 914 flagged, 29 by design. Most are the rail's Pricing and Policy links (203x19, on 67 shots) plus card title and @creator links.\n- **By-design reasons used:** 27 inline links that share a line of text, and 61 checkboxes or radios whose label is the tap target.",
+    "commit": "7149139949861249ff12173efd80c7722c18672f",
+    "notes": "The spec is in commit 7149139 (\"Visual review capture spec, skipped unless VISUAL_REVIEW=1\") on visual-review in /home/claude/hushloom-visual. The file is /home/claude/hushloom-visual/tests/e2e/visual.spec.ts, and typecheck and eslint report nothing on it.\n\n**Runs**\n- **Final capture run** on the committed spec: \"32 passed (10.1m)\", exit 0. The manifest records git.head 7149139 with specDirty false.\n- **Earlier run:** a first run also passed 32/32 (9.9m). After it I changed three things: inline-link detection, adding the uncapped smallTargets.groups, and naming the loading shots by route. The final run replaced all of that run's files.\n- **Normal suite** (\"npx playwright test\", VISUAL_REVIEW unset) afterwards: \"32 skipped / 36 passed (4.3m)\", exit 0. All 32 skipped tests are in visual.spec.ts.\n\n**Output**\n- 223 PNGs plus manifest.json in /mnt/project-files/playbox-2/evidence/visual/before/ (68 MB). No fail-*.png was written.\n- Each manifest entry has: id, route, url, role, state, width, file, fullPage, HTTP status, checks (h1, overflow, smallTargets, clippedText, contrast) and console errors.\n- Captures by role: anonymous 45 + first-visit age gate 3, anonymous in GB 12, member 86, creating member 18, fresh member 27, unverified GB member 18, creator 3, admin 11.\n\n**How the capture works**\n- **Setup:** one test creates the data before any capture.\n  - The seeded member makes two demo creations (one from a template, one in a project scene), creates the project \"Golden hour series\" with two scenes, and saves one favorite.\n  - There is one template report and one public takedown request.\n  - A throwaway account uploads the dev scanner's drill fixture, which creates a real escalation and suspends that account.\n  - Four accounts are signed up: fresh, GB, a second GB account, and a \"tray\" member who is granted 40 credits.\n  - Captures run grouped by role, admin first, so the anonymous takedown submissions do not change the admin queue shown at the other widths.\n- **Job tray:** after a real confirmed job, page.route freezes the tray's active-list poll at its first non-empty real answer, so the tray stays on screen. The tray entries say this in their note.\n- **Loading skeletons:** captured for all 5 loading.tsx routes at every width. Each comes from a real client-side link click, with the non-prefetch RSC request held by page.route.\n- **Offline page:** captured through the service worker after context.setOffline(true), plus the offline banner state.\n- **Overlays:** sheets and the job tray are viewport-size shots; everything else is full-page.\n- **Capture artifact, not a layout bug:** in full-page shots Chromium draws fixed elements where they sit in the first viewport. So the phone tab bar appears at y≈844 over the content, and the desktop rail stops at 900 px. manifest.checks.capture says this.\n\n**Things the captures surfaced for the review round (not fixed here)**\n1. **Hydration error on phone (/projects loading shot):** the entry phone-member-projects-loading-skeleton has a page error, \"Minified React error #418\" (a hydration mismatch). Console errors are logged since the previous capture on that page. In between, the page did a full load of /policies and opened the You sheet. It did not happen in the earlier run, so it looks intermittent.\n2. **Signed-out list pages answer 200:** /collection, /favorites and /projects answer 200 with no Location header when requested with maxRedirects 0. The other private pages answer 307 to /auth.\n3. **No h1 on the creation detail page:** /collection/<id> has no h1 at any width.\n4. **Contrast failure on Pricing:** the \"· sandbox\" tag inside the Buy button is the only contrast failure found.\n\nThe other console errors are expected: the 404 on the not-found page, the 451 when an unverified GB member presses Make it, and ERR_INTERNET_DISCONNECTED plus the RSC fetch fallback while offline."
+  },
+  "reviews": [
+    {
+      "reviewed": 158,
+      "defects": [
+        {
+          "id": "V-A-1",
+          "severity": "high",
+          "route": "/studio",
+          "width": 390,
+          "state": "member with finished jobs in the Job monitor (demo_member)",
+          "screenshot": "phone-member-studio.png",
+          "what": "At 390 px the Studio page lays out 583 px wide. The capture is 583x2168 and the manifest reports innerWidth 583 and scrollWidth 583. The sticky header band stops at 390 px while the create panel, the Image/Video toggle and the Job monitor run out to 583 px, so on a phone the page zooms out or scrolls sideways. The automated overflow check misses this (overflows:false) because with isMobile Chromium widened the layout viewport to match the content. The fresh member's Studio has no jobs and renders at 390 (phone-fresh-member-studio-no-presets-or-jobs.png), which isolates the cause to the job rows: each prompt is a nowrap 'truncate' span (a.min-w-0.flex-1, measured 547 px wide).",
+          "where": "src/app/studio/page.tsx:49 `<div className=\"grid gap-8 xl:grid-cols-[1fr_320px]\">` gives one implicit auto column below xl. Its grid items (the panel div and the <aside> at :65) keep min-width:auto, so the nowrap prompt text in JobMonitor (src/components/studio.tsx:87-88, `block truncate`) sets the column's minimum width.",
+          "fix": "Make the track shrinkable: `grid grid-cols-[minmax(0,1fr)] gap-8 xl:grid-cols-[minmax(0,1fr)_320px]`, or add `min-w-0` to the panel wrapper and the aside. In tests/e2e/visual.spec.ts, compare scrollWidth against the configured viewport width (390), not window.innerWidth, so a widened mobile layout viewport is caught."
+        },
+        {
+          "id": "V-A-2",
+          "severity": "high",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "member after Make it, job tray open (vtray account), page scrolled to its end",
+          "screenshot": "phone-member-creating-job-tray-open.png",
+          "what": "With the job tray open on the phone, the tray (about y 660-765) covers the lower half of the Make it button, the '4 credits · you have 36' line and the DEMO MODEL label at the bottom of the create panel. The page is already at its maximum scroll (content offset 212 = 1056 - 844), so the person cannot scroll that content clear of the tray. They have to collapse it first. The 'Weaving a demo placeholder' toast also sits over Make it while it shows.",
+          "where": "src/components/shell.tsx:217 `<main id=\"main\" className=\"pb-28 lg:pb-12 ...\">`. The bottom padding ignores the tray, although src/components/job-tray.tsx:161 publishes --tray-h (the tray is fixed at bottom-[calc(5rem+...)], job-tray.tsx:177).",
+          "fix": "Below lg, reserve the tray's height: `pb-[calc(7rem+var(--tray-h,0px)+var(--dock-h,0px))] lg:pb-12` on main, so the last controls and the Demo label can always be scrolled above the tray."
+        },
+        {
+          "id": "V-A-3",
+          "severity": "high",
+          "route": "/creators/lunavelour",
+          "width": 390,
+          "state": "creator viewing own page (manage and analytics)",
+          "screenshot": "phone-creator-own-creator-page-manage-and-analytics.png",
+          "what": "At 390 the 'Your templates' manage table shows only Template, Status and Views 30d. Uses 30d, Uses, Saves, Rating and the Edit and Unpublish buttons for every template sit off-screen. The visible column ends exactly at the viewport edge and the scrollbar is hidden, so nothing shows that more exists: the creator's management actions are effectively hidden. Those Edit/Unpublish buttons also measure 37x40, and each template link row is 168x36.",
+          "where": "src/components/creator-manage.tsx:57-58 (`overflow-x-auto` wrapping `table ... min-w-[640px]`), action buttons at :97-110 (Button size=\"sm\" icon-only), row link at :75",
+          "fix": "Below sm, render each template as a stacked row: thumbnail, title and status; a stats line (views 30d · uses · saves · rating); and the Edit and Unpublish buttons visible in the row at size-10. Keep the table from sm up. If the table stays on phones, pin the actions column (sticky right-0) and add a right-edge fade so the scroll is discoverable."
+        },
+        {
+          "id": "V-A-4",
+          "severity": "medium",
+          "route": "/pricing",
+          "width": 390,
+          "state": "member with credit history (demo_member)",
+          "screenshot": "phone-member-pricing.png",
+          "what": "In 'Credit history' on the phone, the table is wider than the screen. The 'Change' header shows only 'C', and the values are cut mid-token ('0 (-4', '-4 (+4'), so the amount and its sign lose their meaning. The 'Available after' column is not visible at all, and nothing suggests the row scrolls. The automated clippedText check (0) misses this because the clipping happens in a scroll container.",
+          "where": "src/app/pricing/page.tsx:190-191 (`<div className=\"overflow-x-auto\">` + `table ... min-w-[520px]`)",
+          "fix": "Below sm, lay each entry out as two lines: what and when on the left, change and available-after stacked right-aligned on the right. Alternatively drop the min-width and move 'When' under 'What' so the four values fit in 358 px."
+        },
+        {
+          "id": "V-A-5",
+          "severity": "medium",
+          "route": "/",
+          "width": 390,
+          "state": "any role; every template rail (For you, Recently viewed, Saved, Following, New; template page 'You might also like' and 'More in #tag'; creator collection rail)",
+          "screenshot": "phone-gb-member-unverified-home-previews-withheld-until-verified.png",
+          "what": "The first card of every horizontal rail is snapped past the page gutter. On the phone it touches the screen edge at x=0 while the heading starts at x=16 (also phone-member-template.png, phone-creator-own-creator-page-manage-and-analytics.png). On the tablet it sits at x=0 against a 24 px gutter (tablet-creator-own-creator-page-manage-and-analytics.png). On the desktop the rail starts at x=236, flush against the sidebar border, 24 px left of the section heading at 260 (desktop-anonymous-home.png 'New' rail, desktop-anonymous-template.png 'You might also like'). Rails that do not overflow, such as the desktop creator collection, stay aligned, which confirms that the snap causes it.",
+          "where": "src/components/template-card.tsx:238 TemplateRail `scrollbar-none -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6`: snap-start items align to the scrollport edge because there is no scroll-padding",
+          "fix": "Add scroll padding equal to the gutter: `scroll-px-4 sm:scroll-px-6` on the rail container, so snap-start lands the first card on the 16/24 px gutter, aligned with the heading."
+        },
+        {
+          "id": "V-A-6",
+          "severity": "medium",
+          "route": "/",
+          "width": 390,
+          "state": "previews withheld: anonymous GB visitor and unverified GB member (home, explore, template rails, creator page)",
+          "screenshot": "phone-anonymous-gb-home-previews-withheld.png",
+          "what": "On withheld-media cards, the bottom-left 'Sign in' and 'Verify now' pill wraps onto two lines ('Sign / in', 'Verify / now') and its shield icon shrinks, so the call to action looks broken. This happens on the phone grid and rails and also on the desktop rails (desktop-gb-member-unverified-home-previews-withheld-until-verified.png), where the Make link is invisible (opacity-0) but still takes its width.",
+          "where": "src/components/template-card.tsx:141-145 (withheld Link: `pointer-events-auto inline-flex h-9 items-center gap-1 ... px-2.5`, no shrink-0/whitespace-nowrap) sharing a justify-between row with the Make link at :159-163",
+          "fix": "Give the pill `shrink-0 whitespace-nowrap` and size h-10. On withheld cards, render Make icon-only (size-10, aria-label `Make ${title}`) or omit it, since Make leads to the same verification. On desktop, take the hidden Make out of flow (absolute right-2.5, or `invisible` until hover) so it does not squeeze the pill."
+        },
+        {
+          "id": "V-A-7",
+          "severity": "medium",
+          "route": "/",
+          "width": 390,
+          "state": "any role; every template card (home, explore, template rails, creator pages)",
+          "screenshot": "phone-member-home.png",
+          "what": "Card controls are below the 40 px phone rule on every card (17 phone screenshots, up to 345 instances each): the favorite heart is 36x36, Make is 81x36, the video preview chip is 53x36, the withheld 'Verify now'/'Sign in' pill is 60-67x36, and the creator handle link (@lunavelour etc.) is about 100x17. The handle link has no larger equivalent on the card.",
+          "where": "src/components/template-card.tsx:132 (heart `size-9`), :143 (withheld pill h-9), :150 (preview `h-9 min-w-9`), :161 (Make `h-9`), :176 (handle `block truncate font-mono text-[11.5px]`)",
+          "fix": "Use size-10 and h-10 for the heart, preview, pill and Make. Give the handle link a 40 px hit area (`inline-flex min-h-10 items-center` with a negative margin to keep the caption compact), or make the whole caption block one link with the handle as text."
+        },
+        {
+          "id": "V-A-8",
+          "severity": "medium",
+          "route": "/",
+          "width": 390,
+          "state": "every page in the phone shell (logo for all roles, credits pill for signed-in roles)",
+          "screenshot": "phone-member-home.png",
+          "what": "Two header controls are below 40 px on the phone: the 'Hushloom home' logo link (136x37, 47 phone screenshots) and the credits pill ('192 credits. Get more credits', 58-75x36, 29 phone screenshots).",
+          "where": "src/components/shell.tsx:193 (`<Link href=\"/\" className=\"lg:hidden\">`) and :75 (credits pill `inline-flex h-9 items-center gap-2 ...`)",
+          "fix": "Use h-10 for the credits pill, and give the logo link `inline-flex h-10 items-center`."
+        },
+        {
+          "id": "V-A-9",
+          "severity": "medium",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "create panel or template page with a copilot suggestion showing (member, anonymous, GB)",
+          "screenshot": "phone-member-creating-create-panel-prompt-filled-in.png",
+          "what": "The copilot suggestion actions are bare text buttons: 'Use soft window', 'Use golden hour' and 'Use slow push in' (101x20) and 'Dismiss' (46x20), flagged in 10 phone screenshots. On the phone the right-hand action column also squeezes the explanation into a column about 170 px wide, which runs 5-6 lines beside a mostly empty column.",
+          "where": "src/components/create-panel.tsx:578-587 (`flex shrink-0 flex-col items-end gap-1`; buttons `font-semibold text-ember-400` and `text-bone-500` with no padding)",
+          "fix": "Give both buttons `inline-flex min-h-10 items-center px-3 rounded-full`. Below sm, move the actions under the text in a row (`max-sm:flex-row max-sm:w-full max-sm:justify-end`) so the explanation uses the full width."
+        },
+        {
+          "id": "V-A-10",
+          "severity": "medium",
+          "route": "/",
+          "width": 390,
+          "state": "home (member, fresh, GB) and template page rails",
+          "screenshot": "phone-member-home.png",
+          "what": "The section heading actions are under 40 px on the phone: 'See all', 'Explore all' and 'All saved' are 57-79x20, and 'Tune' is 30x20.",
+          "where": "src/app/(home)/page.tsx:77 (Tune), :99 (All saved), :113 (Explore all), :139 (See all); src/app/templates/[id]/page.tsx:188-190 (See all)",
+          "fix": "Give these links `inline-flex min-h-10 items-center px-2 -mr-2`, or have SectionHeading (src/components/ui.tsx:284) wrap its action in a 40 px target."
+        },
+        {
+          "id": "V-A-11",
+          "severity": "medium",
+          "route": "/explore",
+          "width": 390,
+          "state": "member and anonymous, Trending/New/Top rated/Most loved sort tabs",
+          "screenshot": "phone-member-explore.png",
+          "what": "The sort tabs (role=radio) are 38 px tall, and 'New' is 29 px wide (29x38), so they miss the 40 px phone rule.",
+          "where": "src/components/explore-feed.tsx:91 (`-mb-px border-b-2 pb-2.5 pt-1 text-[14.5px]`)",
+          "fix": "Use `min-h-10 min-w-10 px-1 pt-1.5 pb-3` (or a 40 px inline-flex) so every tab is at least 40x40."
+        },
+        {
+          "id": "V-A-12",
+          "severity": "medium",
+          "route": "/templates/velvet-hour",
+          "width": 390,
+          "state": "any role, template detail page",
+          "screenshot": "phone-member-template.png",
+          "what": "In the meta row, the category badge link (BOUDOIR) sits about 5 px lower than the DEMO MEDIA and IMAGE badges beside it (desktop-member-template.png shows the same) and is only 62x25. The other template-page controls are also under 40 px on the phone: the tag chips (#GOLDEN HOUR, #SILK...) are 22 px tall, the creator link is 122x37, and on withheld previews the 'VERIFY NOW'/'SIGN IN' text link is 52-75x17 (phone-anonymous-gb-template-preview-withheld.png).",
+          "where": "src/app/templates/[id]/page.tsx:76-79 (inline <Link> wrapping an inline-flex <Badge>, so baseline alignment drops it), :84 (creator link), :124 (tag `tag rounded-full px-2.5 py-1`); src/components/template-card.tsx:26 (WithheldMedia link `mt-2 inline-block font-mono text-[11px]`)",
+          "fix": "Give the category Link `inline-flex` (or render the Badge itself as the link) so it shares the row's alignment, with a 40 px hit area on phones (`max-sm:min-h-10 items-center`). Tag chips: `inline-flex min-h-10 items-center`, or py-2.5 on phones. Creator link and WithheldMedia link: `inline-flex min-h-10 items-center`."
+        },
+        {
+          "id": "V-A-13",
+          "severity": "medium",
+          "route": "/policies",
+          "width": 390,
+          "state": "member and anonymous; policies and takedown pages",
+          "screenshot": "phone-member-policies.png",
+          "what": "The section jump chips on /policies (Adults only, Privacy, Credits...) are 28 px tall (16 instances). The '← POLICIES' back link on /policies/takedown is 71x14 (phone-anonymous-takedown-form.png). Both miss the 40 px phone rule.",
+          "where": "src/app/policies/page.tsx:134 (`hairline rounded-full px-3 py-1 text-[13px]`); src/app/policies/takedown/page.tsx:12-14 (`tag text-bone-500`)",
+          "fix": "Chips: `inline-flex min-h-10 items-center px-3.5`. Back link: `inline-flex min-h-10 items-center` (with a negative margin if the spacing must stay)."
+        },
+        {
+          "id": "V-A-14",
+          "severity": "medium",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "cost sheet, upload consent sheet and You sheet open",
+          "screenshot": "phone-member-creating-cost-sheet-open.png",
+          "what": "The sheet Close (X) button is 36x36 on the phone, in the cost sheet, the upload consent sheet (phone-member-creating-upload-consent-sheet-open.png) and the You sheet (phone-member-you-sheet-open.png).",
+          "where": "src/components/ui.tsx:191 Sheet header close button (`grid size-9 place-items-center rounded-full`)",
+          "fix": "Use size-10 (or size-11) for the close button in the shared Sheet primitive."
+        },
+        {
+          "id": "V-A-15",
+          "severity": "medium",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "member just after Make it ('Weaving a demo placeholder.' toast)",
+          "screenshot": "phone-member-creating-job-tray-collapsed.png",
+          "what": "The toast's action link 'Library' is 45x20, under the 40 px phone rule (also in phone-member-creating-job-tray-open.png).",
+          "where": "src/components/ui.tsx:257 (toast action `<Link className=\"font-semibold text-ember-400 hover:text-ember-300\">`)",
+          "fix": "Use `inline-flex min-h-10 items-center px-2 -mr-2` on the toast action link."
+        },
+        {
+          "id": "V-A-16",
+          "severity": "medium",
+          "route": "/studio",
+          "width": 390,
+          "state": "member with jobs in the Job monitor",
+          "screenshot": "phone-member-studio.png",
+          "what": "Each Job monitor row link (the prompt plus its 'Ready · 1m ago · 4 cr · demo' line) is 36 px tall, under the 40 px phone rule.",
+          "where": "src/components/studio.tsx:79 (`li ... py-2`) and :87 (`<Link className=\"min-w-0 flex-1\">`)",
+          "fix": "Make the link the padded block: `min-w-0 flex-1 py-1 min-h-10`, or raise the row to py-2.5 and stretch the link to the row's height."
+        },
+        {
+          "id": "V-A-17",
+          "severity": "medium",
+          "route": "/pricing",
+          "width": 390,
+          "state": "all roles; 'Get Studio Pass · SANDBOX' button",
+          "screenshot": "phone-anonymous-pricing.png",
+          "what": "The '· sandbox' tag inside the ember Studio Pass button fails WCAG AA: #572720 on #ff6a4d is 4.32:1 at 10.5 px (axe, in all 9 pricing screenshots). It is the label that marks the purchase as a sandbox, so it should be fully legible.",
+          "where": "src/components/pricing.tsx:55 (`<span className=\"tag opacity-70\">· sandbox</span>`; opacity-70 on top of the ember-500 button)",
+          "fix": "Drop opacity-70 on the ember variant (full ink-950 on ember-500 passes easily), or use a solid darker token (text-ink-900) instead of opacity."
+        },
+        {
+          "id": "V-A-18",
+          "severity": "low",
+          "route": "/",
+          "width": 1440,
+          "state": "any role, 'Trending tonight' grid",
+          "screenshot": "desktop-anonymous-home.png",
+          "what": "The editorial trending grid ends with a lone 2x2 featured card (Steam & Shadow) and three empty columns beside it on the desktop. On the tablet the last row holds a single card next to the featured tile (tablet-anonymous-home.png), so the section ends in a visible hole.",
+          "where": "src/components/template-card.tsx:230 (`feature={editorial && i % 11 === 0}` features index 11 of the 15 items from src/app/(home)/page.tsx:117)",
+          "fix": "Feature only index 0, or feature an item only when enough items follow it to close the row (or trim the list to a whole number of rows at the current column count)."
+        },
+        {
+          "id": "V-A-19",
+          "severity": "low",
+          "route": "/templates/velvet-hour",
+          "width": 1440,
+          "state": "any role",
+          "screenshot": "desktop-anonymous-template.png",
+          "what": "The stats line reads 'Made 1 times'.",
+          "where": "src/app/templates/[id]/page.tsx:100 (`Made {compact(t.generationCount)} times`)",
+          "fix": "Pluralize: 'Made once' or 'Made 1 time' for a count of 1, and 'times' otherwise."
+        },
+        {
+          "id": "V-A-20",
+          "severity": "low",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "unverified GB member, Make it refused (451 age check required)",
+          "screenshot": "phone-gb-member-unverified-create-make-it-refused-age-check-required.png",
+          "what": "The refusal reads 'Your region requires an age check... Open Settings › Age verification to do it.' but offers no link to the age check. The only link nearby is 'Get credits', so the error state has no direct way forward.",
+          "where": "src/lib/api.ts:44 (appends the 'Open Settings › Age verification' text) and the create panel's error render in src/components/create-panel.tsx",
+          "fix": "When the error code is age_verification_required, render a 'Verify your age' link or button to /settings#age-verification inside the error, instead of the instruction text."
+        }
+      ],
+      "fine": [
+        "/ first-visit age gate (390/820/1440): no flags, readable, full-size controls",
+        "/auth join and /auth?mode=signin (390/820/1440): layout fine. The checkbox flags are by design (the label is the target). At 820/1440 the 16x16 confirmAdult checkbox, with its 20 px label row, passes WCAG 2.5.8 by spacing because the next checkbox is about 37 px away. The only real flag is the shell logo (V-A-8)",
+        "/offline visited directly and the service-worker offline fallback (390/820/1440): centered card, no flags. The console ERR_INTERNET_DISCONNECTED and 'Failed to fetch RSC payload' messages are the expected offline errors",
+        "Offline banner on /generate/image (390/820/1440): banner visible and Make it disabled with the inline offline reason",
+        "/no-such-page not found, member and anonymous (390/820/1440): 404 page renders with both actions. The console 404 is the expected status",
+        "/train and the fresh member's /train empty state (390/820/1440): no defects",
+        "/generate/image and /generate/video, signed out and member, at 820 and 1440: DEMO MODEL label visible, layout fine. Only the copilot actions are flagged (V-A-9)",
+        "Cost sheet (390/820/1440): cost, balance after and the demo-model notice are visible. Only the Close size is flagged (V-A-14)",
+        "Upload consent sheet (390/820/1440): Upload is disabled until the confirmation is ticked, which is intended",
+        "Job tray open and collapsed at 820 and 1440: the tray sits clear of the create panel",
+        "/pricing/sandbox Spark checkout (390/820/1440): the SANDBOX · DEMO label and copy are visible. On the phone the tray drawn over 'Reverse something' is a full-page capture artifact (a fixed element drawn at its first-viewport position)",
+        "Home and Explore loading skeletons (390/820/1440): the skeleton mirrors the final layout. The tab bar mid-image is the documented capture artifact",
+        "/creators/demo_member, a member's own profile that is not a creator (390/820/1440): no defects",
+        "/creators/lunavelour public and following views at 1440: the rails do not overflow, so they stay aligned; the stats header is fine",
+        "/pricing for the fresh member (390/820/1440): balance and empty states for payments and history render. Only the sandbox tag contrast is flagged (V-A-17)",
+        "/policies/takedown form, filled and sent (390/820/1440): the success state is clear. The tab bar over the consent checkbox at 820 and over a heading on /policies is a full-page capture artifact",
+        "Phone template page: the 'Make it · 4 credits DEMO' bar over the creator row in the full-page capture is a capture artifact (fixed MakeBar)",
+        "Card title links (21 px tall): the same destination is the full-size card media link directly above (WCAG 2.5.8 equivalent-control exception), so these are not defects",
+        "Desktop rail footer links Pricing and Content policy & privacy (203x19): pointer layout, and they are 30 px apart, so the WCAG 2.5.8 spacing exception holds",
+        "Contrast: no axe violations in group A apart from the pricing sandbox tag. The 'incomplete' nodes are text over gradients or images",
+        "clippedText was 0 and overflow false for every group A entry. On inspection, two of those passes are wrong: the /studio overflow (V-A-1) and the scroll-container clipping (V-A-4, V-A-3)",
+        "Demo and sandbox labelling: DEMO badges on every card, 'Demo media' on templates, 'DEMO MODEL' beside Make it, and SANDBOX on pricing and checkout are visible at all widths, except where the open job tray covers the label (V-A-2)",
+        "GB previews withheld (anonymous and unverified member, all widths): no media is shown and the title and creator remain. Only V-A-6 (pill wrap) and the shared card tap targets apply"
+      ]
+    },
+    {
+      "reviewed": 97,
+      "defects": [
+        {
+          "id": "V-B-1",
+          "severity": "medium",
+          "route": "/projects",
+          "width": 390,
+          "state": "member, project list with 'Golden hour series' (2 scenes, 1 finished take)",
+          "screenshot": "phone-member-projects.png (also tablet-member-projects.png, desktop-member-projects.png)",
+          "what": "The project card reads '0 scenes · 0 finished · just now', but the project has two scenes ('Opening' and 'The turn') and a finished take on Opening, as phone-member-project.png shows. The count is wrong at every width.",
+          "where": "src/server/projects.ts:78-79 (listProjects). The correlated subqueries interpolate ${projects.id} inside select fields, and Drizzle renders that unqualified. The generated SQL, printed with drizzle .mock().toSQL(), is `(select count(*)::int from \"project_scenes\" s where s.project_id = \"id\")`. Postgres resolves \"id\" to s.id and j.id, so both counts are always 0.",
+          "fix": "Qualify the outer column, for example sql`(select count(*)::int from ${projectScenes} s where s.project_id = \"projects\".\"id\")`, and the same for generation_jobs. Or use a left join with groupBy. Add an integration test that asserts scenes=2 and clips=1 for the seeded project."
+        },
+        {
+          "id": "V-B-2",
+          "severity": "medium",
+          "route": "/projects and /projects/[id]",
+          "width": 390,
+          "state": "member; project cover and scene-timeline tile 01 show a demo still",
+          "screenshot": "phone-member-projects.png, phone-member-project.png (also tablet and desktop)",
+          "what": "The project cover and the scene tiles show demo placeholder media with no Demo label. The 16:9 object-cover crop of the 4:5 placeholder cuts off the 'DEMO OUTPUT · NOT AI-GENERATED' band, and no Demo badge is drawn on top. The takes list below does show the badge.",
+          "where": "src/components/projects.tsx:29-37 (Media, used at :79 for the cover and :259 for the timeline tiles). The cover from listProjects in src/server/projects.ts:107-110 and the take output carry no isDemo flag.",
+          "fix": "Return isDemo with the cover and the take output. Render <Badge tone=\"demo\">Demo</Badge> in the tile corner, the way CreationThumb does, for both the project cover and the scene tiles."
+        },
+        {
+          "id": "V-B-3",
+          "severity": "medium",
+          "route": "/ (and /creators/[handle], /templates/[slug] rails)",
+          "width": 820,
+          "state": "fresh member and unverified GB member; template rails ('For you', 'New', 'After-dark essentials', 'You might also like')",
+          "screenshot": "tablet-fresh-member-home-nothing-made-or-saved-yet.png (also phone-fresh-member-home-nothing-made-or-saved-yet.png, desktop-gb-member-unverified-home-previews-withheld-until-verified.png, tablet-gb-member-unverified-creator-page-previews-withheld-until-verified.png)",
+          "what": "The first card of every horizontal rail sits flush against the screen edge: x=0 at 390 and 820 px, and against the rail border at x=236 at 1440 px. The section heading and the grids below start at 16, 24 or 260 px, so the rail looks shifted left and its title text nearly touches the edge.",
+          "where": "src/components/template-card.tsx:238. The rail has -mx-4 px-4 with snap-x snap-mandatory and snap-start cards. Snap alignment ignores padding, so the scroller snaps its 16/24 px padding away on load.",
+          "fix": "Add scroll-padding to the rail (scroll-px-4 sm:scroll-px-6), so snap-start aligns the first card with the content edge."
+        },
+        {
+          "id": "V-B-4",
+          "severity": "medium",
+          "route": "/ (also /creators/[handle], /templates/[slug] related rail)",
+          "width": 390,
+          "state": "unverified GB member, previews withheld",
+          "screenshot": "phone-gb-member-unverified-home-previews-withheld-until-verified.png (also tablet-…-home…, desktop-gb-member-unverified-home-previews-withheld-until-verified.png, *-creator-page-previews-withheld-until-verified.png)",
+          "what": "On every withheld template card in rails and narrow grid cells, the 'Verify now' pill wraps to two lines ('Verify' / 'now') inside its 36 px pill and looks broken. At 1440 px it wraps too, because the Make link is only opacity-0 and still takes its space.",
+          "where": "src/components/template-card.tsx:143. The Verify link is inline-flex h-9 with no whitespace-nowrap, and it shares the footer row with the Make link at :161.",
+          "fix": "Add whitespace-nowrap shrink-0 to the Verify pill. Use the label 'Verify' (or drop the icon) on compact cards. Take the Make link out of the layout while it is hidden, or put Verify on its own row when the card is narrow."
+        },
+        {
+          "id": "V-B-5",
+          "severity": "medium",
+          "route": "/favorites (and every TemplateCard: GB /, /creators/[handle], /templates/[slug])",
+          "width": 390,
+          "state": "member, favorites templates tab",
+          "screenshot": "phone-member-favorites-templates.png (also phone-gb-member-unverified-home-previews-withheld-until-verified.png)",
+          "what": "The card controls are under the 40 px phone rule. Measured sizes: favorite heart 36x36 (11 on this page), Make 81x36 (11), video preview 53x36 (3) and Verify now 67x36. These are the main actions on the card.",
+          "where": "src/components/template-card.tsx:132 (heart, size-9), :143 (Verify, h-9), :150 (preview, h-9 min-w-9), :161 (Make, h-9)",
+          "fix": "Use max-sm:size-10 / max-sm:h-10 on these four controls, or keep the visual size and enlarge the hit area with an absolutely positioned ::after inset of -2px."
+        },
+        {
+          "id": "V-B-6",
+          "severity": "medium",
+          "route": "all signed-in pages in the group (/collection, /favorites, /projects, /settings, /admin, /verify/sandbox …)",
+          "width": 390,
+          "state": "any signed-in role, phone top bar",
+          "screenshot": "phone-member-library.png (same flag on every phone entry in the group)",
+          "what": "Two top-bar controls on the phone layout are under 40 px: the logo link 'Hushloom home' is 136x37 and the credits pill ('192 credits. Get more credits') is 58-75x36.",
+          "where": "src/components/shell.tsx:193 (logo Link className=\"lg:hidden\") and :75 (credits pill, h-9)",
+          "fix": "Make both at least 40 px tall on phone: inline-flex h-10 items-center on the logo link, and h-10 (or max-sm:h-10) on the credits pill."
+        },
+        {
+          "id": "V-B-7",
+          "severity": "medium",
+          "route": "/collection (More filters), / and /admin (You sheet)",
+          "width": 390,
+          "state": "member and admin, sheet open",
+          "screenshot": "phone-member-library-more-filters-sheet-open.png (also phone-member-you-sheet-open.png, phone-admin-you-sheet-open.png)",
+          "what": "The Close button in every Sheet is 36x36 on the phone layout, under the 40 px rule. It is the visible way to dismiss the bottom sheet.",
+          "where": "src/components/ui.tsx Sheet header close button (className \"grid size-9 place-items-center rounded-full …\")",
+          "fix": "Use size-10 (or max-sm:size-11) for the close button."
+        },
+        {
+          "id": "V-B-8",
+          "severity": "medium",
+          "route": "/collection",
+          "width": 390,
+          "state": "member library and fresh-member empty library",
+          "screenshot": "phone-member-library.png (also phone-fresh-member-library-empty.png)",
+          "what": "The Status, Model, Folder and Sort selects in the filter row are 32 px tall on phone (109x32, 197x32, 103x32, 117x32). The chips beside them and the filter pills get 40 px.",
+          "where": "src/components/library.tsx:296, :304, :312, :320 (select className \"h-8 shrink-0 rounded-full …\")",
+          "fix": "Add max-sm:h-10 to the four selects, matching the max-sm:h-10 already used for the filter pills in library-filters.tsx:69."
+        },
+        {
+          "id": "V-B-9",
+          "severity": "medium",
+          "route": "/admin/review, /collection/[id], /projects/[id], /admin",
+          "width": 390,
+          "state": "admin and member detail pages",
+          "screenshot": "phone-admin-abuse-review.png (also phone-member-creation-detail.png, phone-member-project.png, phone-admin-admin.png)",
+          "what": "Text links that act as standalone controls are 14-20 px tall on phone. Measured: the '← ADMIN' back link is 50x14 in 10.5 px tag text, the 'Library' back link is 61x20, the 'Projects' back link is 70x20, and the admin template links 'Mirror Glow' and 'Velvet Hour (published)' are 89x20 and 157x20.",
+          "where": "src/app/admin/review/page.tsx:57; src/components/creation-detail.tsx:179; src/components/projects.tsx:226; src/components/admin.tsx:60; src/components/admin-review.tsx:196",
+          "fix": "Give these links min-h-10 inline-flex items-center (with -my-2.5 to keep the layout). For the admin back link, use 13 px text like the other back links rather than the 10.5 px tag style."
+        },
+        {
+          "id": "V-B-10",
+          "severity": "medium",
+          "route": "/projects/[id]",
+          "width": 390,
+          "state": "member, project 'Golden hour series'",
+          "screenshot": "phone-member-project.png",
+          "what": "The scene reorder arrows ('Move Opening earlier/later', 4 buttons) are 36x36, and the icon-only 'Delete project' button is 38x40 (38 px wide). Both are under the 40 px phone rule.",
+          "where": "src/components/projects.tsx:266 and :269 (size-9 move buttons); :242 (Button size=\"sm\" variant=\"quiet\" aria-label=\"Delete project\")",
+          "fix": "Use max-sm:size-10 on the move buttons, and min-w-10 (or a square size-10 icon button) for Delete project."
+        },
+        {
+          "id": "V-B-11",
+          "severity": "medium",
+          "route": "/projects/[id]",
+          "width": 390,
+          "state": "member, project with 2 scenes",
+          "screenshot": "phone-member-project.png",
+          "what": "The 'Add scene' tile is entirely off-screen at 390 px. It is the third w-44 tile and starts at about x=392, so nothing of it peeks in and nothing shows the strip scrolls. The only way to add a scene is hidden.",
+          "where": "src/components/projects.tsx:247-281 (scene timeline: -mx-4 overflow-x-auto px-4, li w-44, Add scene li last)",
+          "fix": "On phone, narrow the tiles (for example w-[40vw]) so the next tile peeks in, or also offer 'Add scene' as a visible button in the header actions or below the strip."
+        },
+        {
+          "id": "V-B-12",
+          "severity": "medium",
+          "route": "/pricing",
+          "width": 390,
+          "state": "fresh member, no credits or history",
+          "screenshot": "phone-fresh-member-pricing-no-credits-or-history.png (also tablet- and desktop-…pricing-no-credits-or-history.png)",
+          "what": "axe color-contrast violation: the '· sandbox' label inside the ember 'Get Studio Pass' button is #572720 on #ff6a4d, 4.32:1 at 10.5 px, below the 4.5:1 AA minimum. It is the sandbox label, so it must stay readable.",
+          "where": "src/components/pricing.tsx:55 (<span className=\"tag opacity-70\">· sandbox</span>)",
+          "fix": "Drop opacity-70 on the primary (ember) variant, or set an explicit ink color that measures at least 4.5:1 on ember-500. Re-run axe."
+        },
+        {
+          "id": "V-B-13",
+          "severity": "medium",
+          "route": "/templates/[slug] and /generate/image",
+          "width": 390,
+          "state": "unverified GB member, preview withheld / Make it refused",
+          "screenshot": "phone-gb-member-unverified-template-preview-withheld-until-verified.png (also phone-gb-member-unverified-create-make-it-refused-age-check-required.png)",
+          "what": "The only action on the withheld cover, 'VERIFY NOW', is a 75x17 link in 11 px mono text: under 40 px on phone and visually weak. Also under 40 px on this page: the tag chips (#GOLDEN HOUR, #SILK, #SAMPLE) are 22 px tall, and the assistant suggestion 'Dismiss' is 46x20.",
+          "where": "src/components/template-card.tsx:26 (WithheldMedia link, mt-2 inline-block font-mono text-[11px]); src/app/templates/[id]/page.tsx:125 (tag chips, py-1); src/components/create-panel.tsx:585 (Dismiss button)",
+          "fix": "Render the non-compact withheld call to action as a Button or ButtonLink (h-10, ember or ghost). Give the tag chips and Dismiss max-sm:min-h-10 with inline-flex items-center."
+        },
+        {
+          "id": "V-B-14",
+          "severity": "low",
+          "route": "/ and /admin (You sheet), /collection (More filters)",
+          "width": 820,
+          "state": "sheet open as a centered dialog",
+          "screenshot": "tablet-admin-you-sheet-open.png (also tablet-member-you-sheet-open.png, desktop-member-library-more-filters-sheet-open.png)",
+          "what": "The dialog's hairline border disappears along the sticky header. Pixel samples at the left and right edges (x=170 and x=649): (22,14,19), the background color, on header rows y=285-300, and (42,35,38), the border color, on body rows. The top of the sheet looks borderless.",
+          "where": "src/components/ui.tsx Sheet. The .hairline border is an inset box-shadow on the <dialog>, and the sticky header (bg-ink-900/95, z-10) paints over it.",
+          "fix": "Use a real border on the dialog (border border-[var(--line)]) instead of the inset shadow, or inset the sticky header by 1px (mx-px mt-px)."
+        },
+        {
+          "id": "V-B-15",
+          "severity": "low",
+          "route": "/collection",
+          "width": 390,
+          "state": "member library and fresh empty library",
+          "screenshot": "phone-member-library.png (also tablet-member-library.png, desktop-member-library.png, *-fresh-member-library-empty.png)",
+          "what": "'More filters' renders on its own row above the 'PRIVATE TO YOU / Library' title, apart from the filter row it belongs to. It pushes the H1 down about 50 px at every width. On phone and tablet, the filter row also scrolls sideways with no edge cue: the selects sit off-screen and only a cut 'An…' shows at the right edge.",
+          "where": "src/app/collection/(list)/page.tsx renders <LibraryFilters> before <LibraryView>; src/components/library-filters.tsx:56; src/components/library.tsx:282 (filter row)",
+          "fix": "Render the More filters button and its pills inside LibraryView's filter row (for example as a slot after the chips). Add a right-edge fade mask to the scrolling filter row."
+        },
+        {
+          "id": "V-B-16",
+          "severity": "low",
+          "route": "/admin",
+          "width": 1440,
+          "state": "admin, audit log",
+          "screenshot": "desktop-admin-admin.png (also tablet-admin-admin.png, phone-admin-admin.png)",
+          "what": "In the audit log, 'just now' wraps to two lines in the time column at every width. Metadata JSON is cut at 120 characters with no ellipsis and wraps mid-ID. On phone and tablet the 640 px table scrolls inside the panel with no cue, and the target column is cut at the panel edge.",
+          "where": "src/app/admin/page.tsx:70-85 (audit table cells; JSON.stringify(l.metadata).slice(0, 120))",
+          "fix": "Add whitespace-nowrap to the time, actor, action and target cells. Show the metadata truncated with an ellipsis and the full text in title. Add an edge fade to the overflow-x-auto wrapper."
+        },
+        {
+          "id": "V-B-17",
+          "severity": "low",
+          "route": "/admin",
+          "width": 1440,
+          "state": "admin, one open report",
+          "screenshot": "desktop-admin-admin.png",
+          "what": "The Reports panel stretches to the full height of the right column (Models, Adjust credits, Account flags), about 1000 px, with a single report row at the top. The result is a large empty box.",
+          "where": "src/app/admin/page.tsx (div.grid.gap-8.xl:grid-cols-2; items stretch by default)",
+          "fix": "Add items-start to the grid, or self-start to the Reports Panel."
+        },
+        {
+          "id": "V-B-18",
+          "severity": "low",
+          "route": "/collection and /collection/[id]",
+          "width": 1440,
+          "state": "member, demo creations",
+          "screenshot": "desktop-member-creation-detail.png (also phone-member-library.png, desktop-member-library.png)",
+          "what": "The prompt caption drawn into the demo placeholder runs off the right edge ('…velvet chaise at golde'). On library and favorites thumbnails it also sits under the DEMO badge and the favorite heart. It is decorative, since the prompt is shown as text, but it reads as clipped.",
+          "where": "src/server/ai/providers/demo.ts:46-62 (demoSvg: the caption is cut at 70 characters, but font-size width/26 fits about 40; y = 10% of height, under the badge zone)",
+          "fix": "Fit the caption to the width: estimate characters per line from fs and wrap into 2 tspans with an ellipsis, or use textLength/lengthAdjust. Start it below the badge band (y ≥ 16%)."
+        },
+        {
+          "id": "V-B-19",
+          "severity": "low",
+          "route": "/collection/[id]",
+          "width": 820,
+          "state": "member, creation detail",
+          "screenshot": "tablet-member-creation-detail.png",
+          "what": "Below lg, the 4:5 media fills the full width (about 772x965 px), so status, prompt and every action (Remix, Retry, Download, Delete…) start below the first 1180 px screen.",
+          "where": "src/components/creation-detail.tsx:182 (grid lg:grid-cols-[…]; the media column has no height cap)",
+          "fix": "Cap the media height on single-column layouts (for example max-h-[65dvh] w-auto mx-auto), or switch to two columns from md."
+        },
+        {
+          "id": "V-B-20",
+          "severity": "low",
+          "route": "/collection/[id]",
+          "width": 390,
+          "state": "member, creation detail",
+          "screenshot": "phone-member-creation-detail.png",
+          "what": "The creation detail page has no h1: the manifest records h1: null at all three widths, and the prompt is a <p>. Screen-reader heading navigation finds no page title.",
+          "where": "src/components/creation-detail.tsx (no <h1>)",
+          "fix": "Add an h1: the template title or 'Creation', visible or sr-only, before the status badges."
+        },
+        {
+          "id": "V-B-21",
+          "severity": "low",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "unverified GB member, Make it refused (451)",
+          "screenshot": "phone-gb-member-unverified-create-make-it-refused-age-check-required.png (also tablet and desktop)",
+          "what": "The refusal says '… Open Settings › Age verification to do it.' as plain red text with no link. The person has to find Settings and scroll to the age card unaided, although the error carries a verifyPath.",
+          "where": "src/components/create-panel.tsx:850 (error <p role=alert> renders only e.message); src/lib/api.ts:12-28 (ApiError.verifyPath and apiErrorAction already exist)",
+          "fix": "Keep the ApiError in state. When verifyPath is set, render a 'Verify your age' ButtonLink to it inside the alert."
+        },
+        {
+          "id": "V-B-22",
+          "severity": "low",
+          "route": "/settings",
+          "width": 820,
+          "state": "fresh member (any member)",
+          "screenshot": "tablet-fresh-member-settings.png (also desktop-fresh-member-settings.png, phone-member-settings.png)",
+          "what": "The page eyebrow is the account email in the uppercase .tag style ('VFRESH_V7YYE0S@EXAMPLE.TEST', 'DEMO@HUSHLOOM.LOCAL'), which changes how the address reads.",
+          "where": "src/components/settings.tsx:78 (<p className=\"tag text-ember-400\">{email}</p>)",
+          "fix": "Add normal-case to the email eyebrow, or show it as body text under the title."
+        },
+        {
+          "id": "V-B-23",
+          "severity": "low",
+          "route": "/projects",
+          "width": 390,
+          "state": "member, loading skeleton capture (client navigation from the You sheet)",
+          "screenshot": "phone-member-projects-loading-skeleton.png",
+          "what": "The capture logged a hydration failure: 'pageerror: Error: Minified React error #418; … args[]=HTML'. It appears only on this entry; the other 14 skeleton captures are clean. The skeleton itself renders correctly.",
+          "where": "Unknown component on the start page (/policies or /) that the You-sheet path visits, likely time-relative text rendered without suppressHydrationWarning. Found via the manifest console field.",
+          "fix": "Reproduce with a dev build at 390 px (/policies → You sheet → Projects) to get the unminified message. Fix the mismatching text node (suppressHydrationWarning or client-only rendering for relative times)."
+        }
+      ],
+      "fine": [
+        "All 97 group screenshots: overflow check false (scrollWidth equals innerWidth at 390/820/1440); no horizontal page scroll anywhere in the group.",
+        "Toggle switches flagged 40x24 on phone (/settings x5, /admin x3): the button sits inside a <label> row at least 48 px tall and buttons are labelable, so the whole row is the tap target.",
+        "Desktop rail links 'Pricing' and 'Content policy & privacy' flagged 203x19 at 1440: they pass WCAG 2.5.8 through the spacing exception (rows about 30 px apart, no other target within the 24 px circle); the 40 px rule applies only at 390.",
+        "Inline links marked byDesign (Velvet Hour on creation detail, Get credits in the create panel): the WCAG inline-text exception applies.",
+        "Contrast 'incomplete' counts (mostly bgGradient, over images or the glow): text over the card gradients and the dimmed sheet backdrops is legible on inspection; no other axe violations in the group besides V-B-12.",
+        "/admin (phone, tablet, desktop): stat tiles, report queue, models with DEMO badges, adjust credits form and account flags are readable; Demo Still and Demo Motion are labeled '(not AI)' with a DEMO badge.",
+        "/admin/review and the confirm-report form open (all widths): the 'DEVELOPMENT SCANNER · NOT LIVE' and 'DEV SCANNER DRILL' labels are visible; the form fits without overflow; 'Dismiss' is dimmed because it is disabled until a note is entered; 'Nothing closed yet.' empty state is present.",
+        "/verify/sandbox (all widths): the SANDBOX badge, 'This is a sandbox age check… proves nothing' copy and the 'DEMO · NOT AGE VERIFICATION' footer are clearly visible; buttons are 40+ px.",
+        "/settings for member, fresh and unverified GB members (all widths): the age-check card shows NOT VERIFIED, SANDBOX and 'Sandbox check (proves nothing)'; GB shows 'United Kingdom', the requirement text and an ember 'Verify now'; the disabled push toggle is dimmed (disabled, exempt from contrast).",
+        "You sheet (member and admin, phone and tablet): every link is present, Admin appears only for the admin, and the credits row shows 'Get more'; not applicable at 1440 (rail shows every link), as recorded in notCaptured.",
+        "More filters sheet (all widths): all fields and the Reset / Show creations footer fit within the viewport at 390.",
+        "Empty states present with a clear CTA: Library ('Your Library is empty' / Find a template), Favorites templates and creations, Projects ('No projects yet'), Train ('No characters yet'), Studio presets and job monitor, Pricing payments and credit history.",
+        "Favorites 'Your creations', Library thumbnails and creation detail: DEMO badge plus the in-image 'DEMO OUTPUT · NOT AI-GENERATED' band are visible; the detail page also shows the 'Demo output: made locally…' note.",
+        "Loading skeletons (home, explore, library, projects, favorites at all widths): skeleton grids match the final layouts (column counts, aspect ratios) and keep the page title; flagged targets there are the shell controls covered by V-B-6.",
+        "Unverified GB member on home, creator page and template: previews are withheld with 'Verify your age to see previews' on every card and cover; the 451 console entry on /generate/image is the expected refusal.",
+        "Full-page capture artifacts (tab bar, template Make-it dock and job tray drawn over content at first-viewport position, for example over the admin Reports row and the takedown buttons): per the manifest capture note, these are not layout defects."
+      ]
+    }
+  ],
+  "rounds": [
+    {
+      "round": 1,
+      "defects": [
+        {
+          "id": "V-A-1",
+          "severity": "high",
+          "route": "/studio",
+          "width": 390,
+          "state": "member with finished jobs in the Job monitor (demo_member)",
+          "screenshot": "phone-member-studio.png",
+          "what": "At 390 px the Studio page lays out 583 px wide. The capture is 583x2168 and the manifest reports innerWidth 583 and scrollWidth 583. The sticky header band stops at 390 px while the create panel, the Image/Video toggle and the Job monitor run out to 583 px, so on a phone the page zooms out or scrolls sideways. The automated overflow check misses this (overflows:false) because with isMobile Chromium widened the layout viewport to match the content. The fresh member's Studio has no jobs and renders at 390 (phone-fresh-member-studio-no-presets-or-jobs.png), which isolates the cause to the job rows: each prompt is a nowrap 'truncate' span (a.min-w-0.flex-1, measured 547 px wide).",
+          "where": "src/app/studio/page.tsx:49 `<div className=\"grid gap-8 xl:grid-cols-[1fr_320px]\">` gives one implicit auto column below xl. Its grid items (the panel div and the <aside> at :65) keep min-width:auto, so the nowrap prompt text in JobMonitor (src/components/studio.tsx:87-88, `block truncate`) sets the column's minimum width.",
+          "fix": "Make the track shrinkable: `grid grid-cols-[minmax(0,1fr)] gap-8 xl:grid-cols-[minmax(0,1fr)_320px]`, or add `min-w-0` to the panel wrapper and the aside. In tests/e2e/visual.spec.ts, compare scrollWidth against the configured viewport width (390), not window.innerWidth, so a widened mobile layout viewport is caught."
+        },
+        {
+          "id": "V-A-2",
+          "severity": "high",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "member after Make it, job tray open (vtray account), page scrolled to its end",
+          "screenshot": "phone-member-creating-job-tray-open.png",
+          "what": "With the job tray open on the phone, the tray (about y 660-765) covers the lower half of the Make it button, the '4 credits · you have 36' line and the DEMO MODEL label at the bottom of the create panel. The page is already at its maximum scroll (content offset 212 = 1056 - 844), so the person cannot scroll that content clear of the tray. They have to collapse it first. The 'Weaving a demo placeholder' toast also sits over Make it while it shows.",
+          "where": "src/components/shell.tsx:217 `<main id=\"main\" className=\"pb-28 lg:pb-12 ...\">`. The bottom padding ignores the tray, although src/components/job-tray.tsx:161 publishes --tray-h (the tray is fixed at bottom-[calc(5rem+...)], job-tray.tsx:177).",
+          "fix": "Below lg, reserve the tray's height: `pb-[calc(7rem+var(--tray-h,0px)+var(--dock-h,0px))] lg:pb-12` on main, so the last controls and the Demo label can always be scrolled above the tray."
+        },
+        {
+          "id": "V-A-3",
+          "severity": "high",
+          "route": "/creators/lunavelour",
+          "width": 390,
+          "state": "creator viewing own page (manage and analytics)",
+          "screenshot": "phone-creator-own-creator-page-manage-and-analytics.png",
+          "what": "At 390 the 'Your templates' manage table shows only Template, Status and Views 30d. Uses 30d, Uses, Saves, Rating and the Edit and Unpublish buttons for every template sit off-screen. The visible column ends exactly at the viewport edge and the scrollbar is hidden, so nothing shows that more exists: the creator's management actions are effectively hidden. Those Edit/Unpublish buttons also measure 37x40, and each template link row is 168x36.",
+          "where": "src/components/creator-manage.tsx:57-58 (`overflow-x-auto` wrapping `table ... min-w-[640px]`), action buttons at :97-110 (Button size=\"sm\" icon-only), row link at :75",
+          "fix": "Below sm, render each template as a stacked row: thumbnail, title and status; a stats line (views 30d · uses · saves · rating); and the Edit and Unpublish buttons visible in the row at size-10. Keep the table from sm up. If the table stays on phones, pin the actions column (sticky right-0) and add a right-edge fade so the scroll is discoverable."
+        },
+        {
+          "id": "V-A-4",
+          "severity": "medium",
+          "route": "/pricing",
+          "width": 390,
+          "state": "member with credit history (demo_member)",
+          "screenshot": "phone-member-pricing.png",
+          "what": "In 'Credit history' on the phone, the table is wider than the screen. The 'Change' header shows only 'C', and the values are cut mid-token ('0 (-4', '-4 (+4'), so the amount and its sign lose their meaning. The 'Available after' column is not visible at all, and nothing suggests the row scrolls. The automated clippedText check (0) misses this because the clipping happens in a scroll container.",
+          "where": "src/app/pricing/page.tsx:190-191 (`<div className=\"overflow-x-auto\">` + `table ... min-w-[520px]`)",
+          "fix": "Below sm, lay each entry out as two lines: what and when on the left, change and available-after stacked right-aligned on the right. Alternatively drop the min-width and move 'When' under 'What' so the four values fit in 358 px."
+        },
+        {
+          "id": "V-A-5",
+          "severity": "medium",
+          "route": "/",
+          "width": 390,
+          "state": "any role; every template rail (For you, Recently viewed, Saved, Following, New; template page 'You might also like' and 'More in #tag'; creator collection rail)",
+          "screenshot": "phone-gb-member-unverified-home-previews-withheld-until-verified.png",
+          "what": "The first card of every horizontal rail is snapped past the page gutter. On the phone it touches the screen edge at x=0 while the heading starts at x=16 (also phone-member-template.png, phone-creator-own-creator-page-manage-and-analytics.png). On the tablet it sits at x=0 against a 24 px gutter (tablet-creator-own-creator-page-manage-and-analytics.png). On the desktop the rail starts at x=236, flush against the sidebar border, 24 px left of the section heading at 260 (desktop-anonymous-home.png 'New' rail, desktop-anonymous-template.png 'You might also like'). Rails that do not overflow, such as the desktop creator collection, stay aligned, which confirms that the snap causes it.",
+          "where": "src/components/template-card.tsx:238 TemplateRail `scrollbar-none -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:-mx-6 sm:px-6`: snap-start items align to the scrollport edge because there is no scroll-padding",
+          "fix": "Add scroll padding equal to the gutter: `scroll-px-4 sm:scroll-px-6` on the rail container, so snap-start lands the first card on the 16/24 px gutter, aligned with the heading."
+        },
+        {
+          "id": "V-A-6",
+          "severity": "medium",
+          "route": "/",
+          "width": 390,
+          "state": "previews withheld: anonymous GB visitor and unverified GB member (home, explore, template rails, creator page)",
+          "screenshot": "phone-anonymous-gb-home-previews-withheld.png",
+          "what": "On withheld-media cards, the bottom-left 'Sign in' and 'Verify now' pill wraps onto two lines ('Sign / in', 'Verify / now') and its shield icon shrinks, so the call to action looks broken. This happens on the phone grid and rails and also on the desktop rails (desktop-gb-member-unverified-home-previews-withheld-until-verified.png), where the Make link is invisible (opacity-0) but still takes its width.",
+          "where": "src/components/template-card.tsx:141-145 (withheld Link: `pointer-events-auto inline-flex h-9 items-center gap-1 ... px-2.5`, no shrink-0/whitespace-nowrap) sharing a justify-between row with the Make link at :159-163",
+          "fix": "Give the pill `shrink-0 whitespace-nowrap` and size h-10. On withheld cards, render Make icon-only (size-10, aria-label `Make ${title}`) or omit it, since Make leads to the same verification. On desktop, take the hidden Make out of flow (absolute right-2.5, or `invisible` until hover) so it does not squeeze the pill."
+        },
+        {
+          "id": "V-A-7",
+          "severity": "medium",
+          "route": "/",
+          "width": 390,
+          "state": "any role; every template card (home, explore, template rails, creator pages)",
+          "screenshot": "phone-member-home.png",
+          "what": "Card controls are below the 40 px phone rule on every card (17 phone screenshots, up to 345 instances each): the favorite heart is 36x36, Make is 81x36, the video preview chip is 53x36, the withheld 'Verify now'/'Sign in' pill is 60-67x36, and the creator handle link (@lunavelour etc.) is about 100x17. The handle link has no larger equivalent on the card.",
+          "where": "src/components/template-card.tsx:132 (heart `size-9`), :143 (withheld pill h-9), :150 (preview `h-9 min-w-9`), :161 (Make `h-9`), :176 (handle `block truncate font-mono text-[11.5px]`)",
+          "fix": "Use size-10 and h-10 for the heart, preview, pill and Make. Give the handle link a 40 px hit area (`inline-flex min-h-10 items-center` with a negative margin to keep the caption compact), or make the whole caption block one link with the handle as text."
+        },
+        {
+          "id": "V-A-8",
+          "severity": "medium",
+          "route": "/",
+          "width": 390,
+          "state": "every page in the phone shell (logo for all roles, credits pill for signed-in roles)",
+          "screenshot": "phone-member-home.png",
+          "what": "Two header controls are below 40 px on the phone: the 'Hushloom home' logo link (136x37, 47 phone screenshots) and the credits pill ('192 credits. Get more credits', 58-75x36, 29 phone screenshots).",
+          "where": "src/components/shell.tsx:193 (`<Link href=\"/\" className=\"lg:hidden\">`) and :75 (credits pill `inline-flex h-9 items-center gap-2 ...`)",
+          "fix": "Use h-10 for the credits pill, and give the logo link `inline-flex h-10 items-center`."
+        },
+        {
+          "id": "V-A-9",
+          "severity": "medium",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "create panel or template page with a copilot suggestion showing (member, anonymous, GB)",
+          "screenshot": "phone-member-creating-create-panel-prompt-filled-in.png",
+          "what": "The copilot suggestion actions are bare text buttons: 'Use soft window', 'Use golden hour' and 'Use slow push in' (101x20) and 'Dismiss' (46x20), flagged in 10 phone screenshots. On the phone the right-hand action column also squeezes the explanation into a column about 170 px wide, which runs 5-6 lines beside a mostly empty column.",
+          "where": "src/components/create-panel.tsx:578-587 (`flex shrink-0 flex-col items-end gap-1`; buttons `font-semibold text-ember-400` and `text-bone-500` with no padding)",
+          "fix": "Give both buttons `inline-flex min-h-10 items-center px-3 rounded-full`. Below sm, move the actions under the text in a row (`max-sm:flex-row max-sm:w-full max-sm:justify-end`) so the explanation uses the full width."
+        },
+        {
+          "id": "V-A-10",
+          "severity": "medium",
+          "route": "/",
+          "width": 390,
+          "state": "home (member, fresh, GB) and template page rails",
+          "screenshot": "phone-member-home.png",
+          "what": "The section heading actions are under 40 px on the phone: 'See all', 'Explore all' and 'All saved' are 57-79x20, and 'Tune' is 30x20.",
+          "where": "src/app/(home)/page.tsx:77 (Tune), :99 (All saved), :113 (Explore all), :139 (See all); src/app/templates/[id]/page.tsx:188-190 (See all)",
+          "fix": "Give these links `inline-flex min-h-10 items-center px-2 -mr-2`, or have SectionHeading (src/components/ui.tsx:284) wrap its action in a 40 px target."
+        },
+        {
+          "id": "V-A-11",
+          "severity": "medium",
+          "route": "/explore",
+          "width": 390,
+          "state": "member and anonymous, Trending/New/Top rated/Most loved sort tabs",
+          "screenshot": "phone-member-explore.png",
+          "what": "The sort tabs (role=radio) are 38 px tall, and 'New' is 29 px wide (29x38), so they miss the 40 px phone rule.",
+          "where": "src/components/explore-feed.tsx:91 (`-mb-px border-b-2 pb-2.5 pt-1 text-[14.5px]`)",
+          "fix": "Use `min-h-10 min-w-10 px-1 pt-1.5 pb-3` (or a 40 px inline-flex) so every tab is at least 40x40."
+        },
+        {
+          "id": "V-A-12",
+          "severity": "medium",
+          "route": "/templates/velvet-hour",
+          "width": 390,
+          "state": "any role, template detail page",
+          "screenshot": "phone-member-template.png",
+          "what": "In the meta row, the category badge link (BOUDOIR) sits about 5 px lower than the DEMO MEDIA and IMAGE badges beside it (desktop-member-template.png shows the same) and is only 62x25. The other template-page controls are also under 40 px on the phone: the tag chips (#GOLDEN HOUR, #SILK...) are 22 px tall, the creator link is 122x37, and on withheld previews the 'VERIFY NOW'/'SIGN IN' text link is 52-75x17 (phone-anonymous-gb-template-preview-withheld.png).",
+          "where": "src/app/templates/[id]/page.tsx:76-79 (inline <Link> wrapping an inline-flex <Badge>, so baseline alignment drops it), :84 (creator link), :124 (tag `tag rounded-full px-2.5 py-1`); src/components/template-card.tsx:26 (WithheldMedia link `mt-2 inline-block font-mono text-[11px]`)",
+          "fix": "Give the category Link `inline-flex` (or render the Badge itself as the link) so it shares the row's alignment, with a 40 px hit area on phones (`max-sm:min-h-10 items-center`). Tag chips: `inline-flex min-h-10 items-center`, or py-2.5 on phones. Creator link and WithheldMedia link: `inline-flex min-h-10 items-center`."
+        },
+        {
+          "id": "V-A-13",
+          "severity": "medium",
+          "route": "/policies",
+          "width": 390,
+          "state": "member and anonymous; policies and takedown pages",
+          "screenshot": "phone-member-policies.png",
+          "what": "The section jump chips on /policies (Adults only, Privacy, Credits...) are 28 px tall (16 instances). The '← POLICIES' back link on /policies/takedown is 71x14 (phone-anonymous-takedown-form.png). Both miss the 40 px phone rule.",
+          "where": "src/app/policies/page.tsx:134 (`hairline rounded-full px-3 py-1 text-[13px]`); src/app/policies/takedown/page.tsx:12-14 (`tag text-bone-500`)",
+          "fix": "Chips: `inline-flex min-h-10 items-center px-3.5`. Back link: `inline-flex min-h-10 items-center` (with a negative margin if the spacing must stay)."
+        },
+        {
+          "id": "V-A-14",
+          "severity": "medium",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "cost sheet, upload consent sheet and You sheet open",
+          "screenshot": "phone-member-creating-cost-sheet-open.png",
+          "what": "The sheet Close (X) button is 36x36 on the phone, in the cost sheet, the upload consent sheet (phone-member-creating-upload-consent-sheet-open.png) and the You sheet (phone-member-you-sheet-open.png).",
+          "where": "src/components/ui.tsx:191 Sheet header close button (`grid size-9 place-items-center rounded-full`)",
+          "fix": "Use size-10 (or size-11) for the close button in the shared Sheet primitive."
+        },
+        {
+          "id": "V-A-15",
+          "severity": "medium",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "member just after Make it ('Weaving a demo placeholder.' toast)",
+          "screenshot": "phone-member-creating-job-tray-collapsed.png",
+          "what": "The toast's action link 'Library' is 45x20, under the 40 px phone rule (also in phone-member-creating-job-tray-open.png).",
+          "where": "src/components/ui.tsx:257 (toast action `<Link className=\"font-semibold text-ember-400 hover:text-ember-300\">`)",
+          "fix": "Use `inline-flex min-h-10 items-center px-2 -mr-2` on the toast action link."
+        },
+        {
+          "id": "V-A-16",
+          "severity": "medium",
+          "route": "/studio",
+          "width": 390,
+          "state": "member with jobs in the Job monitor",
+          "screenshot": "phone-member-studio.png",
+          "what": "Each Job monitor row link (the prompt plus its 'Ready · 1m ago · 4 cr · demo' line) is 36 px tall, under the 40 px phone rule.",
+          "where": "src/components/studio.tsx:79 (`li ... py-2`) and :87 (`<Link className=\"min-w-0 flex-1\">`)",
+          "fix": "Make the link the padded block: `min-w-0 flex-1 py-1 min-h-10`, or raise the row to py-2.5 and stretch the link to the row's height."
+        },
+        {
+          "id": "V-A-17",
+          "severity": "medium",
+          "route": "/pricing",
+          "width": 390,
+          "state": "all roles; 'Get Studio Pass · SANDBOX' button",
+          "screenshot": "phone-anonymous-pricing.png",
+          "what": "The '· sandbox' tag inside the ember Studio Pass button fails WCAG AA: #572720 on #ff6a4d is 4.32:1 at 10.5 px (axe, in all 9 pricing screenshots). It is the label that marks the purchase as a sandbox, so it should be fully legible.",
+          "where": "src/components/pricing.tsx:55 (`<span className=\"tag opacity-70\">· sandbox</span>`; opacity-70 on top of the ember-500 button)",
+          "fix": "Drop opacity-70 on the ember variant (full ink-950 on ember-500 passes easily), or use a solid darker token (text-ink-900) instead of opacity."
+        },
+        {
+          "id": "V-A-18",
+          "severity": "low",
+          "route": "/",
+          "width": 1440,
+          "state": "any role, 'Trending tonight' grid",
+          "screenshot": "desktop-anonymous-home.png",
+          "what": "The editorial trending grid ends with a lone 2x2 featured card (Steam & Shadow) and three empty columns beside it on the desktop. On the tablet the last row holds a single card next to the featured tile (tablet-anonymous-home.png), so the section ends in a visible hole.",
+          "where": "src/components/template-card.tsx:230 (`feature={editorial && i % 11 === 0}` features index 11 of the 15 items from src/app/(home)/page.tsx:117)",
+          "fix": "Feature only index 0, or feature an item only when enough items follow it to close the row (or trim the list to a whole number of rows at the current column count)."
+        },
+        {
+          "id": "V-A-19",
+          "severity": "low",
+          "route": "/templates/velvet-hour",
+          "width": 1440,
+          "state": "any role",
+          "screenshot": "desktop-anonymous-template.png",
+          "what": "The stats line reads 'Made 1 times'.",
+          "where": "src/app/templates/[id]/page.tsx:100 (`Made {compact(t.generationCount)} times`)",
+          "fix": "Pluralize: 'Made once' or 'Made 1 time' for a count of 1, and 'times' otherwise."
+        },
+        {
+          "id": "V-A-20",
+          "severity": "low",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "unverified GB member, Make it refused (451 age check required)",
+          "screenshot": "phone-gb-member-unverified-create-make-it-refused-age-check-required.png",
+          "what": "The refusal reads 'Your region requires an age check... Open Settings › Age verification to do it.' but offers no link to the age check. The only link nearby is 'Get credits', so the error state has no direct way forward.",
+          "where": "src/lib/api.ts:44 (appends the 'Open Settings › Age verification' text) and the create panel's error render in src/components/create-panel.tsx",
+          "fix": "When the error code is age_verification_required, render a 'Verify your age' link or button to /settings#age-verification inside the error, instead of the instruction text."
+        },
+        {
+          "id": "V-B-1",
+          "severity": "medium",
+          "route": "/projects",
+          "width": 390,
+          "state": "member, project list with 'Golden hour series' (2 scenes, 1 finished take)",
+          "screenshot": "phone-member-projects.png (also tablet-member-projects.png, desktop-member-projects.png)",
+          "what": "The project card reads '0 scenes · 0 finished · just now', but the project has two scenes ('Opening' and 'The turn') and a finished take on Opening, as phone-member-project.png shows. The count is wrong at every width.",
+          "where": "src/server/projects.ts:78-79 (listProjects). The correlated subqueries interpolate ${projects.id} inside select fields, and Drizzle renders that unqualified. The generated SQL, printed with drizzle .mock().toSQL(), is `(select count(*)::int from \"project_scenes\" s where s.project_id = \"id\")`. Postgres resolves \"id\" to s.id and j.id, so both counts are always 0.",
+          "fix": "Qualify the outer column, for example sql`(select count(*)::int from ${projectScenes} s where s.project_id = \"projects\".\"id\")`, and the same for generation_jobs. Or use a left join with groupBy. Add an integration test that asserts scenes=2 and clips=1 for the seeded project."
+        },
+        {
+          "id": "V-B-2",
+          "severity": "medium",
+          "route": "/projects and /projects/[id]",
+          "width": 390,
+          "state": "member; project cover and scene-timeline tile 01 show a demo still",
+          "screenshot": "phone-member-projects.png, phone-member-project.png (also tablet and desktop)",
+          "what": "The project cover and the scene tiles show demo placeholder media with no Demo label. The 16:9 object-cover crop of the 4:5 placeholder cuts off the 'DEMO OUTPUT · NOT AI-GENERATED' band, and no Demo badge is drawn on top. The takes list below does show the badge.",
+          "where": "src/components/projects.tsx:29-37 (Media, used at :79 for the cover and :259 for the timeline tiles). The cover from listProjects in src/server/projects.ts:107-110 and the take output carry no isDemo flag.",
+          "fix": "Return isDemo with the cover and the take output. Render <Badge tone=\"demo\">Demo</Badge> in the tile corner, the way CreationThumb does, for both the project cover and the scene tiles."
+        },
+        {
+          "id": "V-B-3",
+          "severity": "medium",
+          "route": "/ (and /creators/[handle], /templates/[slug] rails)",
+          "width": 820,
+          "state": "fresh member and unverified GB member; template rails ('For you', 'New', 'After-dark essentials', 'You might also like')",
+          "screenshot": "tablet-fresh-member-home-nothing-made-or-saved-yet.png (also phone-fresh-member-home-nothing-made-or-saved-yet.png, desktop-gb-member-unverified-home-previews-withheld-until-verified.png, tablet-gb-member-unverified-creator-page-previews-withheld-until-verified.png)",
+          "what": "The first card of every horizontal rail sits flush against the screen edge: x=0 at 390 and 820 px, and against the rail border at x=236 at 1440 px. The section heading and the grids below start at 16, 24 or 260 px, so the rail looks shifted left and its title text nearly touches the edge.",
+          "where": "src/components/template-card.tsx:238. The rail has -mx-4 px-4 with snap-x snap-mandatory and snap-start cards. Snap alignment ignores padding, so the scroller snaps its 16/24 px padding away on load.",
+          "fix": "Add scroll-padding to the rail (scroll-px-4 sm:scroll-px-6), so snap-start aligns the first card with the content edge."
+        },
+        {
+          "id": "V-B-4",
+          "severity": "medium",
+          "route": "/ (also /creators/[handle], /templates/[slug] related rail)",
+          "width": 390,
+          "state": "unverified GB member, previews withheld",
+          "screenshot": "phone-gb-member-unverified-home-previews-withheld-until-verified.png (also tablet-…-home…, desktop-gb-member-unverified-home-previews-withheld-until-verified.png, *-creator-page-previews-withheld-until-verified.png)",
+          "what": "On every withheld template card in rails and narrow grid cells, the 'Verify now' pill wraps to two lines ('Verify' / 'now') inside its 36 px pill and looks broken. At 1440 px it wraps too, because the Make link is only opacity-0 and still takes its space.",
+          "where": "src/components/template-card.tsx:143. The Verify link is inline-flex h-9 with no whitespace-nowrap, and it shares the footer row with the Make link at :161.",
+          "fix": "Add whitespace-nowrap shrink-0 to the Verify pill. Use the label 'Verify' (or drop the icon) on compact cards. Take the Make link out of the layout while it is hidden, or put Verify on its own row when the card is narrow."
+        },
+        {
+          "id": "V-B-5",
+          "severity": "medium",
+          "route": "/favorites (and every TemplateCard: GB /, /creators/[handle], /templates/[slug])",
+          "width": 390,
+          "state": "member, favorites templates tab",
+          "screenshot": "phone-member-favorites-templates.png (also phone-gb-member-unverified-home-previews-withheld-until-verified.png)",
+          "what": "The card controls are under the 40 px phone rule. Measured sizes: favorite heart 36x36 (11 on this page), Make 81x36 (11), video preview 53x36 (3) and Verify now 67x36. These are the main actions on the card.",
+          "where": "src/components/template-card.tsx:132 (heart, size-9), :143 (Verify, h-9), :150 (preview, h-9 min-w-9), :161 (Make, h-9)",
+          "fix": "Use max-sm:size-10 / max-sm:h-10 on these four controls, or keep the visual size and enlarge the hit area with an absolutely positioned ::after inset of -2px."
+        },
+        {
+          "id": "V-B-6",
+          "severity": "medium",
+          "route": "all signed-in pages in the group (/collection, /favorites, /projects, /settings, /admin, /verify/sandbox …)",
+          "width": 390,
+          "state": "any signed-in role, phone top bar",
+          "screenshot": "phone-member-library.png (same flag on every phone entry in the group)",
+          "what": "Two top-bar controls on the phone layout are under 40 px: the logo link 'Hushloom home' is 136x37 and the credits pill ('192 credits. Get more credits') is 58-75x36.",
+          "where": "src/components/shell.tsx:193 (logo Link className=\"lg:hidden\") and :75 (credits pill, h-9)",
+          "fix": "Make both at least 40 px tall on phone: inline-flex h-10 items-center on the logo link, and h-10 (or max-sm:h-10) on the credits pill."
+        },
+        {
+          "id": "V-B-7",
+          "severity": "medium",
+          "route": "/collection (More filters), / and /admin (You sheet)",
+          "width": 390,
+          "state": "member and admin, sheet open",
+          "screenshot": "phone-member-library-more-filters-sheet-open.png (also phone-member-you-sheet-open.png, phone-admin-you-sheet-open.png)",
+          "what": "The Close button in every Sheet is 36x36 on the phone layout, under the 40 px rule. It is the visible way to dismiss the bottom sheet.",
+          "where": "src/components/ui.tsx Sheet header close button (className \"grid size-9 place-items-center rounded-full …\")",
+          "fix": "Use size-10 (or max-sm:size-11) for the close button."
+        },
+        {
+          "id": "V-B-8",
+          "severity": "medium",
+          "route": "/collection",
+          "width": 390,
+          "state": "member library and fresh-member empty library",
+          "screenshot": "phone-member-library.png (also phone-fresh-member-library-empty.png)",
+          "what": "The Status, Model, Folder and Sort selects in the filter row are 32 px tall on phone (109x32, 197x32, 103x32, 117x32). The chips beside them and the filter pills get 40 px.",
+          "where": "src/components/library.tsx:296, :304, :312, :320 (select className \"h-8 shrink-0 rounded-full …\")",
+          "fix": "Add max-sm:h-10 to the four selects, matching the max-sm:h-10 already used for the filter pills in library-filters.tsx:69."
+        },
+        {
+          "id": "V-B-9",
+          "severity": "medium",
+          "route": "/admin/review, /collection/[id], /projects/[id], /admin",
+          "width": 390,
+          "state": "admin and member detail pages",
+          "screenshot": "phone-admin-abuse-review.png (also phone-member-creation-detail.png, phone-member-project.png, phone-admin-admin.png)",
+          "what": "Text links that act as standalone controls are 14-20 px tall on phone. Measured: the '← ADMIN' back link is 50x14 in 10.5 px tag text, the 'Library' back link is 61x20, the 'Projects' back link is 70x20, and the admin template links 'Mirror Glow' and 'Velvet Hour (published)' are 89x20 and 157x20.",
+          "where": "src/app/admin/review/page.tsx:57; src/components/creation-detail.tsx:179; src/components/projects.tsx:226; src/components/admin.tsx:60; src/components/admin-review.tsx:196",
+          "fix": "Give these links min-h-10 inline-flex items-center (with -my-2.5 to keep the layout). For the admin back link, use 13 px text like the other back links rather than the 10.5 px tag style."
+        },
+        {
+          "id": "V-B-10",
+          "severity": "medium",
+          "route": "/projects/[id]",
+          "width": 390,
+          "state": "member, project 'Golden hour series'",
+          "screenshot": "phone-member-project.png",
+          "what": "The scene reorder arrows ('Move Opening earlier/later', 4 buttons) are 36x36, and the icon-only 'Delete project' button is 38x40 (38 px wide). Both are under the 40 px phone rule.",
+          "where": "src/components/projects.tsx:266 and :269 (size-9 move buttons); :242 (Button size=\"sm\" variant=\"quiet\" aria-label=\"Delete project\")",
+          "fix": "Use max-sm:size-10 on the move buttons, and min-w-10 (or a square size-10 icon button) for Delete project."
+        },
+        {
+          "id": "V-B-11",
+          "severity": "medium",
+          "route": "/projects/[id]",
+          "width": 390,
+          "state": "member, project with 2 scenes",
+          "screenshot": "phone-member-project.png",
+          "what": "The 'Add scene' tile is entirely off-screen at 390 px. It is the third w-44 tile and starts at about x=392, so nothing of it peeks in and nothing shows the strip scrolls. The only way to add a scene is hidden.",
+          "where": "src/components/projects.tsx:247-281 (scene timeline: -mx-4 overflow-x-auto px-4, li w-44, Add scene li last)",
+          "fix": "On phone, narrow the tiles (for example w-[40vw]) so the next tile peeks in, or also offer 'Add scene' as a visible button in the header actions or below the strip."
+        },
+        {
+          "id": "V-B-12",
+          "severity": "medium",
+          "route": "/pricing",
+          "width": 390,
+          "state": "fresh member, no credits or history",
+          "screenshot": "phone-fresh-member-pricing-no-credits-or-history.png (also tablet- and desktop-…pricing-no-credits-or-history.png)",
+          "what": "axe color-contrast violation: the '· sandbox' label inside the ember 'Get Studio Pass' button is #572720 on #ff6a4d, 4.32:1 at 10.5 px, below the 4.5:1 AA minimum. It is the sandbox label, so it must stay readable.",
+          "where": "src/components/pricing.tsx:55 (<span className=\"tag opacity-70\">· sandbox</span>)",
+          "fix": "Drop opacity-70 on the primary (ember) variant, or set an explicit ink color that measures at least 4.5:1 on ember-500. Re-run axe."
+        },
+        {
+          "id": "V-B-13",
+          "severity": "medium",
+          "route": "/templates/[slug] and /generate/image",
+          "width": 390,
+          "state": "unverified GB member, preview withheld / Make it refused",
+          "screenshot": "phone-gb-member-unverified-template-preview-withheld-until-verified.png (also phone-gb-member-unverified-create-make-it-refused-age-check-required.png)",
+          "what": "The only action on the withheld cover, 'VERIFY NOW', is a 75x17 link in 11 px mono text: under 40 px on phone and visually weak. Also under 40 px on this page: the tag chips (#GOLDEN HOUR, #SILK, #SAMPLE) are 22 px tall, and the assistant suggestion 'Dismiss' is 46x20.",
+          "where": "src/components/template-card.tsx:26 (WithheldMedia link, mt-2 inline-block font-mono text-[11px]); src/app/templates/[id]/page.tsx:125 (tag chips, py-1); src/components/create-panel.tsx:585 (Dismiss button)",
+          "fix": "Render the non-compact withheld call to action as a Button or ButtonLink (h-10, ember or ghost). Give the tag chips and Dismiss max-sm:min-h-10 with inline-flex items-center."
+        },
+        {
+          "id": "V-B-14",
+          "severity": "low",
+          "route": "/ and /admin (You sheet), /collection (More filters)",
+          "width": 820,
+          "state": "sheet open as a centered dialog",
+          "screenshot": "tablet-admin-you-sheet-open.png (also tablet-member-you-sheet-open.png, desktop-member-library-more-filters-sheet-open.png)",
+          "what": "The dialog's hairline border disappears along the sticky header. Pixel samples at the left and right edges (x=170 and x=649): (22,14,19), the background color, on header rows y=285-300, and (42,35,38), the border color, on body rows. The top of the sheet looks borderless.",
+          "where": "src/components/ui.tsx Sheet. The .hairline border is an inset box-shadow on the <dialog>, and the sticky header (bg-ink-900/95, z-10) paints over it.",
+          "fix": "Use a real border on the dialog (border border-[var(--line)]) instead of the inset shadow, or inset the sticky header by 1px (mx-px mt-px)."
+        },
+        {
+          "id": "V-B-15",
+          "severity": "low",
+          "route": "/collection",
+          "width": 390,
+          "state": "member library and fresh empty library",
+          "screenshot": "phone-member-library.png (also tablet-member-library.png, desktop-member-library.png, *-fresh-member-library-empty.png)",
+          "what": "'More filters' renders on its own row above the 'PRIVATE TO YOU / Library' title, apart from the filter row it belongs to. It pushes the H1 down about 50 px at every width. On phone and tablet, the filter row also scrolls sideways with no edge cue: the selects sit off-screen and only a cut 'An…' shows at the right edge.",
+          "where": "src/app/collection/(list)/page.tsx renders <LibraryFilters> before <LibraryView>; src/components/library-filters.tsx:56; src/components/library.tsx:282 (filter row)",
+          "fix": "Render the More filters button and its pills inside LibraryView's filter row (for example as a slot after the chips). Add a right-edge fade mask to the scrolling filter row."
+        },
+        {
+          "id": "V-B-16",
+          "severity": "low",
+          "route": "/admin",
+          "width": 1440,
+          "state": "admin, audit log",
+          "screenshot": "desktop-admin-admin.png (also tablet-admin-admin.png, phone-admin-admin.png)",
+          "what": "In the audit log, 'just now' wraps to two lines in the time column at every width. Metadata JSON is cut at 120 characters with no ellipsis and wraps mid-ID. On phone and tablet the 640 px table scrolls inside the panel with no cue, and the target column is cut at the panel edge.",
+          "where": "src/app/admin/page.tsx:70-85 (audit table cells; JSON.stringify(l.metadata).slice(0, 120))",
+          "fix": "Add whitespace-nowrap to the time, actor, action and target cells. Show the metadata truncated with an ellipsis and the full text in title. Add an edge fade to the overflow-x-auto wrapper."
+        },
+        {
+          "id": "V-B-17",
+          "severity": "low",
+          "route": "/admin",
+          "width": 1440,
+          "state": "admin, one open report",
+          "screenshot": "desktop-admin-admin.png",
+          "what": "The Reports panel stretches to the full height of the right column (Models, Adjust credits, Account flags), about 1000 px, with a single report row at the top. The result is a large empty box.",
+          "where": "src/app/admin/page.tsx (div.grid.gap-8.xl:grid-cols-2; items stretch by default)",
+          "fix": "Add items-start to the grid, or self-start to the Reports Panel."
+        },
+        {
+          "id": "V-B-18",
+          "severity": "low",
+          "route": "/collection and /collection/[id]",
+          "width": 1440,
+          "state": "member, demo creations",
+          "screenshot": "desktop-member-creation-detail.png (also phone-member-library.png, desktop-member-library.png)",
+          "what": "The prompt caption drawn into the demo placeholder runs off the right edge ('…velvet chaise at golde'). On library and favorites thumbnails it also sits under the DEMO badge and the favorite heart. It is decorative, since the prompt is shown as text, but it reads as clipped.",
+          "where": "src/server/ai/providers/demo.ts:46-62 (demoSvg: the caption is cut at 70 characters, but font-size width/26 fits about 40; y = 10% of height, under the badge zone)",
+          "fix": "Fit the caption to the width: estimate characters per line from fs and wrap into 2 tspans with an ellipsis, or use textLength/lengthAdjust. Start it below the badge band (y ≥ 16%)."
+        },
+        {
+          "id": "V-B-19",
+          "severity": "low",
+          "route": "/collection/[id]",
+          "width": 820,
+          "state": "member, creation detail",
+          "screenshot": "tablet-member-creation-detail.png",
+          "what": "Below lg, the 4:5 media fills the full width (about 772x965 px), so status, prompt and every action (Remix, Retry, Download, Delete…) start below the first 1180 px screen.",
+          "where": "src/components/creation-detail.tsx:182 (grid lg:grid-cols-[…]; the media column has no height cap)",
+          "fix": "Cap the media height on single-column layouts (for example max-h-[65dvh] w-auto mx-auto), or switch to two columns from md."
+        },
+        {
+          "id": "V-B-20",
+          "severity": "low",
+          "route": "/collection/[id]",
+          "width": 390,
+          "state": "member, creation detail",
+          "screenshot": "phone-member-creation-detail.png",
+          "what": "The creation detail page has no h1: the manifest records h1: null at all three widths, and the prompt is a <p>. Screen-reader heading navigation finds no page title.",
+          "where": "src/components/creation-detail.tsx (no <h1>)",
+          "fix": "Add an h1: the template title or 'Creation', visible or sr-only, before the status badges."
+        },
+        {
+          "id": "V-B-21",
+          "severity": "low",
+          "route": "/generate/image",
+          "width": 390,
+          "state": "unverified GB member, Make it refused (451)",
+          "screenshot": "phone-gb-member-unverified-create-make-it-refused-age-check-required.png (also tablet and desktop)",
+          "what": "The refusal says '… Open Settings › Age verification to do it.' as plain red text with no link. The person has to find Settings and scroll to the age card unaided, although the error carries a verifyPath.",
+          "where": "src/components/create-panel.tsx:850 (error <p role=alert> renders only e.message); src/lib/api.ts:12-28 (ApiError.verifyPath and apiErrorAction already exist)",
+          "fix": "Keep the ApiError in state. When verifyPath is set, render a 'Verify your age' ButtonLink to it inside the alert."
+        },
+        {
+          "id": "V-B-22",
+          "severity": "low",
+          "route": "/settings",
+          "width": 820,
+          "state": "fresh member (any member)",
+          "screenshot": "tablet-fresh-member-settings.png (also desktop-fresh-member-settings.png, phone-member-settings.png)",
+          "what": "The page eyebrow is the account email in the uppercase .tag style ('VFRESH_V7YYE0S@EXAMPLE.TEST', 'DEMO@HUSHLOOM.LOCAL'), which changes how the address reads.",
+          "where": "src/components/settings.tsx:78 (<p className=\"tag text-ember-400\">{email}</p>)",
+          "fix": "Add normal-case to the email eyebrow, or show it as body text under the title."
+        },
+        {
+          "id": "V-B-23",
+          "severity": "low",
+          "route": "/projects",
+          "width": 390,
+          "state": "member, loading skeleton capture (client navigation from the You sheet)",
+          "screenshot": "phone-member-projects-loading-skeleton.png",
+          "what": "The capture logged a hydration failure: 'pageerror: Error: Minified React error #418; … args[]=HTML'. It appears only on this entry; the other 14 skeleton captures are clean. The skeleton itself renders correctly.",
+          "where": "Unknown component on the start page (/policies or /) that the You-sheet path visits, likely time-relative text rendered without suppressHydrationWarning. Found via the manifest console field.",
+          "fix": "Reproduce with a dev build at 390 px (/policies → You sheet → Projects) to get the unminified message. Fix the mismatching text node (suppressHydrationWarning or client-only rendering for relative times)."
+        }
+      ],
+      "fixes": {
+        "commits": [
+          "a802cc4 Visual: the shell hydrates on a cold load without React error #418 (V-B-23)",
+          "d4b594c Layout guard: main routes fit 390 and 820 px, with 40 px primary targets on phones",
+          "25ea818 Visual: the settings eyebrow shows the email as it is written (V-B-22)",
+          "81fa33a Visual: the demo placeholder's caption and watermark fit the frame (V-B-18)",
+          "1a59080 Visual: project covers and scene tiles carry the Demo label (V-B-2)",
+          "79a9f42 Visual: the project list counts scenes and finished takes (V-B-1)",
+          "07d1fd8 Visual: the age-check refusal links to the check (V-A-20, V-B-21)",
+          "e58a2db Visual: a template made once says 'Made once' (V-A-19)",
+          "b7e2d0f Visual: the Trending grid ends on a whole row (V-A-18)",
+          "b7e7ffa Visual: the sandbox label on the ember buy button meets AA contrast (V-A-17, V-B-12)",
+          "15ae16f Visual: the creation detail page has an h1 (V-B-20)",
+          "26bb634 Visual: a creation's media leaves room for its details below lg (V-B-19)",
+          "d6a582f Visual: the admin Reports panel is as tall as its content (V-B-17)",
+          "124f3dd Visual: the admin audit log keeps each entry on one line (V-B-16)",
+          "2073811 Visual: the Add scene tile peeks in on phones (V-B-11)",
+          "e693408 Visual: credit history reads on a phone without sideways scrolling (V-A-4)",
+          "ac47e59 Visual: the creator's template list stacks on phones with its actions in view (V-A-3)",
+          "7a3984f Visual: More filters sits in the Library filter row, which shows when it scrolls (V-B-15)",
+          "67c8079 Visual: Library filter selects are 40 px tall on phones (V-B-8)",
+          "82b9670 Visual: Job monitor rows are tap targets their full height (V-A-16)",
+          "55eaee9 Visual: template page meta row aligns and its links are 40 px targets (V-A-12, V-B-13)",
+          "5ffd042 Visual: copilot suggestion actions are 40 px buttons under the text on phones (V-A-9, V-B-13 Dismiss)",
+          "da6abb2 Visual: the Explore sort tabs are at least 40x40 (V-A-11)",
+          "57a2e0c Visual: the policies jump chips are 40 px tall on phones (V-A-13 chips)",
+          "2944681 Visual: back links and admin template links are 40 px targets (V-B-9, V-A-13 back link)",
+          "1be5262 Visual: small and icon-only buttons are at least 40x40 on phones (V-B-10)",
+          "3294b61 Visual: the phone header's logo and credits pill are 40 px tall (V-A-8, V-B-6)",
+          "41f68b7 Visual: the withheld card's Verify pill stays on one line (V-A-6, V-B-4)",
+          "e1a11a7 Visual: template card controls are 40 px targets (V-A-7, V-B-5)",
+          "f75037b Visual: rail cards snap to the page gutter, not the screen edge (V-A-5, V-B-3)",
+          "00aaf71 Visual: section heading actions are 40 px targets (V-A-10)",
+          "d4578b8 Visual: the toast action is a 40 px target (V-A-15)",
+          "cae0294 Visual: the sheet border runs past its sticky header (V-B-14)",
+          "7e88a67 Visual: the sheet Close button is 40x40 (V-A-14, V-B-7)",
+          "b5e5bd1 Visual: the page bottom clears the job tray and the Make bar (V-A-2)",
+          "ca36820 Visual: Studio and project grids shrink to the phone width (V-A-1)"
+        ],
+        "results": [
+          {
+            "id": "V-A-1",
+            "status": "fixed",
+            "commit": "ca36820",
+            "notes": "Re-checked diff: the Studio grid is grid-cols-[minmax(0,1fr)] / xl:[minmax(0,1fr)_320px], and the project workspace grid got the same fix. visual.spec.ts now compares scrollWidth with the configured viewport width; layout.spec.ts does the same. /studio is not one of layout.spec's routes, so the 390 px measurement is still the earlier fixer's."
+          },
+          {
+            "id": "V-A-2",
+            "status": "fixed",
+            "commit": "b5e5bd1",
+            "notes": "Re-checked: main's bottom padding is calc(7rem+safe-area+var(--tray-h)+var(--dock-h)), and lg uses 3rem+--tray-h. job-tray.tsx:161 publishes --tray-h and template-detail.tsx:95 publishes --dock-h on :root. The fixed spacer on the template page is gone."
+          },
+          {
+            "id": "V-A-3",
+            "status": "fixed",
+            "commit": "ac47e59",
+            "notes": "Below sm each template is a stacked row with its stats and 40x40 Edit and Unpublish buttons; the table stays from sm up, with an edge fade."
+          },
+          {
+            "id": "V-A-4",
+            "status": "fixed",
+            "commit": "e693408",
+            "notes": "Re-checked diff: below sm credit history is a two-line list (what and when on the left; the change, held amount and balance after on the right). The table is sm:block with an edge fade. The payments table also gets the fade. The launch.spec payment and history tests pass at 1280."
+          },
+          {
+            "id": "V-A-5",
+            "status": "fixed",
+            "commit": "f75037b",
+            "notes": "TemplateRail has scroll-px-4 sm:scroll-px-6, matching its px-4/sm:px-6 gutter, so snap-start lands the first card on the gutter."
+          },
+          {
+            "id": "V-A-6",
+            "status": "fixed",
+            "commit": "41f68b7",
+            "notes": "The pill is shrink-0 whitespace-nowrap. On withheld cards Make is a 40x40 icon link with aria-label 'Make <title>', so the hidden desktop Make no longer squeezes the pill."
+          },
+          {
+            "id": "V-A-7",
+            "status": "fixed",
+            "commit": "e1a11a7",
+            "notes": "Heart is size-10; pill, preview and Make are h-10. The handle link has a 40 px box (min-h-10 with negative margins), and rails got pb-5 to hold it."
+          },
+          {
+            "id": "V-A-8",
+            "status": "fixed",
+            "commit": "3294b61",
+            "notes": "The logo link is inline-flex h-10 and the credits pill is h-10. layout.spec checks header controls at 390 px for a visitor and a member and passes."
+          },
+          {
+            "id": "V-A-9",
+            "status": "fixed",
+            "commit": "5ffd042",
+            "notes": "Both actions are min-h-10 px-3 rounded-full (sm:min-h-8). Below sm the actions wrap under the text in a right-aligned row."
+          },
+          {
+            "id": "V-A-10",
+            "status": "fixed",
+            "commit": "00aaf71",
+            "notes": "A shared SectionLink in ui.tsx (min-h-10, negative margins) is used for Tune, All saved, Explore all and See all on the home page, and for See all on the template page."
+          },
+          {
+            "id": "V-A-11",
+            "status": "fixed",
+            "commit": "da6abb2",
+            "notes": "Each sort tab is inline-flex min-h-10 min-w-10 px-1."
+          },
+          {
+            "id": "V-A-12",
+            "status": "fixed",
+            "commit": "55eaee9",
+            "notes": "The category link is inline-flex min-h-10 with -my-2.5 in an items-center row. Tag chips are max-sm:h-10. The creator and Manage links are min-h-10. The withheld cover CTA is an ember button, or a 40 px link on compact tiles."
+          },
+          {
+            "id": "V-A-13",
+            "status": "fixed",
+            "commit": "57a2e0c, 2944681",
+            "notes": "Chips are inline-flex h-8 max-sm:h-10 (57a2e0c). The takedown back link uses the shared BackLink, min-h-10 with 13 px text (2944681)."
+          },
+          {
+            "id": "V-A-14",
+            "status": "fixed",
+            "commit": "7e88a67",
+            "notes": "The shared Sheet close button is size-10, with -mr-1.5 to keep the X in place."
+          },
+          {
+            "id": "V-A-15",
+            "status": "fixed",
+            "commit": "d4578b8",
+            "notes": "The toast action link is inline-flex min-h-10 px-2 with negative margins."
+          },
+          {
+            "id": "V-A-16",
+            "status": "fixed",
+            "commit": "82b9670",
+            "notes": "The row padding moved onto the link (block py-2), so the link spans the row's full height."
+          },
+          {
+            "id": "V-A-17",
+            "status": "fixed",
+            "commit": "b7e7ffa",
+            "notes": "opacity-70 now applies only when the button is not featured, so the ember button shows the sandbox tag in full ink. The earlier fixer reports axe at 0 violations on the dev server."
+          },
+          {
+            "id": "V-A-18",
+            "status": "fixed",
+            "commit": "b7e2d0f",
+            "notes": "Re-checked the logic: only index 0 is featured. editorialTrim hides the cards that would start a partial row, per breakpoint. With 15 cards that leaves 14 at 2 columns, 15 at 3, 13 at 4, 12 at 5 and 15 at 6."
+          },
+          {
+            "id": "V-A-19",
+            "status": "fixed",
+            "commit": "e58a2db",
+            "notes": "A count of 1 reads 'Made once'; any other count reads 'Made N times'."
+          },
+          {
+            "id": "V-A-20",
+            "status": "fixed",
+            "commit": "07d1fd8",
+            "notes": "The create panel keeps verifyPath from ApiError. On a 451 age_verification_required it shows the server's message and a 'Verify your age' ButtonLink inside the alert. Callers that render only the message keep the written hint."
+          },
+          {
+            "id": "V-B-1",
+            "status": "fixed",
+            "commit": "79a9f42",
+            "notes": "The subqueries now reference ${projects}.\"id\" with the table qualified. An integration test in composing.test.ts asserts 2 scenes / 1 finished and 1 / 0, and it is green in the full vitest run."
+          },
+          {
+            "id": "V-B-2",
+            "status": "fixed",
+            "commit": "1a59080",
+            "notes": "listProjects returns isDemo with the cover, also when the media is withheld. The cover, the timeline tiles and the compare figures draw a Demo badge."
+          },
+          {
+            "id": "V-B-3",
+            "status": "fixed",
+            "commit": "f75037b",
+            "notes": "Same cause and fix as V-A-5."
+          },
+          {
+            "id": "V-B-4",
+            "status": "fixed",
+            "commit": "41f68b7",
+            "notes": "Same cause and fix as V-A-6."
+          },
+          {
+            "id": "V-B-5",
+            "status": "fixed",
+            "commit": "e1a11a7",
+            "notes": "Same fix as V-A-7."
+          },
+          {
+            "id": "V-B-6",
+            "status": "fixed",
+            "commit": "3294b61",
+            "notes": "Same fix as V-A-8."
+          },
+          {
+            "id": "V-B-7",
+            "status": "fixed",
+            "commit": "7e88a67",
+            "notes": "Same fix as V-A-14."
+          },
+          {
+            "id": "V-B-8",
+            "status": "fixed",
+            "commit": "67c8079",
+            "notes": "The four selects have max-sm:h-10."
+          },
+          {
+            "id": "V-B-9",
+            "status": "fixed",
+            "commit": "2944681",
+            "notes": "The shared BackLink (13 px text, min-h-10, -my-2.5) is used for the Admin, Library and Projects back links. The admin and takedown template links are min-h-10."
+          },
+          {
+            "id": "V-B-10",
+            "status": "fixed",
+            "commit": "1be5262",
+            "notes": "Button size sm has max-sm:min-w-10. The move arrows and the preset and upload remove buttons are max-sm:size-10."
+          },
+          {
+            "id": "V-B-11",
+            "status": "fixed",
+            "commit": "2073811",
+            "notes": "Tiles are w-[40vw] max-w-44 on phones, so the next tile peeks in, and the strip has an edge fade."
+          },
+          {
+            "id": "V-B-12",
+            "status": "fixed",
+            "commit": "b7e7ffa",
+            "notes": "Same fix as V-A-17."
+          },
+          {
+            "id": "V-B-13",
+            "status": "fixed",
+            "commit": "55eaee9, 5ffd042",
+            "notes": "The withheld cover CTA is an ember ButtonLink and tag chips are max-sm:h-10 (55eaee9). Dismiss is min-h-10 (5ffd042)."
+          },
+          {
+            "id": "V-B-14",
+            "status": "fixed",
+            "commit": "cae0294",
+            "notes": "The dialog has a real border border-[var(--line)] in place of the inset .hairline shadow. On the phone bottom sheet there is no bottom border."
+          },
+          {
+            "id": "V-B-15",
+            "status": "fixed",
+            "commit": "7a3984f",
+            "notes": "LibraryFilters renders as a fragment in LibraryView's filter row through the moreFilters slot. A shared .edge-fade (scroll-driven mask, in globals.css) shows on that row while it scrolls."
+          },
+          {
+            "id": "V-B-16",
+            "status": "fixed",
+            "commit": "124f3dd",
+            "notes": "Time, actor, action and target cells are nowrap. Metadata is truncated with an ellipsis and the full JSON is in title. The scroller has an edge fade."
+          },
+          {
+            "id": "V-B-17",
+            "status": "fixed",
+            "commit": "d6a582f",
+            "notes": "The admin grid has items-start."
+          },
+          {
+            "id": "V-B-18",
+            "status": "fixed",
+            "commit": "81fa33a",
+            "notes": "The demo caption wraps to two lines at a width-based character count, ends with an ellipsis and starts at 16% or lower. A unit test (demo-caption.test.ts) is green. Only newly generated placeholders change."
+          },
+          {
+            "id": "V-B-19",
+            "status": "fixed",
+            "commit": "26bb634",
+            "notes": "Below lg, media is capped at max-h-[60dvh] and centred, and placeholder boxes are capped at w-[min(100%,48dvh)]."
+          },
+          {
+            "id": "V-B-20",
+            "status": "fixed",
+            "commit": "15ae16f",
+            "notes": "A sr-only h1 reads 'Creation', or 'Creation from <template>'."
+          },
+          {
+            "id": "V-B-21",
+            "status": "fixed",
+            "commit": "07d1fd8",
+            "notes": "Same fix as V-A-20."
+          },
+          {
+            "id": "V-B-22",
+            "status": "fixed",
+            "commit": "25ea818",
+            "notes": "The email eyebrow is font-mono 12 px ember, without the uppercase .tag (.tag is unlayered CSS, so a normal-case utility would lose to it)."
+          },
+          {
+            "id": "V-B-23",
+            "status": "fixed",
+            "commit": "a802cc4",
+            "notes": "Not the app's markup, and not the skeleton. It is a React 19.2 hydration bug that the capture's own interception makes frequent. (1) Trigger: the capture's page.route with a predicate makes Playwright intercept every request and turns Chromium's HTTP cache off. Measured: 0/16 JS chunks from cache with the route, 16/16 without. (2) The #418 is thrown while /policies hydrates before the You-sheet click. Server HTML and the client re-render have the same body outline. (3) The stack is rD (throwOnHydrationMismatch) <- oq (beginWork, HostComponent claim) <- iw (replayBeginWork). The unclaimed fiber is the shell's <main> > div.mx-auto, whose children hold an RSC lazy. Next 15.5.27 vendors React 19.2.0-canary-0bdb9206; replayBeginWork there re-claims the host element after the hydration cursor has moved into it. react-dom 19.3.0 resets nextHydratableInstance on replay; 19.2.4 and 19.2.8 do not. (4) It can reach real users: with the cache disabled and no interception, 1 of 130 loads threw. (5) Workaround: the shell passes children through a passthrough PageSlot component, so the suspending fiber is a function component, whose replay leaves the cursor alone. Markup is unchanged. Production build, member, 390 px: the capture's sequence went from 15/140 /policies loads throwing to 0/80. Ten main routes under page.route went from 7/100 to 0/100; the same sweep without a route was 0/100 before. Re-running the visual capture's setup and loading-skeleton groups at a802cc4 gave 15 captures with console [] each, including phone-member-projects-loading-skeleton. Upgrading Next to a release that vendors React 19.3 or later would remove the root cause; that upgrade is a separate dependency decision."
+          }
+        ],
+        "checks": "All four checks were run at final HEAD a802cc4, with a clean working tree. Earlier runs at d4b594c were also green (vitest 507/507, typecheck and lint clean).\n\n- Typecheck: `npm run typecheck` printed `> tsc --noEmit` and nothing else (exit 0).\n- Lint: `npm run lint` printed `✔ No ESLint warnings or errors`.\n- Vitest: `TEST_DATABASE_URL=postgres://playbox@localhost:5432/playbox_test_visual TEST_REDIS_URL=redis://localhost:6379/10 STORAGE_LOCAL_DIR=.storage-test-visual npx vitest run` gave `Test Files  45 passed (45)` and `Tests  507 passed (507)`, Duration 294.12s, exit 0. createdb reported `database \"playbox_test_visual\" already exists`, which was ignored as instructed.\n- Playwright: `npx playwright test` reported `Running 72 tests using 1 worker`, then `32 skipped`, `40 passed (4.5m)`, exit 0, with no ✘ or flaky lines. The 4 layout tests passed:\n  - `the main routes fit 390 px for a visitor, with 40 px primary targets`\n  - `the main routes fit 390 px for a member, with 40 px primary targets`\n  - `the main routes fit 820 px for a visitor`\n  - `the main routes fit 820 px for a member`\n  \n  The 32 skipped are visual.spec.ts, which runs only with VISUAL_REVIEW=1.\n- Extra V-B-23 check: `VISUAL_REVIEW=1 npx playwright test tests/e2e/visual.spec.ts -g \"setup:|loading skeletons\"` gave 4 passed (2.2m). Its manifest shows all 15 skeleton entries with console [] and no failures."
+      },
+      "verify": {
+        "manifest": "/mnt/project-files/playbox-2/evidence/visual/after/manifest.json. Command: `VISUAL_REVIEW=1 VISUAL_SHOTS_DIR=/mnt/project-files/playbox-2/evidence/visual/after npx playwright test tests/e2e/visual.spec.ts`, run in /home/claude/hushloom-visual with the spec unchanged (manifest git.head a802cc4, specDirty false). Result: 32 passed (10.1m), exit 0. Manifest failures: []. Run window: 2026-10-14T15:50:17Z to 15:59:07Z.\n\nCounts: 223 entries and 223 PNGs (390 px: 75, 820 px: 75, 1440 px: 73). The 223 ids match the before manifest one for one.\n\nNot captured, 3 entries, the same as before:\n(1) You sheet (admin) at 1440x900. Not applicable: at 1024 px and wider the tab bar is hidden and the rail shows every link, so there is no You sheet.\n(2) You sheet (member) at 1440x900, for the same reason.\n(3) src/app/error.tsx (the route error boundary) at all viewports. No page throws on demand in the production build, and making one throw would mean changing app code for the capture.\n\nSupplementary probe evidence for what the capture cannot show (the page at its maximum scroll with the tray open, and live edge fades) is in /mnt/project-files/playbox-2/evidence/visual/after-probe/: probe.json, probe-2.json and 6 PNGs. The probe was a temporary spec, deleted afterwards. The worktree is clean and nothing was committed.",
+        "results": [
+          {
+            "id": "V-A-1",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-studio.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-studio.png",
+            "notes": "Before the capture was 583x2168 with scrollWidth 583. After it is 390x2353 with scrollWidth 390, so there is no overflow. The create panel, the Image/Video toggle and the Job monitor fit the 390 px header band. Long Job monitor prompts truncate. Small-target flags went from 4 to 0."
+          },
+          {
+            "id": "V-A-2",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-creating-job-tray-open.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after-probe/phone-member-creating-job-tray-open-scrolled-to-end.png (capture: /mnt/project-files/playbox-2/evidence/visual/after/phone-member-creating-job-tray-open.png)",
+            "notes": "The capture is viewport-size and stays at the scroll position the Make it click left, so it does not show the page end. The probe scrolled to the page end with the tray open: scrollY 297, scrollHeight 1141, main padding-bottom 217px, --tray-h 105px. Make it sits at y 531-579 and the tray at 659-764. The probe screenshot shows Make it, the '4 credits · you have 196' line and the DEMO MODEL label all clear above the tray. With the tray collapsed, Make it sits at 592-640 and the tray at 720-764. Small-target flags went from 5 to 0. Residual: the transient 'Weaving a demo placeholder. Library' toast still overlaps Make it while it shows, in both the before and after captures. The defect's description mentions this, but its fix field did not ask for it."
+          },
+          {
+            "id": "V-A-3",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-creator-own-creator-page-manage-and-analytics.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-creator-own-creator-page-manage-and-analytics.png",
+            "notes": "At 390 'Your templates' is now a stacked list. Each row shows the thumbnail, title and version, a PUBLISHED badge, 40x40 edit and unpublish icon buttons in view, and a stats line ('2 views 30d · 1 uses 30d · 1 uses · 1 saves · no rating'). No column is off-screen. Flags went from 59 to 9, and the remaining 9 are the pre-existing tabIndex=-1 card title links. Page height went from 2176 to 2390. At 820 and 1440 the page keeps a table with an edge fade."
+          },
+          {
+            "id": "V-A-4",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-pricing.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-pricing.png",
+            "notes": "At 390 'Credit history' is a two-line list. The change amount and its sign, the balance and 'Available after' are all visible, with no mid-token cut and no sideways table. Flags went from 2 to 0, and contrast violations from 1 to 0 (see V-A-17). scrollWidth is 390."
+          },
+          {
+            "id": "V-A-5",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-gb-member-unverified-home-previews-withheld-until-verified.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-gb-member-unverified-home-previews-withheld-until-verified.png",
+            "notes": "The rail cards now snap to the page gutter (scroll-px-4 / sm:scroll-px-6). At 390 the first card starts at x=16, in line with the section heading. In the before captures it sat at x=0. The same holds on phone-member-template and phone-creator-own-creator-page-manage-and-analytics rails, and on tablet (x=24). Page heights changed as rails tightened (3768 to 3499 here)."
+          },
+          {
+            "id": "V-A-6",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-anonymous-gb-home-previews-withheld.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-anonymous-gb-home-previews-withheld.png",
+            "notes": "The 'Sign in' and 'Verify now' pill stays on one line (shrink-0 whitespace-nowrap, h-10) with a full-size shield icon. On withheld cards Make is a 40 px icon-only button with an aria-label, so it no longer squeezes the pill. The desktop rails (desktop-gb-member-unverified-home-previews-withheld-until-verified.png) also show one-line pills. Flags went from 138 to 26 on this page, and the 26 are card title links."
+          },
+          {
+            "id": "V-A-7",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-home.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-home.png",
+            "notes": "Across all 75 phone entries, these flagged groups went to 0: the heart (36x36, 356 instances before), Make (81x36, 356), the video preview chip (53x36, 94), the withheld pill and the handle link. Flags on this page went from 250 to 55. The remaining 55 are a.hover:text-ember-300 card title links (about 21 px tall). They are tabIndex=-1 duplicates of the card's media link and were present before."
+          },
+          {
+            "id": "V-A-8",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-home.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-home.png",
+            "notes": "The logo link (a.lg:hidden, 136x37, 67 instances before) and the credits pill (49 instances before) are no longer flagged on any phone entry. Both are now h-10."
+          },
+          {
+            "id": "V-A-9",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-creating-create-panel-prompt-filled-in.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-creating-create-panel-prompt-filled-in.png",
+            "notes": "On the phone, 'Use soft window' and 'Dismiss' are now 40 px buttons in a row under the explanation. The explanation runs the full card width in 3 lines, where before it was a column about 170 px wide and 6 lines long. Flags went from 4 to 0. The same holds on the GB template page."
+          },
+          {
+            "id": "V-A-10",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-home.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-home.png",
+            "notes": "'See all', 'Explore all', 'All saved' and 'Tune' (SectionLink) are no longer flagged on any phone entry."
+          },
+          {
+            "id": "V-A-11",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-explore.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-explore.png",
+            "notes": "The sort tabs (role=radio) are no longer flagged. 'New' meets 40x40. Flags on the page went from 112 to 24, all card title links."
+          },
+          {
+            "id": "V-A-12",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-template.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-template.png",
+            "notes": "The BOUDOIR category link lines up with the DEMO MEDIA and IMAGE badges (checked zoomed on desktop-member-template.png). The category link, the tag chips and the creator link are no longer flagged. Flags went from 53 to 10, and the 10 are related-rail card title links."
+          },
+          {
+            "id": "V-A-13",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-policies.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-policies.png",
+            "notes": "The policies jump chips are 40 px tall, and flags went from 10 to 0. The '← POLICIES' back link on the takedown pages is no longer flagged: phone-member-takedown-form-signed-in went from 3 to 0, and the phone-anonymous-takedown-form back-link group is gone."
+          },
+          {
+            "id": "V-A-14",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-creating-cost-sheet-open.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-creating-cost-sheet-open.png",
+            "notes": "The sheet Close button is size-10 (40x40). Flags went from 1 to 0 in the cost sheet, the upload consent sheet, phone-member-you-sheet-open and phone-admin-you-sheet-open."
+          },
+          {
+            "id": "V-A-15",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-creating-job-tray-collapsed.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-creating-job-tray-collapsed.png",
+            "notes": "The toast's 'Library' action is min-h-10 and no longer flagged. Both the tray-open and tray-collapsed captures went from 5 flags to 0."
+          },
+          {
+            "id": "V-A-16",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-studio.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-studio.png",
+            "notes": "The Job monitor row links are no longer flagged. phone-member-studio flags went from 4 to 0."
+          },
+          {
+            "id": "V-A-17",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-anonymous-pricing.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-anonymous-pricing.png",
+            "notes": "axe color-contrast violations went from 1 to 0 on this page, and from 9 to 0 across all 9 pricing screenshots. The '· sandbox' tag is still shown inside the ember 'Get Studio Pass' button."
+          },
+          {
+            "id": "V-A-18",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/desktop-anonymous-home.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/desktop-anonymous-home.png",
+            "notes": "Only index 0 is featured, so 'Trending tonight' ends on a whole row on desktop and on tablet (tablet-anonymous-home.png). There is no lone 2x2 tile with empty columns. Page height went from 2752 to 2122 on desktop and from 2937 to 2346 on tablet."
+          },
+          {
+            "id": "V-A-19",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/desktop-anonymous-template.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/desktop-anonymous-template.png",
+            "notes": "The stats line reads 'Made once' instead of 'Made 1 times'."
+          },
+          {
+            "id": "V-A-20",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-gb-member-unverified-create-make-it-refused-age-check-required.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-gb-member-unverified-create-make-it-refused-age-check-required.png",
+            "notes": "The 451 refusal now carries a 'Verify your age' button inside the error. Seen at 390, 820 and 1440. Flags went from 4 to 0. The console holds only the expected 451 resource error."
+          },
+          {
+            "id": "V-B-1",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-projects.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-projects.png",
+            "notes": "The project card reads '2 scenes · 1 finished' instead of '0 scenes · 0 finished'. The tablet and desktop captures match."
+          },
+          {
+            "id": "V-B-2",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-project.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-project.png",
+            "notes": "A Demo badge is drawn on the project cover (phone-member-projects.png) and on scene tile 01 (phone-member-project.png). The tablet and desktop captures match."
+          },
+          {
+            "id": "V-B-3",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/tablet-fresh-member-home-nothing-made-or-saved-yet.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/tablet-fresh-member-home-nothing-made-or-saved-yet.png",
+            "notes": "The first rail card starts at the 24 px gutter at 820, where before it was at x=0. At 390 (phone-fresh-member-home...) it starts at x=16. At 1440 (desktop-gb-member-unverified-home...) the cards no longer touch the rail border at x=236. The same holds on tablet-gb-member-unverified-creator-page-previews-withheld-until-verified.png."
+          },
+          {
+            "id": "V-B-4",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-gb-member-unverified-home-previews-withheld-until-verified.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-gb-member-unverified-home-previews-withheld-until-verified.png",
+            "notes": "'Verify now' stays on one line on the phone, tablet and desktop rails and grids. On withheld cards Make is a 40 px icon. Flags went from 200 to 38 on phone and from 85 to 39 on desktop, and the rest are card title links."
+          },
+          {
+            "id": "V-B-5",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-favorites-templates.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-favorites-templates.png",
+            "notes": "The heart, Make, preview and Verify pill are all 40 px. Flags went from 49 to 11, all card title links."
+          },
+          {
+            "id": "V-B-6",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-library.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-library.png",
+            "notes": "The logo and credits pill are h-10, and no phone entry flags them. phone-member-library flags went from 6 to 0."
+          },
+          {
+            "id": "V-B-7",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-library-more-filters-sheet-open.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-library-more-filters-sheet-open.png",
+            "notes": "Sheet Close is 40x40. Flags went from 1 to 0 here and on phone-member-you-sheet-open and phone-admin-you-sheet-open."
+          },
+          {
+            "id": "V-B-8",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-library.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-library.png",
+            "notes": "The Library filter selects are max-sm:h-10. Flags went from 6 to 0 on phone-member-library and from 6 to 0 on phone-fresh-member-library-empty."
+          },
+          {
+            "id": "V-B-9",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-admin-abuse-review.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-admin-abuse-review.png",
+            "notes": "The back links (BackLink) and the admin template links are 40 px targets. Flags went from 4 to 0 on phone-admin-abuse-review, from 3 to 0 on phone-member-creation-detail and from 8 to 0 on phone-member-project. On phone-admin-admin they went from 6 to 3, and the remaining 3 are the Enabled role=switch toggles (40x24 inside a full-row label)."
+          },
+          {
+            "id": "V-B-10",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-project.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-project.png",
+            "notes": "The scene reorder arrows and the icon-only Delete project button are at least 40x40 (Button sm max-sm:min-w-10). Flags went from 8 to 0."
+          },
+          {
+            "id": "V-B-11",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-project.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after-probe/phone-member-project-live-edge-fade.png (capture: /mnt/project-files/playbox-2/evidence/visual/after/phone-member-project.png)",
+            "notes": "Probe on a 2-scene project at 390: the Add scene tile's left edge is at x=352, so its first 38 px peek in where before it started at about x=392. The scene timeline has scrollWidth 508 against clientWidth 390, and its live --edge-fade is 40px. The capture disables animations, so its fade computes to 0 and cannot show the cue. The probe ran with animations on."
+          },
+          {
+            "id": "V-B-12",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-fresh-member-pricing-no-credits-or-history.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-fresh-member-pricing-no-credits-or-history.png",
+            "notes": "Contrast violations went from 1 to 0 at 390, 820 and 1440, and from 9 to 0 across all pricing entries. Phone flags went from 2 to 0."
+          },
+          {
+            "id": "V-B-13",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-gb-member-unverified-template-preview-withheld-until-verified.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-gb-member-unverified-template-preview-withheld-until-verified.png",
+            "notes": "The withheld cover's 'Verify now' is an ember 40 px button, no longer a 75x17 mono link. The tag chips and the assistant 'Dismiss' are no longer flagged. Flags went from 61 to 10, all related-rail card title links. On phone-gb-member-unverified-create-make-it-refused they went from 4 to 0."
+          },
+          {
+            "id": "V-B-14",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/tablet-admin-you-sheet-open.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/tablet-admin-you-sheet-open.png",
+            "notes": "Pixel samples at the dialog's left and right edges on the sticky-header rows (y 280-300) now read (42,35,38), the border color. Before they read (22,14,19), the background color. The border runs past the header. tablet-member-you-sheet-open and desktop-member-library-more-filters-sheet-open look the same."
+          },
+          {
+            "id": "V-B-15",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-library.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-library.png",
+            "notes": "'More filters' sits in the filter row and no longer has its own row above the title, at all widths and on the fresh empty library. Probe at 390: the filter row has scrollWidth 1009 against clientWidth 366, and its live --edge-fade is 40px. The capture's disabled animations zero the fade, so the probe is the evidence for the scroll cue."
+          },
+          {
+            "id": "V-B-16",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/desktop-admin-admin.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/desktop-admin-admin.png",
+            "notes": "Audit rows are one line, and 'just now' no longer wraps at 1440, 820 or 390. Probe: the phone audit scroller has scrollWidth 640 against clientWidth 318, with a live fade of 40px. At tablet the table fits (732/732, fade 0px, no cue needed). The code (124f3dd) appends an ellipsis past 120 characters with the full JSON in its title. No captured audit entry is longer than 120 characters, so that path is not shown in a screenshot."
+          },
+          {
+            "id": "V-B-17",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/desktop-admin-admin.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/desktop-admin-admin.png",
+            "notes": "The Reports panel is as tall as its single row (items-start) and no longer stretched to about 1000 px. The page went from 1440x2112 to 1440x1943."
+          },
+          {
+            "id": "V-B-18",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/desktop-member-creation-detail.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/desktop-member-creation-detail.png",
+            "notes": "The placeholder caption wraps to 2 lines ending in an ellipsis inside the frame, with no cut at the right edge. It starts lower, clear of the DEMO badge and heart on the library thumbnails (phone-member-library.png, desktop-member-library.png)."
+          },
+          {
+            "id": "V-B-19",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/tablet-member-creation-detail.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/tablet-member-creation-detail.png",
+            "notes": "Below lg the media height is capped, so the status, prompt and actions start within the first 1180 px screen. The page went from 820x1714 to 820x1461, and flags from 1 to 0."
+          },
+          {
+            "id": "V-B-20",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-creation-detail.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-creation-detail.png",
+            "notes": "The manifest h1 went from null to 'Creation from Velvet Hour' at 390, 820 and 1440. compare.py lists these 3 entries as 'worse' only because the h1 value changed."
+          },
+          {
+            "id": "V-B-21",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-gb-member-unverified-create-make-it-refused-age-check-required.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-gb-member-unverified-create-make-it-refused-age-check-required.png",
+            "notes": "The refusal has a 'Verify your age' button (ButtonLink to the verify path) and no longer only red plain text. Seen at 390, 820 and 1440."
+          },
+          {
+            "id": "V-B-22",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/tablet-fresh-member-settings.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/tablet-fresh-member-settings.png",
+            "notes": "The email eyebrow shows the address in lowercase as written, not in uppercase .tag style. desktop-fresh-member-settings and phone-member-settings look the same."
+          },
+          {
+            "id": "V-B-23",
+            "status": "fixed",
+            "before": "/mnt/project-files/playbox-2/evidence/visual/before/phone-member-projects-loading-skeleton.png",
+            "after": "/mnt/project-files/playbox-2/evidence/visual/after/phone-member-projects-loading-skeleton.png",
+            "notes": "The manifest console for this entry went from 1 error (React #418 hydration) to []. All 15 skeleton entries have console []. The skeleton renders the same, and flags went from 2 to 0."
+          }
+        ],
+        "newDefects": [],
+        "automated": "compare.py compared all 223 after entries with /mnt/project-files/playbox-2/evidence/visual/before/manifest.json: 141 better only, 79 unchanged and 3 marked 'worse'. The 3 'worse' entries are the creation-detail pages at 390, 820 and 1440, flagged only because h1 changed from null to 'Creation from Velvet Hour'. That is the V-B-20 fix, and their target counts also went down. No check got worse on any entry.\n\nOverflow: none after. Before, phone-member-studio had scrollWidth 583; after, every entry has scrollWidth equal to the configured viewport width.\n\nContrast (axe color-contrast): 9 violations before, 0 after. Clipped text: 0 before, 0 after. Response status: unchanged on every entry. h1 null: 18 before, 15 after, and the remaining 15 are loading skeletons.\n\nConsole: only expected errors remain:\n- 404 on the not-found pages\n- 451 on the age-check refusal\n- network errors on the offline captures\n\nThe React #418 on phone-member-projects-loading-skeleton is gone.\n\nFlagged small targets, before to after: 1916 to 369 at 390, 780 to 348 at 820, and 914 to 477 at 1440. These groups dropped to 0 at 390: heart 356, Make 356, handle 356 and pill 128. So did preview 94, logo 67 and credits pill 49, and every other control named in a defect.\n\nThe flags that remain were all present before with equal or higher counts, and none was among the 43 defects:\n- a.hover:text-ember-300 card title links: about 21 px tall, tabIndex=-1, duplicating the card's media link. 351 at 390.\n- button[role=switch] toggles: 40x24 inside a full-row label. 18 at 390 only.\n- The desktop rail footer links 'Pricing' and 'Content policy & privacy': 203x19, 134 at 1440.\n- Inline-text links in sentences, such as 'Get credits', 'request a takedown' and 'Terms and Content Policy'. These are exempt as inline targets.\n- Native checkboxes: 13-16 px, inside labels.\n\nI opened after screenshots of every page a fix commit touched, plus the 3 h1-changed entries, as before|after pairs and contact sheets. I found no new defect, so newDefects is [].\n\nCapture limitations:\n- The spec disables animations, so the scroll-driven .edge-fade computes to 0px in every capture. A temporary probe (animations on) showed a live fade of 40px on the phone Library filter row, the phone scene timeline and the phone admin audit log. The tablet audit log fits, at 0px with no scroll.\n- The job-tray captures are viewport-size at the scroll position the Make it click left. The probe at the page end shows Make it, the credits line and DEMO MODEL clear above the tray.\n- The probe spec was deleted afterwards. git status in /home/claude/hushloom-visual is clean, visual.spec.ts is unchanged, and nothing was committed or pushed.\n\nOne known residual, not new: the transient 'Weaving a demo placeholder' toast still overlaps Make it while it shows. V-A-2's description mentioned it, but its fix field did not ask for it."
+      }
+    }
+  ],
+  "remaining": []
+}
