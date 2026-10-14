@@ -280,14 +280,10 @@ describe("R42 evidence writes — bypass attempts", () => {
     expect(row).toMatchObject({ scanStatus: "matched", legalHold: true });
   });
 
-  // HOLE (latent, low reachability). R42's invariant is "a match is never overwritten by a later
-  // verdict". recordVerdict enforces it, but recordDerivedScan (the other verdict writer) does not:
-  // it sets the child's scan_status to the parent's status with no `scan_status <> 'matched'` guard.
-  // A poster asset already matched and on legal hold is flipped back to "clean" by a clean parent,
-  // leaving scan_status='clean' with legal_hold still true — i.e. matched evidence that /api/media
-  // would now serve (it checks scan_status === 'clean'). In today's output flow a matched poster is
-  // hard to reach before derivation, but the writer itself breaks the invariant.
-  it.fails("recordDerivedScan does not overwrite a matched child", async () => {
+  // Was a hole (R42-derived): recordDerivedScan, the other verdict writer, set the child's scan_status
+  // to the parent's with no `scan_status <> 'matched'` guard, so a clean parent flipped a matched, held
+  // poster back to "clean" (servable by /api/media) with legal_hold still true. It now keeps the match.
+  it("recordDerivedScan does not overwrite a matched child", async () => {
     const u = await makeUser();
     const matchedPoster = await matchedAsset(u.id);
     // A clean parent clip.
@@ -298,8 +294,8 @@ describe("R42 evidence writes — bypass attempts", () => {
       .insert(mediaAssets)
       .values({ ownerId: u.id, kind: "image", storageKey: parentKey, mime: "image/webp", bytes: parentBytes.length, sha256: sha256(parentBytes), visibility: "private", scanStatus: "clean" })
       .returning();
-    await recordDerivedScan(matchedPoster.id, parent!.id);
+    expect(await recordDerivedScan(matchedPoster.id, parent!.id)).toBe("matched");
     const [row] = await getDb().select().from(mediaAssets).where(eq(mediaAssets.id, matchedPoster.id));
-    expect(row).toMatchObject({ scanStatus: "matched" });
+    expect(row).toMatchObject({ scanStatus: "matched", legalHold: true });
   });
 });

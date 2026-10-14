@@ -303,15 +303,21 @@ export async function recordVerdict(subject: Omit<ScanSubject, "bytes">, verdict
 
 /**
  * Records a derived asset (a clip's poster frame) with its parent's verdict, without a second
- * scan: the frame comes from a clip whose keyframes were already checked.
+ * scan: the frame comes from a clip whose keyframes were already checked. Like recordVerdict, it
+ * never overwrites a match on the child: held evidence stays matched, and the caller is told so.
  */
 export async function recordDerivedScan(childAssetId: string, parentAssetId: string, tx?: Tx): Promise<ScanStatus | "pending"> {
   const db = tx ?? getDb();
   const [parent] = await db.select({ status: mediaAssets.scanStatus, provider: mediaAssets.scanProvider }).from(mediaAssets).where(eq(mediaAssets.id, parentAssetId));
   if (!parent || parent.status === "pending" || parent.status === "matched") return "pending";
-  await db
+  const [updated] = await db
     .update(mediaAssets)
     .set({ scanStatus: parent.status, scanProvider: parent.provider, scanRef: `derived:${parentAssetId}`, scannedAt: new Date() })
-    .where(eq(mediaAssets.id, childAssetId));
+    .where(and(eq(mediaAssets.id, childAssetId), ne(mediaAssets.scanStatus, "matched")))
+    .returning({ id: mediaAssets.id });
+  if (!updated) {
+    const [child] = await db.select({ status: mediaAssets.scanStatus }).from(mediaAssets).where(eq(mediaAssets.id, childAssetId));
+    if (child?.status === "matched") return "matched";
+  }
   return parent.status;
 }
