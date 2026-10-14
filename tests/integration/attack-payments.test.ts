@@ -255,11 +255,18 @@ describe("attack R01: credits for less than the price", () => {
   // currency when the session reports none (`s.amount_total ?? item.priceCents`), the fallback R02 removed from Segpay.
   // The provider-neutral guard then compares the item's price with itself. Stripe sets amount_total on every paid
   // payment-mode session, so this needs a payload without it.
-  it.fails("HOLE: a Stripe session without amount_total is taken as paid in full", async () => {
+  // Closed: the adapter passes on what Stripe reported (0 in "XXX" when it reported nothing), and the guard holds it.
+  it("HOLE: a Stripe session without amount_total is taken as paid in full", async () => {
     const s = await makeUser();
     const res = await stripeSend(stripeCheckout("evt_atk_null", s.id, { metadata: { userId: s.id, itemKey: "pack_large" }, amount_total: null, currency: null, payment_intent: "pi_atk_null" }));
     expect(res.status).toBeLessThan(500);
     expect((await getBalance(s.id)).available).toBe(0);
+    expect((await eventsOf("stripe"))[0]).toMatchObject({ amountCents: 0, currency: "xxx", credits: null });
+    // The same session in subscription mode starts no pass.
+    const start = { id: "evt_atk_null_sub", object: "event", type: "checkout.session.completed", data: { object: { id: "cs_atk_null_sub", object: "checkout.session", mode: "subscription", payment_status: "paid", amount_total: null, currency: null, subscription: "sub_atk_null", customer: "cus_atk_null", metadata: { userId: s.id, itemKey: "plan_studio" } } } };
+    expect(await (await stripeSend(start)).json()).toMatchObject({ outcome: "ignored" });
+    expect(await activePlan(s.id)).toBeNull();
+    expect((await flagsOf(s.id)).map((f) => f.kind)).toEqual(["manual_review", "manual_review"]);
   });
 
   it("Segpay and Stripe go through the same price guard: short sales, short rebills and short invoices grant nothing", async () => {
