@@ -15,6 +15,14 @@ const schema = z.object({
   DATABASE_URL: z.string().default("postgres://playbox@localhost:5432/playbox"),
   REDIS_URL: z.string().default("redis://localhost:6379"),
   SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
+  /**
+   * How many reverse proxies you run in front of the app that append to X-Forwarded-For. Rate limits
+   * key on the address the outermost of them saw (the n-th entry from the right, src/server/request.ts);
+   * entries further left are whatever the client sent and are never used. 0: nothing in front of the
+   * app, so the connection's address is used (Next.js records it only when the request carries no
+   * X-Forwarded-For, so a site reachable without a proxy cannot tell a forged address from a real one).
+   */
+  TRUSTED_PROXY_HOPS: z.coerce.number().int().nonnegative().default(0),
   MEDIA_SIGNING_SECRET: z.string().min(32).optional(),
   MEDIA_URL_TTL_S: z.coerce.number().int().positive().default(300),
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
