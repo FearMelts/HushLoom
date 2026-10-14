@@ -3,7 +3,7 @@
  * browser and on the server alike. It suggests; it never edits on its own.
  */
 import type { GenerationParams } from "@/server/db/schema";
-import { CAMERA_MOVEMENTS, type GenerationMode, type ModelSpec } from "@/server/ai/registry";
+import { CAMERA_MOVEMENTS, FRAMINGS, LIGHTINGS, type GenerationMode, type ModelSpec } from "@/server/ai/registry";
 import { checkPrompt } from "@/server/safety/policy";
 
 export type Suggestion = {
@@ -39,6 +39,27 @@ function ratio(aspect: string) {
 function nearestAspect(target: number, options: string[]): string {
   return options.reduce((best, o) => (Math.abs(ratio(o) - target) < Math.abs(ratio(best) - target) ? o : best), options[0]!);
 }
+
+/** Words that name a lighting setting, shared by `interpret` and the prompt/settings agreement rule in `analyze`. */
+const LIGHTING_PHRASES: [RegExp, (typeof LIGHTINGS)[number]][] = [
+  [/\b(golden hour|sunset|sunrise)\b/, "golden hour"],
+  [/\bneon\b/, "neon"],
+  [/\bcandle(lit|light)?\b/, "candlelit"],
+  [/\b(moody|low[- ]key|shadowy)\b/, "low key"],
+  [/\b(bright|airy|high[- ]key)\b/, "high key"],
+  [/\b(backlit|silhouette)\b/, "backlit"],
+  [/\b(window light|soft light)\b/, "soft window"],
+];
+
+/** Words that name a framing setting, shared like LIGHTING_PHRASES. */
+const FRAMING_PHRASES: [RegExp, (typeof FRAMINGS)[number]][] = [
+  [/\b(close[- ]?up|closeup)\b/, "close-up"],
+  [/\b(wide shot|full body|wide angle)\b/, "wide"],
+  [/\bmedium shot\b/, "medium"],
+  [/\blow angle\b/, "low angle"],
+  [/\b(high angle|overhead|top[- ]down)\b/, "high angle"],
+  [/\bover the shoulder\b/, "over the shoulder"],
+];
 
 export function analyze(args: {
   prompt: string;
@@ -85,6 +106,37 @@ export function analyze(args: {
   }
   if (params.cameraMovement === "static" && has(p, MOVING_CAMERA)) {
     out.push({ id: "conflict-camera-param", severity: "warn", title: "Camera setting disagrees with the prompt", detail: "Camera is set to static but the prompt describes movement." });
+  }
+
+  // Lighting and framing settings that agree with the words: a look the prompt names is offered as
+  // the setting, and a setting that names a different look is flagged.
+  for (const [field, phrases] of [["lighting", LIGHTING_PHRASES], ["framing", FRAMING_PHRASES]] as const) {
+    const hit = phrases.find(([re]) => re.test(p));
+    if (!hit) continue;
+    const [re, value] = hit;
+    const current = params[field];
+    if (current === value) continue;
+    const said = p.match(re)![0];
+    const patch = { params: field === "lighting" ? { lighting: value } : { framing: value } };
+    out.push(
+      current
+        ? {
+            id: `${field}-disagrees`,
+            severity: "warn",
+            title: `${field === "lighting" ? "Lighting" : "Framing"} setting disagrees with the prompt`,
+            detail: `The prompt says "${said}" but ${field} is set to ${current}. Keep the one you mean.`,
+            patch,
+            patchLabel: `Use ${value}`,
+          }
+        : {
+            id: `${field}-from-prompt`,
+            severity: "info",
+            title: `Set ${field} to ${value}?`,
+            detail: `The prompt says "${said}". Matching the setting keeps that look when you reuse these settings or save a preset.`,
+            patch,
+            patchLabel: `Use ${value}`,
+          },
+    );
   }
 
   if (params.aspectRatio && !model.aspectRatios.includes(params.aspectRatio)) {
@@ -243,31 +295,14 @@ export function interpret(text: string, model: ModelSpec): Interpretation {
   if (/\b(slow motion|slow-mo|slowly|unhurried)\b/.test(t)) set("pacing", "slow", "you asked for a slow pace");
   else if (/\b(brisk|quick cuts|snappy)\b/.test(t)) set("pacing", "brisk", "you asked for a brisk pace");
 
-  const lighting: [RegExp, string][] = [
-    [/\b(golden hour|sunset|sunrise)\b/, "golden hour"],
-    [/\bneon\b/, "neon"],
-    [/\bcandle(lit|light)?\b/, "candlelit"],
-    [/\b(moody|low[- ]key|shadowy)\b/, "low key"],
-    [/\b(bright|airy|high[- ]key)\b/, "high key"],
-    [/\b(backlit|silhouette)\b/, "backlit"],
-    [/\b(window light|soft light)\b/, "soft window"],
-  ];
-  for (const [re, v] of lighting) {
+  for (const [re, v] of LIGHTING_PHRASES) {
     if (re.test(t)) {
       set("lighting", v, `"${t.match(re)![0]}"`);
       break;
     }
   }
 
-  const framing: [RegExp, string][] = [
-    [/\b(close[- ]?up|closeup)\b/, "close-up"],
-    [/\b(wide shot|full body|wide angle)\b/, "wide"],
-    [/\bmedium shot\b/, "medium"],
-    [/\blow angle\b/, "low angle"],
-    [/\b(high angle|overhead|top[- ]down)\b/, "high angle"],
-    [/\bover the shoulder\b/, "over the shoulder"],
-  ];
-  for (const [re, v] of framing) {
+  for (const [re, v] of FRAMING_PHRASES) {
     if (re.test(t)) {
       set("framing", v, `"${t.match(re)![0]}"`);
       break;

@@ -1,13 +1,25 @@
 import { randomInt } from "node:crypto";
 import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { MODE_INPUTS, estimateCost, getModel, validateAgainstModel, type GenerationMode } from "@/server/ai/registry";
+import {
+  CAMERA_MOVEMENTS,
+  FRAMINGS,
+  LIGHTINGS,
+  MODE_INPUTS,
+  MODE_LABELS,
+  PACINGS,
+  estimateCost,
+  getModel,
+  validateAgainstModel,
+  type GenerationMode,
+} from "@/server/ai/registry";
 import { listModelAvailability } from "@/server/ai/providers";
 import { audit } from "@/server/audit";
 import type { SessionUser } from "@/server/auth/session";
 import { releaseJob, reserveForJob } from "@/server/credits/ledger";
 import { getDb } from "@/server/db";
 import {
+  type GenerationParams,
   characterReferences,
   consentRecords,
   discoveryEvents,
@@ -24,7 +36,8 @@ import {
 } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { HttpError, notFound } from "@/server/http";
-import { checkPrompt } from "@/server/safety/policy";
+import { logger } from "@/server/log";
+import { checkPrompt, paramTexts } from "@/server/safety/policy";
 import { assertAgeVerified } from "@/server/age/gate";
 import { pricing } from "@/config/pricing";
 import { enqueueGeneration } from "./queue";
@@ -42,17 +55,21 @@ const modes = [
   "reference_guided",
 ] as const satisfies readonly GenerationMode[];
 
+/**
+ * Settings are closed lists wherever the UI offers a list, so nothing but the prompt and the
+ * atmosphere line can carry free text; those go through the content policy (see createDraft).
+ */
 export const paramsSchema = z
   .object({
     aspectRatio: z.string().regex(/^\d{1,2}:\d{1,2}$/).optional(),
     durationS: z.number().int().min(1).max(60).optional(),
     quality: z.enum(["hd", "4k"]).optional(),
     motionIntensity: z.number().int().min(1).max(10).optional(),
-    cameraMovement: z.string().max(40).optional(),
-    pacing: z.string().max(40).optional(),
+    cameraMovement: z.enum(CAMERA_MOVEMENTS).optional(),
+    pacing: z.enum(PACINGS).optional(),
     atmosphere: z.string().max(80).optional(),
-    lighting: z.string().max(40).optional(),
-    framing: z.string().max(40).optional(),
+    lighting: z.enum(LIGHTINGS).optional(),
+    framing: z.enum(FRAMINGS).optional(),
     seed: z.number().int().min(0).max(2_147_483_647).optional(),
   })
   .strict();
@@ -73,7 +90,8 @@ export const draftSchema = z.object({
   relation: z.enum(["retry", "variation", "remix", "continuation", "extension"]).optional(),
 });
 
-export type DraftInput = z.infer<typeof draftSchema>;
+/** Route input is parsed by draftSchema; derived drafts pass stored settings, which createDraft re-checks against paramsSchema. */
+export type DraftInput = Omit<z.infer<typeof draftSchema>, "params"> & { params: GenerationParams };
 
 export type RequestContext = { country: string | null; region?: string | null };
 
@@ -161,10 +179,18 @@ export async function createDraft(user: SessionUser, input: DraftInput, ctx: Req
   if (!model || !getModel(input.modelKey)) throw new HttpError(422, "unknown_model", "That model does not exist.");
   if (!model.available) throw new HttpError(503, "model_unavailable", `${model.displayName} is unavailable: ${model.reason}.`);
 
+  // Routes already parse with draftSchema; a derived draft copies settings from a stored job, which
+  // may predate the closed lists, so the settings are checked here for every caller.
+  const parsed = paramsSchema.safeParse(input.params);
+  if (!parsed.success) {
+    const field = parsed.error.issues[0]?.path.join(".") || "settings";
+    throw new HttpError(422, "invalid_input", `One of these settings isn't offered (${field}). Pick it again and retry.`, { issues: parsed.error.flatten() });
+  }
+
   const issues = validateAgainstModel(model, input.mode, input.params, input.negativePrompt);
   if (issues.length) throw new HttpError(422, "unsupported_settings", issues[0]!.message, { issues });
 
-  const verdict = checkPrompt(input.prompt, input.negativePrompt, input.params.atmosphere ?? "");
+  const verdict = checkPrompt(input.prompt, input.negativePrompt, ...paramTexts(input.params));
   if (!verdict.allowed) {
     await db.insert(moderationEvents).values({
       subjectType: "prompt",
@@ -183,6 +209,10 @@ export async function createDraft(user: SessionUser, input: DraftInput, ctx: Req
 
   let characterReferenceId: string | undefined;
   if (input.characterReferenceId) {
+    // A reference is only ever recorded on a job that sends it to the model (the worker loads it for these modes).
+    if (!MODE_INPUTS[input.mode].characterRef) {
+      throw new HttpError(422, "input_unexpected", `${MODE_LABELS[input.mode]} doesn't use a character reference. Remove it or pick Reference guided.`);
+    }
     const [ref] = await db
       .select({ id: characterReferences.id, withdrawnAt: consentRecords.withdrawnAt })
       .from(characterReferences)
@@ -274,12 +304,16 @@ export async function createDraft(user: SessionUser, input: DraftInput, ctx: Req
 export async function confirmJob(user: SessionUser, jobId: string, expectedCost: number): Promise<Job> {
   const maxActive = Math.max(env().USER_MAX_ACTIVE_JOBS, (await activePlan(user.id))?.maxActiveJobs ?? 0);
   const result = await getDb().transaction(async (tx) => {
+    // A deleted draft (Library delete, consent withdrawal, account deletion, the 24 h draft sweep) can never be charged.
     const [job] = await tx
       .select()
       .from(generationJobs)
-      .where(and(eq(generationJobs.id, jobId), eq(generationJobs.userId, user.id)))
+      .where(and(eq(generationJobs.id, jobId), eq(generationJobs.userId, user.id), isNull(generationJobs.deletedAt)))
       .for("update");
     if (!job) throw notFound();
+    if (job.status === "cancelled" && !job.queuedAt) {
+      throw new HttpError(409, "draft_closed", "This draft was closed before it started. Make it again to see the current cost.");
+    }
     if (job.status !== "awaiting_confirmation") return { job, enqueue: false };
     if (job.costCredits !== expectedCost) {
       throw new HttpError(409, "cost_changed", `The cost is now ${job.costCredits} credits. Review and confirm again.`, { cost: job.costCredits });
@@ -316,7 +350,15 @@ export async function confirmJob(user: SessionUser, jobId: string, expectedCost:
     }
     return { job: queued!, enqueue: true };
   });
-  if (result.enqueue) await enqueueGeneration(result.job.id, 0, 1);
+  if (result.enqueue) {
+    try {
+      await enqueueGeneration(result.job.id, 0, 1);
+    } catch (err) {
+      // The job is committed as queued with its credits held. The reconciler re-enqueues queued jobs
+      // with no live queue entry (processor.ts reconcile), so this is a delay, not a failure to report.
+      logger.error("generation.enqueue_failed", { jobId: result.job.id, err: (err as Error).message ?? String(err) });
+    }
+  }
   return result.job;
 }
 
@@ -325,7 +367,7 @@ export async function cancelJob(user: SessionUser, jobId: string): Promise<Job> 
     const [job] = await tx
       .select()
       .from(generationJobs)
-      .where(and(eq(generationJobs.id, jobId), eq(generationJobs.userId, user.id)))
+      .where(and(eq(generationJobs.id, jobId), eq(generationJobs.userId, user.id), isNull(generationJobs.deletedAt)))
       .for("update");
     if (!job) throw notFound();
     const now = new Date();

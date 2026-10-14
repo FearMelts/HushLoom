@@ -202,11 +202,26 @@ export async function adjustCredits(adminId: string, input: z.infer<typeof adjus
   return { handle: target.handle, ...result };
 }
 
+/**
+ * Suspends an account and, in the same transaction, unpublishes every template it has live, so
+ * discovery never lists work whose creator page now 404s. The creator can publish them again from
+ * their manage page once reinstated; templates already unpublished or removed are left as they are.
+ */
 export async function suspendUser(adminId: string, userId: string, reason: string) {
-  const [u] = await getDb().update(users).set({ status: "suspended", updatedAt: new Date() }).where(and(eq(users.id, userId), eq(users.status, "active"))).returning({ id: users.id });
-  if (!u) throw notFound();
+  const unpublished = await getDb().transaction(async (tx) => {
+    const now = new Date();
+    const [u] = await tx.update(users).set({ status: "suspended", updatedAt: now }).where(and(eq(users.id, userId), eq(users.status, "active"))).returning({ id: users.id });
+    if (!u) throw notFound();
+    const ts = await tx
+      .update(templates)
+      .set({ status: "unpublished", updatedAt: now })
+      .where(and(eq(templates.creatorId, userId), eq(templates.status, "published")))
+      .returning({ id: templates.id });
+    await audit(adminId, "user.suspend", "user", userId, { reason, unpublishedTemplates: ts.length }, tx);
+    return ts.length;
+  });
   await destroyAllSessions(userId);
-  await audit(adminId, "user.suspend", "user", userId, { reason });
+  return { unpublishedTemplates: unpublished };
 }
 
 export async function recentAudit(limit = 60) {

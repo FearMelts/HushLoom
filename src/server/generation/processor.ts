@@ -1,11 +1,11 @@
 import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 import sharp from "sharp";
-import { getModel } from "@/server/ai/registry";
+import { MODE_INPUTS, getModel } from "@/server/ai/registry";
 import { adapterFor } from "@/server/ai/providers";
 import { ProviderError, USER_FACING_ERRORS, type ProviderInput, type ProviderOutput } from "@/server/ai/providers/types";
 import { releaseJob, settleJob } from "@/server/credits/ledger";
 import { getDb } from "@/server/db";
-import { generationJobs, generationOutputs, mediaAssets, templates } from "@/server/db/schema";
+import { characterReferences, consentRecords, generationJobs, generationOutputs, mediaAssets, templates } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { logger } from "@/server/log";
 import { purgeAssetsNow } from "@/server/media";
@@ -90,6 +90,49 @@ async function discardStored(assetIds: string[]) {
   await purgeAssetsNow(assetIds);
 }
 
+/** What one attempt has written so far, so a fault while storing can remove it. */
+type WriteTrack = { assetIds: string[]; pendingKeys: Set<string> };
+
+/** After a fault while storing: removes the asset rows this attempt created and any file written without a row. Held evidence stays. */
+async function discardAfterFault(track: WriteTrack) {
+  try {
+    await discardStored(track.assetIds);
+  } catch (err) {
+    logger.warn("generation.discard_failed", { assets: track.assetIds.length, err: (err as Error).message });
+  }
+  for (const key of track.pendingKeys) {
+    await storage()
+      .delete(key)
+      .catch((err: Error) => logger.warn("generation.discard_failed", { err: err.message }));
+  }
+}
+
+/**
+ * The job's character reference, as a provider input. Only a reference whose likeness consent is
+ * still on file and whose photo the abuse scanner cleared is ever sent; anything else fails the job
+ * (refunded) rather than running it without the character the user paid for.
+ */
+async function loadReference(userId: string, characterReferenceId: string): Promise<ProviderInput> {
+  const [row] = await getDb()
+    .select({ asset: mediaAssets })
+    .from(characterReferences)
+    .innerJoin(consentRecords, eq(consentRecords.id, characterReferences.consentRecordId))
+    .innerJoin(mediaAssets, eq(mediaAssets.id, characterReferences.assetId))
+    .where(
+      and(
+        eq(characterReferences.id, characterReferenceId),
+        eq(characterReferences.userId, userId),
+        isNull(characterReferences.deletedAt),
+        isNull(consentRecords.withdrawnAt),
+        isNull(mediaAssets.deletedAt),
+        eq(mediaAssets.scanStatus, "clean"),
+      ),
+    );
+  if (!row) throw new ProviderError("invalid_input", "character reference withdrawn, deleted or not cleared", false);
+  const a = row.asset;
+  return { kind: a.kind, mime: a.mime, bytes: await storage().get(a.storageKey), width: a.width, height: a.height, role: "reference" };
+}
+
 /**
  * Runs one attempt of a queued job. Idempotent: a job that is not in `queued`
  * is left alone, so duplicate queue deliveries do nothing.
@@ -142,8 +185,9 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
       : [];
     if (assets.length !== job.inputAssetIds.length) throw new ProviderError("invalid_input", "an input was deleted or is not cleared", false);
     const inputs: ProviderInput[] = await Promise.all(
-      assets.map(async (a) => ({ kind: a.kind, mime: a.mime, bytes: await storage().get(a.storageKey), width: a.width, height: a.height })),
+      assets.map(async (a) => ({ kind: a.kind, mime: a.mime, bytes: await storage().get(a.storageKey), width: a.width, height: a.height, role: "source" as const })),
     );
+    if (job.characterReferenceId && MODE_INPUTS[job.mode].characterRef) inputs.push(await loadReference(job.userId, job.characterReferenceId));
     logger.info("generation.start", log);
     outputs = await adapter.execute(
       { jobId: job.id, model, mode: job.mode, prompt: job.prompt, negativePrompt: job.negativePrompt, params: job.params, inputs },
@@ -167,7 +211,46 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
   clearTimeout(timer);
   clearInterval(cancelWatch);
 
-  // Store outputs before touching the job, then commit everything in one transaction.
+  // Store outputs before touching the job, then commit everything in one transaction. A fault in this
+  // stage (storage, database, poster frame) fails the job now as "internal", refunds it and removes
+  // what this attempt wrote, instead of leaving it in processing until the reconciler's timeout.
+  const track: WriteTrack = { assetIds: [], pendingKeys: new Set() };
+  let result: StoreResult;
+  try {
+    result = await storeAndSettle(job, outputs, opts, log, track);
+  } catch (e) {
+    const message = ((e as Error).message ?? String(e)).slice(0, 300);
+    logger.error("generation.store_failed", { ...log, err: message });
+    await discardAfterFault(track);
+    await finishFailed(job.id, new ProviderError("internal", `storing the output failed: ${message}`, false));
+    return;
+  }
+  if (result.outcome === "handled") return;
+  if (result.outcome === "discarded") {
+    await purgeAssetsNow(result.storedIds);
+    logger.info("generation.discarded", log);
+    return;
+  }
+  logger.info("generation.done", log);
+  void notifyJobFinished({ userId: job.userId, jobId: job.id, outcome: "completed" });
+}
+
+type StoreResult = { outcome: "handled" } | { outcome: "discarded"; storedIds: string[] } | { outcome: "completed" };
+
+/**
+ * Checks, stores and scans each output, then settles the job in one transaction. "handled" means the
+ * job was already failed or sent back for a retry here. Everything written is recorded in `track`.
+ */
+async function storeAndSettle(job: ClaimedJob, outputs: ProviderOutput[], opts: ProcessOptions, log: Record<string, unknown>, track: WriteTrack): Promise<StoreResult> {
+  const db = getDb();
+  const put = async (key: string, bytes: Buffer, mime: string) => {
+    track.pendingKeys.add(key);
+    await storage().put(key, bytes, mime);
+  };
+  const recorded = (key: string, assetId: string) => {
+    track.pendingKeys.delete(key);
+    track.assetIds.push(assetId);
+  };
   const stored: { assetId: string; posterAssetId: string | null; report: QualityReport }[] = [];
   const storedSoFar = () => stored.flatMap((s) => (s.posterAssetId ? [s.assetId, s.posterAssetId] : [s.assetId]));
   for (const out of outputs) {
@@ -175,11 +258,11 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
     if (!report.ok) {
       await discardStored(storedSoFar());
       await finishFailed(job.id, new ProviderError("internal", `output failed quality check: ${JSON.stringify(report.checks)}`, false));
-      return;
+      return { outcome: "handled" };
     }
     const kind = out.mime.startsWith("video/") ? "video" : "image";
     const key = newStorageKey("outputs", job.userId, EXT[out.mime] ?? "bin");
-    await storage().put(key, out.bytes, out.mime);
+    await put(key, out.bytes, out.mime);
     const [asset] = await db
       .insert(mediaAssets)
       .values({
@@ -195,6 +278,7 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
         visibility: "private",
       })
       .returning({ id: mediaAssets.id });
+    recorded(key, asset!.id);
     // Abuse scan of every output before it can be shown (addendum §3). The private file is never
     // served while pending; a non-clean verdict means no output row is ever created for it.
     const verdict = await scanAsset({ assetId: asset!.id, bytes: out.bytes, mime: out.mime, kind, sha256: sha256(out.bytes), ownerId: job.userId, origin: "output", jobId: job.id });
@@ -203,24 +287,25 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
       await discardStored(storedSoFar());
       logger.warn("generation.blocked", log);
       await finishFailed(job.id, new ProviderError("content_blocked", "output matched the abuse scanner", false));
-      return;
+      return { outcome: "handled" };
     }
     if (verdict === "unavailable" && scanFailClosed()) {
       // Fail closed: nothing unscanned is kept. Retry later with the reservation held; refund when attempts run out.
       await discardStored([...storedSoFar(), asset!.id]);
       await retryOrFail(job, new ProviderError("scan_unavailable", "abuse scanner unavailable", true), opts);
-      return;
+      return { outcome: "handled" };
     }
     let posterAssetId: string | null = null;
     if (kind === "video") {
       const poster = await videoPoster(out.bytes);
       if (poster) {
         const posterKey = newStorageKey("outputs", job.userId, "webp");
-        await storage().put(posterKey, poster.bytes, "image/webp");
+        await put(posterKey, poster.bytes, "image/webp");
         const [p] = await db
           .insert(mediaAssets)
           .values({ ownerId: job.userId, kind: "image", storageKey: posterKey, mime: "image/webp", bytes: poster.bytes.length, width: poster.width, height: poster.height, sha256: sha256(poster.bytes), visibility: "private" })
           .returning({ id: mediaAssets.id });
+        recorded(posterKey, p!.id);
         posterAssetId = p!.id;
         // A frame of a clip whose keyframes were just checked: recorded with the clip's verdict, not scanned twice.
         await recordDerivedScan(posterAssetId, asset!.id);
@@ -229,7 +314,7 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
     stored.push({ assetId: asset!.id, posterAssetId, report });
   }
 
-  const storedIds = stored.flatMap((s) => (s.posterAssetId ? [s.assetId, s.posterAssetId] : [s.assetId]));
+  const storedIds = storedSoFar();
   const kept = await db.transaction(async (tx) => {
     const [current] = await tx.select().from(generationJobs).where(eq(generationJobs.id, job.id)).for("update");
     const now = new Date();
@@ -270,22 +355,29 @@ export async function processJob(jobId: string, opts: ProcessOptions = {}): Prom
     }
     return true;
   });
-  if (!kept) {
-    await purgeAssetsNow(storedIds);
-    logger.info("generation.discarded", log);
-    return;
-  }
-  logger.info("generation.done", log);
-  void notifyJobFinished({ userId: job.userId, jobId: job.id, outcome: "completed" });
+  return kept ? { outcome: "completed" } : { outcome: "discarded", storedIds };
 }
+
+export const DRAFT_TTL_MS = 24 * 3_600_000;
 
 /**
  * Recovers jobs a crashed worker or a lost queue message left behind:
  * queued jobs with no live queue entry are re-enqueued, and processing jobs
- * past the timeout are failed and refunded.
+ * past the timeout are failed and refunded. Drafts nobody confirmed within
+ * 24 hours are closed (cancelled and hidden); they never held credits.
  */
-export async function reconcile(opts: { staleQueuedMs?: number; staleProcessingMs?: number } = {}) {
+export async function reconcile(opts: { staleQueuedMs?: number; staleProcessingMs?: number; draftTtlMs?: number } = {}) {
   const db = getDb();
+  const now = new Date();
+  const draftCutoff = new Date(now.getTime() - (opts.draftTtlMs ?? DRAFT_TTL_MS));
+  // Row locks make this safe against a confirm in flight: whichever commits first wins, and the
+  // status condition is re-checked after the lock, so a draft that just got queued is left alone.
+  const expired = await db
+    .update(generationJobs)
+    .set({ status: "cancelled", failureCode: "draft_expired", finishedAt: now, updatedAt: now, deletedAt: now })
+    .where(and(eq(generationJobs.status, "awaiting_confirmation"), lt(generationJobs.createdAt, draftCutoff)))
+    .returning({ id: generationJobs.id });
+  if (expired.length) logger.info("generation.drafts_expired", { count: expired.length });
   const staleQueued = new Date(Date.now() - (opts.staleQueuedMs ?? 120_000));
   const staleProcessing = new Date(Date.now() - (opts.staleProcessingMs ?? env().PROVIDER_TIMEOUT_S * 1000 + 120_000));
   const queued = await db
@@ -298,5 +390,5 @@ export async function reconcile(opts: { staleQueuedMs?: number; staleProcessingM
     .from(generationJobs)
     .where(and(eq(generationJobs.status, "processing"), lt(generationJobs.startedAt, staleProcessing)));
   for (const j of stuck) await finishFailed(j.id, new ProviderError("timeout", "worker lost the job", false));
-  return { requeued: queued.length, failed: stuck.length };
+  return { requeued: queued.length, failed: stuck.length, expiredDrafts: expired.length };
 }

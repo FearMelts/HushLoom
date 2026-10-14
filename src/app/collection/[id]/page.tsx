@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { CreationDetail } from "@/components/creation-detail";
 import { getModel, MODE_LABELS } from "@/server/ai/registry";
@@ -26,8 +26,14 @@ export default async function CreationPage({ params }: { params: Promise<{ id: s
     listFolders(user.id),
     listCategories(),
     getBalance(user.id),
-    job!.templateId ? getDb().select({ slug: templates.slug, title: templates.title }).from(templates).where(eq(templates.id, job!.templateId)) : [],
-    job!.projectId ? getDb().select({ id: projects.id, title: projects.title }).from(projects).where(eq(projects.id, job!.projectId)) : [],
+    job!.templateId ? getDb().select({ slug: templates.slug, title: templates.title }).from(templates).where(and(eq(templates.id, job!.templateId), isNull(templates.deletedAt))) : [],
+    // A deleted project is not linked: its page is gone.
+    job!.projectId
+      ? getDb()
+          .select({ id: projects.id, title: projects.title })
+          .from(projects)
+          .where(and(eq(projects.id, job!.projectId), eq(projects.userId, user.id), isNull(projects.deletedAt)))
+      : [],
   ]);
   const model = getModel(job!.modelKey);
   return (

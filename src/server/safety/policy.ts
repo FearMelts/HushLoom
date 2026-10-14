@@ -72,6 +72,14 @@ export function checkPrompt(...texts: string[]): PolicyVerdict {
   return { allowed: true };
 }
 
+/**
+ * Every string value in a generation's settings. Free-text settings (atmosphere, and anything a
+ * client or an older row carries) go through the same check as the prompt, at draft and at publish.
+ */
+export function paramTexts(params: Record<string, unknown> | null | undefined): string[] {
+  return Object.values(params ?? {}).filter((v): v is string => typeof v === "string");
+}
+
 export const ADULT_AGE = 18;
 
 export function ageOn(dateOfBirth: string, today = new Date()): number {

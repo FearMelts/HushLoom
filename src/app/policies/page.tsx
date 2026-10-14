@@ -72,11 +72,27 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
     body: (
       <>
         <p>
-          Everything you make is private unless you publish it. Private media is served only through short-lived signed links tied to your session, and the app asks search engines not to index any page.
+          Everything you make is private unless you publish it. Private media is served only through short-lived signed links, which the server issues to you after checking that it is
+          yours. A link lasts five minutes by default, and anyone who has it can open it until then, so share a download rather than a link. The app asks search engines not to index any page.
         </p>
         <p>
           Discovery uses the categories and tags of templates you saved, made or viewed, and the interests you pick. You can turn personalization or history off, and clear history at any time. Deleting your
           account or a creation hides it at once, and its files are removed from storage within 30 days. Withdrawing a consent removes the files right away.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "training",
+    title: "Training",
+    body: (
+      <>
+        <p>
+          Nothing you upload or make is used to train or fine-tune any model in this build. Train stores a consented reference photo and sends it with each Reference guided request you make, to the
+          model you chose, for that request only. A model that can&apos;t take a reference refuses the request, and your credits come back.
+        </p>
+        <p>
+          Using anything you add to train a model would need a separate consent that asks for exactly that. This build never asks for it, so it never happens.
         </p>
       </>
     ),

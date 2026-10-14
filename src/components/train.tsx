@@ -63,8 +63,12 @@ export function TrainView({ characters, statement }: { characters: Character[]; 
           <p className="tag text-ember-400">Consistent characters</p>
           <h1 className="font-display text-4xl">Train</h1>
           <p className="mt-1 max-w-2xl text-sm text-bone-400">
-            Add a consented reference photo and pick it when you make a still, or attach it to a project scene. Honest note: this build does not fine-tune a model.
-            The photo is sent to a model that accepts a reference image at generation time, and nothing else is learned from it.
+            Add a consented reference photo and pick it when you make a Reference guided still, or attach it to a project scene. Each of those requests sends the
+            photo to the model you chose, for that request only. Nothing is trained or fine-tuned on it. A model that can&apos;t take a reference refuses the request
+            instead of ignoring the photo, and clips can&apos;t use a character in this build.
+          </p>
+          <p className="mt-1.5 max-w-2xl text-[12.5px] text-iris-300">
+            On the demo model, the photo is blended under the watermark of a labeled placeholder. It isn&apos;t a likeness match.
           </p>
         </div>
         <Button variant="ember" onClick={() => setOpen(true)}>

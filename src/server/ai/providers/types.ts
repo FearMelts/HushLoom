@@ -1,7 +1,13 @@
 import type { GenerationParams } from "@/server/db/schema";
 import type { GenerationMode, ModelSpec } from "@/server/ai/registry";
 
-export type ProviderInput = { kind: "image" | "video"; mime: string; bytes: Buffer; width?: number | null; height?: number | null };
+/**
+ * One media input for a request. `source` (the default) is media the result is made from: an upload,
+ * or the clip being continued. `reference` is a consented character reference photo from Train,
+ * sent only for modes that take one; an adapter that cannot use it must fail with "unsupported"
+ * rather than ignore it.
+ */
+export type ProviderInput = { kind: "image" | "video"; mime: string; bytes: Buffer; width?: number | null; height?: number | null; role?: "source" | "reference" };
 
 export type ProviderRequest = {
   jobId: string;

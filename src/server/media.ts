@@ -1,3 +1,7 @@
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { and, eq, inArray, isNotNull, lt, notLike } from "drizzle-orm";
 import sharp from "sharp";
 import { getDb } from "@/server/db";
@@ -40,7 +44,8 @@ export type UploadResult = { assetId: string; kind: "image" | "video"; width: nu
 /**
  * Accepts an upload only with a consent record that covers the people in it.
  * Images are decoded and re-encoded, which drops EXIF/GPS metadata and rejects
- * anything that is not really an image. Videos must be MP4.
+ * anything that is not really an image. Videos must be MP4, and are rewritten without their
+ * container metadata (stripVideoMetadata) before they are stored or scanned.
  */
 export async function acceptUpload(
   userId: string,
@@ -59,7 +64,8 @@ export async function acceptUpload(
     if (file.bytes.length > MAX_VIDEO_BYTES) throw new HttpError(413, "too_large", "Videos can be up to 100 MB.");
     if (file.bytes.subarray(4, 8).toString("ascii") !== "ftyp") throw new HttpError(415, "unsupported_type", "Videos must be MP4.");
     kind = "video";
-    body = file.bytes;
+    // Container metadata (GPS, device, creation time, titles) is dropped before anything is stored or scanned.
+    body = await stripVideoMetadata(file.bytes);
     mime = "video/mp4";
   } else {
     if (file.bytes.length > MAX_IMAGE_BYTES) throw new HttpError(413, "too_large", "Images can be up to 20 MB.");
@@ -109,6 +115,35 @@ export async function acceptUpload(
     warnings.push("scan_pending");
   }
   return { assetId, kind, width, height, warnings };
+}
+
+/**
+ * Rewrites an MP4 without its container metadata: `ffmpeg -map_metadata -1 -c copy`, so no frame is
+ * re-encoded. Global and per-stream tags (location, device, creation time, titles) and chapters go;
+ * only the default video and audio streams are kept, which also drops timed-metadata tracks. A file
+ * ffmpeg cannot read is refused rather than stored with its metadata.
+ */
+async function stripVideoMetadata(clip: Buffer): Promise<Buffer> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hl-upload-"));
+  try {
+    const input = path.join(dir, "in.mp4");
+    const output = path.join(dir, "out.mp4");
+    await writeFile(input, clip);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn("ffmpeg", ["-v", "error", "-y", "-i", input, "-map_metadata", "-1", "-map_chapters", "-1", "-c", "copy", "-movflags", "+faststart", "-f", "mp4", output], {
+        stdio: ["ignore", "ignore", "ignore"],
+        signal: AbortSignal.timeout(120_000),
+      });
+      child.on("error", (e) => {
+        logger.error("upload.video_strip_unavailable", { err: e.name });
+        reject(new HttpError(503, "video_processing_unavailable", "We couldn't process videos right now. Try again in a few minutes."));
+      });
+      child.on("close", (code) => (code === 0 ? resolve() : reject(new HttpError(415, "unsupported_type", "We couldn't read that video. Use an MP4."))));
+    });
+    return await readFile(output);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 /** Removes an upload the scanner could not check: its rows go, and its bytes are deleted now. */
