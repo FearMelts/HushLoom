@@ -99,7 +99,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
           <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-bone-400">
             <div>
               <dt className="sr-only">Made</dt>
-              <dd>Made {compact(t.generationCount)} times</dd>
+              <dd>{t.generationCount === 1 ? "Made once" : `Made ${compact(t.generationCount)} times`}</dd>
             </div>
             <div>
               <dt className="sr-only">Favorites</dt>
