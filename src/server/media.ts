@@ -10,7 +10,7 @@ import { env } from "@/server/env";
 import { HttpError } from "@/server/http";
 import { logger } from "@/server/log";
 import { newStorageKey, sha256, storage } from "@/server/storage";
-import { scanAsset, scanFailClosed } from "@/server/safety/scan";
+import { MAX_SCANNED_VIDEO_S, probeVideo, scanAsset, scanFailClosed, type VideoInfo } from "@/server/safety/scan";
 
 export type Asset = typeof mediaAssets.$inferSelect;
 
@@ -121,10 +121,16 @@ export async function acceptUpload(
  * Rewrites an MP4 without its container metadata: `ffmpeg -map_metadata -1 -c copy`, so no frame is
  * re-encoded. Global and per-stream tags (location, device, creation time, titles) and chapters go;
  * only the default video and audio streams are kept, which also drops timed-metadata tracks. A file
- * ffmpeg cannot read is refused rather than stored with its metadata.
+ * ffmpeg cannot read is refused rather than stored with its metadata, and so is a clip longer than
+ * the abuse scan covers (MAX_SCANNED_VIDEO_S), since no part of a stored clip may go unscanned.
  */
 async function stripVideoMetadata(clip: Buffer): Promise<Buffer> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "hl-upload-"));
+  const processingUnavailable = (err: string) => {
+    logger.error("upload.video_strip_unavailable", { err });
+    return new HttpError(503, "video_processing_unavailable", "We couldn't process videos right now. Try again in a few minutes.");
+  };
+  const unreadable = () => new HttpError(415, "unsupported_type", "We couldn't read that video. Use an MP4.");
   try {
     const input = path.join(dir, "in.mp4");
     const output = path.join(dir, "out.mp4");
@@ -134,12 +140,16 @@ async function stripVideoMetadata(clip: Buffer): Promise<Buffer> {
         stdio: ["ignore", "ignore", "ignore"],
         signal: AbortSignal.timeout(120_000),
       });
-      child.on("error", (e) => {
-        logger.error("upload.video_strip_unavailable", { err: e.name });
-        reject(new HttpError(503, "video_processing_unavailable", "We couldn't process videos right now. Try again in a few minutes."));
-      });
-      child.on("close", (code) => (code === 0 ? resolve() : reject(new HttpError(415, "unsupported_type", "We couldn't read that video. Use an MP4."))));
+      child.on("error", (e) => reject(processingUnavailable(e.name)));
+      child.on("close", (code) => (code === 0 ? resolve() : reject(unreadable())));
     });
+    let info: VideoInfo;
+    try {
+      info = await probeVideo(output);
+    } catch (err) {
+      throw (err as { code?: string }).code === "tool_unavailable" ? processingUnavailable("ffprobe") : unreadable();
+    }
+    if (info.durationS > MAX_SCANNED_VIDEO_S) throw new HttpError(422, "too_long", `Videos can be up to ${MAX_SCANNED_VIDEO_S} seconds.`);
     return await readFile(output);
   } finally {
     await rm(dir, { recursive: true, force: true });

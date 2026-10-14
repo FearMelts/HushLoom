@@ -3,6 +3,7 @@ import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { and, eq, or } from "drizzle-orm";
+import { z } from "zod";
 import { audit } from "@/server/audit";
 import { getDb, type Tx } from "@/server/db";
 import { accountFlags, mediaAssets, moderationEvents, sessions, templates, users } from "@/server/db/schema";
@@ -63,27 +64,86 @@ export function scanSettings() {
   return { provider: p.key, label: p.label, isDev: p.isDev, configured: p.isConfigured(), failClosed: scanFailClosed(), preStorage: p.capabilities.preStorage };
 }
 
-const KEYFRAME_FPS = 1;
-const KEYFRAME_MAX = 30;
+/** The longest clip the scan covers end to end. Longer clips are refused at upload and never cleared. */
+export const MAX_SCANNED_VIDEO_S = 60;
+/** One frame for every second of the clip, plus every frame that differs sharply from the one before, up to these counts. */
+const PERIODIC_MAX = MAX_SCANNED_VIDEO_S + 1;
+const CHANGES_MAX = 60;
+/** Mean absolute difference from the previous frame, in percent (ffmpeg scdet's mafd), that counts as a sharp change. Ordinary motion stays under 3; a cut is 15 or more. */
+const CHANGE_MAFD = 10;
 
-/** Pulls up to 30 frames at one per second as PNG. Throws when ffmpeg is missing or the clip cannot be read. */
+export type VideoInfo = { durationS: number; width: number; height: number };
+
+const probeSchema = z.object({
+  streams: z.array(z.object({ width: z.number().int().positive(), height: z.number().int().positive(), duration: z.coerce.number().optional() })).min(1),
+  format: z.object({ duration: z.coerce.number().optional() }).optional(),
+});
+
+/**
+ * Reads a clip's duration and frame size with ffprobe; the longer of the container and stream
+ * durations counts. Throws when the clip has no readable video stream, and an error with
+ * `code: "tool_unavailable"` when ffprobe is missing.
+ */
+export async function probeVideo(file: string): Promise<VideoInfo> {
+  const out = await new Promise<string>((resolve, reject) => {
+    const child = spawn("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height,duration:format=duration", "-of", "json", file], {
+      stdio: ["ignore", "pipe", "ignore"],
+      signal: AbortSignal.timeout(30_000),
+    });
+    let stdout = "";
+    child.stdout.on("data", (d: Buffer) => (stdout = (stdout + d.toString()).slice(0, 65_536)));
+    child.on("error", (e) => reject(Object.assign(new Error(`ffprobe unavailable: ${e.name}`), { code: "tool_unavailable" })));
+    child.on("close", (code) => (code === 0 ? resolve(stdout) : reject(new Error(`ffprobe exited ${code}`))));
+  });
+  let parsed: z.infer<typeof probeSchema>;
+  try {
+    parsed = probeSchema.parse(JSON.parse(out));
+  } catch {
+    throw new Error("the clip has no readable video stream");
+  }
+  const s = parsed.streams[0]!;
+  const durations = [parsed.format?.duration, s.duration].filter((d): d is number => d !== undefined && Number.isFinite(d) && d > 0);
+  if (!durations.length) throw new Error("the clip has no readable duration");
+  return { durationS: Math.max(...durations), width: s.width, height: s.height };
+}
+
+function ffmpeg(args: string[]): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn("ffmpeg", args, { stdio: ["ignore", "ignore", "pipe"], signal: AbortSignal.timeout(env().SCAN_TIMEOUT_S * 2000) });
+    let stderr = "";
+    child.stderr.on("data", (d: Buffer) => (stderr = (stderr + d.toString()).slice(-300)));
+    child.on("error", (e) => reject(new Error(`ffmpeg unavailable: ${e.name}`)));
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${stderr}`))));
+  });
+}
+
+/**
+ * Pulls frames as PNG across the whole clip: the frame on screen at every second (fps=1), plus every
+ * frame that differs sharply from the frame before it (a cut, a flash, an inserted frame), so a shot
+ * shorter than a second between two samples is still seen. Throws, so the verdict is "unavailable"
+ * and never clean, when ffmpeg is missing, the clip cannot be read, it runs longer than
+ * MAX_SCANNED_VIDEO_S, or it holds more frames than the caps allow (frames past its stated duration,
+ * or more sharp changes than are sampled, such as a strobe).
+ */
 export async function extractKeyframes(clip: Buffer): Promise<Buffer[]> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "hl-scan-"));
   try {
     const input = path.join(dir, "in.mp4");
     await writeFile(input, clip);
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn("ffmpeg", ["-v", "error", "-y", "-i", input, "-vf", `fps=${KEYFRAME_FPS}`, "-frames:v", String(KEYFRAME_MAX), path.join(dir, "f-%03d.png")], {
-        stdio: ["ignore", "ignore", "pipe"],
-        signal: AbortSignal.timeout(env().SCAN_TIMEOUT_S * 2000),
-      });
-      let stderr = "";
-      child.stderr.on("data", (d: Buffer) => (stderr = (stderr + d.toString()).slice(-300)));
-      child.on("error", (e) => reject(new Error(`ffmpeg unavailable: ${e.name}`)));
-      child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`ffmpeg exited ${code}: ${stderr}`))));
-    });
-    const names = (await readdir(dir)).filter((n) => n.startsWith("f-")).sort();
-    return Promise.all(names.map((n) => readFile(path.join(dir, n))));
+    const info = await probeVideo(input);
+    if (info.durationS > MAX_SCANNED_VIDEO_S) throw new Error(`the clip runs ${Math.ceil(info.durationS)} s, longer than the ${MAX_SCANNED_VIDEO_S} s the scan covers`);
+    await ffmpeg([
+      "-v", "error", "-y", "-i", input,
+      "-filter_complex", `[0:v]split=2[p][c];[p]fps=1[po];[c]scdet=threshold=100,metadata=mode=select:key=lavfi.scd.mafd:value=${CHANGE_MAFD}:function=greater[co]`,
+      "-map", "[po]", "-fps_mode", "passthrough", "-frames:v", String(PERIODIC_MAX + 1), path.join(dir, "p-%04d.png"),
+      "-map", "[co]", "-fps_mode", "passthrough", "-frames:v", String(CHANGES_MAX + 1), path.join(dir, "c-%04d.png"),
+    ]);
+    const names = await readdir(dir);
+    const periodic = names.filter((n) => n.startsWith("p-")).sort();
+    const changes = names.filter((n) => n.startsWith("c-")).sort();
+    if (periodic.length > PERIODIC_MAX) throw new Error(`the clip has frames past the ${MAX_SCANNED_VIDEO_S} s the scan covers`);
+    if (changes.length > CHANGES_MAX) throw new Error(`the clip changes sharply more than the ${CHANGES_MAX} times the scan samples`);
+    return Promise.all([...periodic, ...changes].map((n) => readFile(path.join(dir, n))));
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -119,7 +179,7 @@ async function scanVideo(input: ScanInput, provider: ScanProvider): Promise<Scan
   let recordedProvider = provider.key as string;
   for (const [i, frame] of frames.entries()) {
     const v = await withTimeout(provider.scan({ bytes: frame, mime: "image/png", kind: "image", sha256: sha256(frame) }), provider.key);
-    if (v.status === "matched") return { ...v, detail: `keyframe at ${i}s${v.detail ? `: ${v.detail}` : ""}` };
+    if (v.status === "matched") return { ...v, detail: `keyframe ${i + 1} of ${frames.length}${v.detail ? `: ${v.detail}` : ""}` };
     if (v.status === "unavailable") return v;
     firstRef ??= v.ref;
     recordedProvider = v.provider;
