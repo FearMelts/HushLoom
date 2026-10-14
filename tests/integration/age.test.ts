@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { NextRequest } from "next/server";
+import { ZodError } from "zod";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
 
@@ -15,6 +16,7 @@ vi.mock("next/headers", () => ({
   headers: async () => new Headers(requestScope.headers),
 }));
 
+import { GET as returnRoute } from "@/app/api/age-verification/return/route";
 import { POST as charactersRoute } from "@/app/api/characters/route";
 import { POST as deriveRoute } from "@/app/api/generations/[id]/derive/route";
 import { GET as downloadRoute } from "@/app/api/generations/[id]/download/route";
@@ -602,5 +604,36 @@ describe("R48: a new check opened while an earlier one completes", () => {
       .where(eq(users.id, gb.id));
     await startVerification(gb, ctx);
     expect((await userRow(gb.id)).ageVerificationStatus).toBe("pending");
+  });
+});
+
+describe("R45: coming back from the provider when its result API fails", () => {
+  it("still sends the person to Settings with the check left pending, whatever the provider's API does", async () => {
+    const gb = await userIn("GB");
+    const started = await startVerification(gb, ctx);
+    await signIn(gb);
+    const failures: (() => Promise<never>)[] = [
+      async () => {
+        throw new Error("Yoti GET /api/v1/sessions/x/result returned 503");
+      },
+      async () => {
+        throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+      },
+      async () => {
+        throw new ZodError([{ code: "invalid_type", expected: "string", received: "undefined", path: ["status"], message: "Required" }]);
+      },
+    ];
+    try {
+      for (const failure of failures) {
+        sandboxProvider.fetchResult = failure;
+        const res = await returnRoute(new NextRequest(`http://localhost/api/age-verification/return?sessionId=${started.providerRef}`), undefined as never);
+        expect(res.status).toBe(307);
+        expect(new URL(res.headers.get("location")!).pathname + new URL(res.headers.get("location")!).hash).toBe("/settings#age-verification");
+      }
+    } finally {
+      delete sandboxProvider.fetchResult;
+    }
+    expect((await userRow(gb.id)).ageVerificationStatus).toBe("pending");
+    expect((await verificationRow(started.providerRef)).status).toBe("pending");
   });
 });
