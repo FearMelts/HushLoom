@@ -252,19 +252,18 @@ export async function resolveTakedown(adminId: string, takedownId: string, input
 /**
  * Publishing copies an output's bytes into new public assets, so what a request names is rarely the
  * only copy. Taking down just that one would leave the creator's source creation, which they could
- * publish again under a new slug at once, and any other template made from it. The copies are the
- * same owner's assets with the same SHA-256: their creations are soft-deleted and their templates
- * removed. Returns the asset ids not already in `assetIds`, to be held or deleted with them.
+ * publish again under a new slug at once, and any other template made from it. The copies are all
+ * assets with the same SHA-256, whoever owns them: a byte-identical file is the same image, and a
+ * second account can make it with the same prompt and seed. Their creations are soft-deleted and
+ * their templates removed. Returns the asset ids not already in `assetIds`, to be held or deleted
+ * with them.
  */
 async function takeDownCopies(tx: Tx, assetIds: string[], now: Date): Promise<string[]> {
   if (!assetIds.length) return [];
-  const named = await tx.select({ ownerId: mediaAssets.ownerId, sha256: mediaAssets.sha256 }).from(mediaAssets).where(inArray(mediaAssets.id, assetIds));
-  const same = new Set<string>();
-  for (const n of named) {
-    if (!n.ownerId) continue;
-    const rows = await tx.select({ id: mediaAssets.id }).from(mediaAssets).where(and(eq(mediaAssets.ownerId, n.ownerId), eq(mediaAssets.sha256, n.sha256)));
-    for (const r of rows) same.add(r.id);
-  }
+  const named = await tx.selectDistinct({ sha256: mediaAssets.sha256 }).from(mediaAssets).where(inArray(mediaAssets.id, assetIds));
+  if (!named.length) return [];
+  const rows = await tx.select({ id: mediaAssets.id }).from(mediaAssets).where(inArray(mediaAssets.sha256, named.map((n) => n.sha256)));
+  const same = new Set(rows.map((r) => r.id));
   if (!same.size) return [];
   const ids = [...same];
   const outs = await tx

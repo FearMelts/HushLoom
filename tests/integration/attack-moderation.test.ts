@@ -155,10 +155,11 @@ describe("R08 attack: getting a taken-down creation back up", () => {
     expect(await liveTemplates(creator.id)).toHaveLength(0);
   });
 
-  // HOLE (R08): takeDownCopies only matches the same owner's assets. A second account that made the
-  // byte-identical file (same prompt and seed) keeps its public template live after the NCII
-  // takedown of the first, though it is the same image the request is about.
-  it.fails("an NCII takedown also reaches a byte-identical public copy another account published", async () => {
+  // Was a hole (R08): takeDownCopies only matched the same owner's assets. A second account that made
+  // the byte-identical file (same prompt and seed) kept its public template live after the NCII
+  // takedown of the first, though it is the same image the request is about. Closed: copies are
+  // matched by SHA-256 whoever owns them.
+  it("an NCII takedown also reaches a byte-identical public copy another account published", async () => {
     const admin = await makeUser({ role: "admin" });
     const creator = await makeUser({ credits: 50 });
     const puppet = await makeUser({ credits: 50 });
