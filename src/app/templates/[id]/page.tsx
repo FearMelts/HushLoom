@@ -144,10 +144,11 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
                 slug: t.slug,
                 title: t.title,
                 mode: t.mode as GenerationMode,
-                prompt: data.version.prompt,
-                negativePrompt: data.version.negativePrompt,
+                // A VIP template's recipe is what the pass unlocks: without one, none of it is sent to the browser.
+                prompt: locked ? "" : data.version.prompt,
+                negativePrompt: locked ? "" : data.version.negativePrompt,
                 modelKey: data.version.modelKey,
-                defaults: data.version.defaults as GenerationParams,
+                defaults: locked ? {} : (data.version.defaults as GenerationParams),
                 locked,
               }}
             />

@@ -31,8 +31,12 @@ export async function templateForViewer(idOrSlug: string, viewerId: string | nul
   const [follow] = viewerId
     ? await db.select().from(follows).where(and(eq(follows.followerId, viewerId), eq(follows.creatorId, row.t.creatorId)))
     : [];
+  // Named only while the source is public: a takedown, removal, unpublish or deletion withdraws its title too.
   const [remixedFrom] = row.t.remixedFromId
-    ? await db.select({ slug: templates.slug, title: templates.title }).from(templates).where(eq(templates.id, row.t.remixedFromId))
+    ? await db
+        .select({ slug: templates.slug, title: templates.title })
+        .from(templates)
+        .where(and(eq(templates.id, row.t.remixedFromId), eq(templates.status, "published"), isNull(templates.deletedAt)))
     : [];
   return { ...row, version: version!, versions, myRating: rating?.score ?? null, following: Boolean(follow), own, remixedFrom: remixedFrom ?? null };
 }

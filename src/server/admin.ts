@@ -7,6 +7,7 @@ import { destroyAllSessions } from "@/server/auth/session";
 import { applyMovement } from "@/server/credits/ledger";
 import { getDb } from "@/server/db";
 import {
+  accountFlags,
   auditLogs,
   creditLedger,
   generationJobs,
@@ -20,6 +21,7 @@ import {
   users,
 } from "@/server/db/schema";
 import { HttpError, notFound } from "@/server/http";
+import { ADMIN_SUSPENSION, suspensionCauses } from "@/server/safety/suspend";
 
 const SEVERE = ["minor", "non_consent", "real_person", "illegal"];
 
@@ -226,12 +228,21 @@ export async function adjustCredits(adminId: string, input: z.infer<typeof adjus
  * Suspends an account and, in the same transaction, unpublishes every template it has live, so
  * discovery never lists work whose creator page now 404s. The creator can publish them again from
  * their manage page once reinstated; templates already unpublished or removed are left as they are.
+ * The suspension is recorded as an open flag, so clearing an abuse case later (the only way an
+ * account is reinstated) never lifts it. An account already suspended for an abuse case still
+ * takes the admin's reason; one an admin already suspended is a 404, as a missing account is.
  */
 export async function suspendUser(adminId: string, userId: string, reason: string) {
   const unpublished = await getDb().transaction(async (tx) => {
     const now = new Date();
-    const [u] = await tx.update(users).set({ status: "suspended", updatedAt: now }).where(and(eq(users.id, userId), eq(users.status, "active"))).returning({ id: users.id });
-    if (!u) throw notFound();
+    const [u] = await tx.select({ status: users.status }).from(users).where(and(eq(users.id, userId), isNull(users.deletedAt))).for("update");
+    if (!u || u.status === "deleted") throw notFound();
+    if (u.status === "suspended") {
+      if ((await suspensionCauses(tx, userId)).some((c) => c.kind !== "csam_match")) throw notFound();
+    } else {
+      await tx.update(users).set({ status: "suspended", updatedAt: now }).where(eq(users.id, userId));
+    }
+    await tx.insert(accountFlags).values({ userId, kind: "manual_review", reason: `Suspended by an admin: ${reason}`, details: { source: ADMIN_SUSPENSION }, createdBy: adminId });
     const ts = await tx
       .update(templates)
       .set({ status: "unpublished", updatedAt: now })

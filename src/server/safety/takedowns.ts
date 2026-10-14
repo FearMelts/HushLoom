@@ -2,11 +2,12 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "@/server/audit";
 import type { SessionUser } from "@/server/auth/session";
-import { getDb } from "@/server/db";
-import { generationJobs, generationOutputs, mediaAssets, moderationEvents, takedownRequests, templates, userProfiles } from "@/server/db/schema";
+import { getDb, type Tx } from "@/server/db";
+import { accountFlags, generationJobs, generationOutputs, mediaAssets, moderationEvents, takedownRequests, takenDownHashes, templates, userProfiles } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { HttpError, notFound } from "@/server/http";
 import { purgeAssetsNow } from "@/server/media";
+import { suspendForAbuse } from "@/server/safety/suspend";
 
 /**
  * Takedown requests (addendum §3): anyone, signed in or not, can ask for content to come down,
@@ -99,16 +100,26 @@ export type TakedownItem = {
 };
 
 const URGENT: TakedownCategory[] = ["csam", "ncii", "likeness"];
+export const TAKEDOWN_PAGE = 100;
 
-export async function listTakedowns(opts: { status: "open" | "closed"; limit?: number }): Promise<TakedownItem[]> {
+const statusFilter = (status: "open" | "closed") => (status === "open" ? eq(takedownRequests.status, "open") : sql`${takedownRequests.status} <> 'open'`);
+
+/**
+ * Open requests come most harmful first (CSAM, intimate images, likeness), then oldest first. The
+ * order is applied in the query, before the page is cut, so no number of older low-priority
+ * requests can push a new urgent one off the page. Closed requests come newest first.
+ */
+export async function listTakedowns(opts: { status: "open" | "closed"; limit?: number; offset?: number }): Promise<TakedownItem[]> {
   const db = getDb();
+  const urgentFirst = sql`case when ${inArray(takedownRequests.category, URGENT)} then 0 else 1 end`;
   const rows = await db
     .select({ t: takedownRequests, handle: userProfiles.handle })
     .from(takedownRequests)
     .leftJoin(userProfiles, eq(userProfiles.userId, takedownRequests.requesterId))
-    .where(opts.status === "open" ? eq(takedownRequests.status, "open") : sql`${takedownRequests.status} <> 'open'`)
-    .orderBy(opts.status === "open" ? takedownRequests.createdAt : desc(takedownRequests.resolvedAt))
-    .limit(opts.limit ?? 100);
+    .where(statusFilter(opts.status))
+    .orderBy(...(opts.status === "open" ? [urgentFirst, takedownRequests.createdAt, takedownRequests.id] : [desc(takedownRequests.resolvedAt), takedownRequests.id]))
+    .limit(opts.limit ?? TAKEDOWN_PAGE)
+    .offset(opts.offset ?? 0);
   const items = await Promise.all(
     rows.map(async ({ t, handle }) => {
       let targetLabel: string | null = null;
@@ -134,17 +145,24 @@ export async function listTakedowns(opts: { status: "open" | "closed"; limit?: n
       };
     }),
   );
-  // The most harmful categories first; within each, oldest first.
-  return opts.status === "open" ? items.sort((a, b) => Number(URGENT.includes(b.category)) - Number(URGENT.includes(a.category))) : items;
+  return items;
+}
+
+/** How many requests are open (or closed), so the queue can say how many lie beyond the page. */
+export async function countTakedowns(status: "open" | "closed"): Promise<number> {
+  const [row] = await getDb().select({ n: sql<number>`count(*)::int` }).from(takedownRequests).where(statusFilter(status));
+  return row?.n ?? 0;
 }
 
 export const takedownActionSchema = z.object({ action: z.enum(["action", "dismiss"]), note: z.string().trim().max(500).default("") });
 
 /**
  * "Action" soft-deletes what the request points at (an output with its creation, a template with
- * its public media, or one asset). NCII and likeness requests purge the files right away, as a
- * consent withdrawal does. A CSAM request puts the files on legal hold instead and opens an
- * escalation, so the reporting step runs through the same review queue as a scanner match.
+ * its public media, or one asset) and every other copy of the same creation (takeDownCopies).
+ * NCII and likeness requests purge the files right away, as a consent withdrawal does. A CSAM
+ * request puts the files on legal hold instead, opens an escalation per file, and flags and
+ * suspends the owner, exactly as a scanner match does, so the reporting step runs through the
+ * same review queue and the owner cannot publish the material again meanwhile.
  */
 export async function resolveTakedown(adminId: string, takedownId: string, input: z.infer<typeof takedownActionSchema>) {
   if (input.action === "dismiss" && input.note.length < 3) throw new HttpError(422, "note_required", "Add a short note on why this is dismissed.");
@@ -193,21 +211,38 @@ export async function resolveTakedown(adminId: string, takedownId: string, input
     } else {
       throw unresolved();
     }
+    assetIds.push(...(await takeDownCopies(tx, assetIds, now)));
 
     if (assetIds.length) {
+      // The bytes stay down: publishing the same file again, however it is made, is refused (isTakenDownOrHeld).
+      const hashes = await tx.selectDistinct({ sha256: mediaAssets.sha256 }).from(mediaAssets).where(inArray(mediaAssets.id, assetIds));
+      await tx.insert(takenDownHashes).values(hashes.map((h) => ({ sha256: h.sha256, takedownId: t.id }))).onConflictDoNothing();
       if (t.category === "csam") {
         // Evidence: hidden at once, never purged, and sent to the review queue for the report.
         await tx.update(mediaAssets).set({ deletedAt: now, legalHold: true }).where(inArray(mediaAssets.id, assetIds));
         const held = await tx.select().from(mediaAssets).where(inArray(mediaAssets.id, assetIds));
         for (const a of held) {
-          await tx.insert(moderationEvents).values({
-            subjectType: a.storageKey.startsWith("uploads/") ? "upload" : "output",
-            subjectId: a.id,
-            action: "escalate",
-            status: "open",
-            reason: "csam_report",
-            details: { assetId: a.id, sha256: a.sha256, provider: "takedown", ref: t.id, origin: "takedown", ownerId: a.ownerId, storageKey: a.storageKey },
+          const [event] = await tx
+            .insert(moderationEvents)
+            .values({
+              subjectType: a.storageKey.startsWith("uploads/") ? "upload" : "output",
+              subjectId: a.id,
+              action: "escalate",
+              status: "open",
+              reason: "csam_report",
+              details: { assetId: a.id, sha256: a.sha256, provider: "takedown", ref: t.id, origin: "takedown", ownerId: a.ownerId, storageKey: a.storageKey },
+            })
+            .returning({ id: moderationEvents.id });
+          if (!a.ownerId) continue;
+          // The owner takes the same path as after a scanner match: a flag per case, suspended until review.
+          await tx.insert(accountFlags).values({
+            userId: a.ownerId,
+            kind: "csam_match",
+            reason: "A CSAM takedown request was actioned. Held for human review.",
+            details: { assetId: a.id, escalationId: event!.id, provider: "takedown", ref: t.id, origin: "takedown" },
+            createdBy: adminId,
           });
+          await suspendForAbuse(tx, a.ownerId, { reason: "takedown_csam", assetId: a.id, escalationId: event!.id, takedownId: t.id }, adminId);
         }
       } else {
         await tx.update(mediaAssets).set({ deletedAt: now }).where(and(inArray(mediaAssets.id, assetIds), eq(mediaAssets.legalHold, false), isNull(mediaAssets.deletedAt)));
@@ -219,6 +254,70 @@ export async function resolveTakedown(adminId: string, takedownId: string, input
   });
   // Purge skips anything on legal hold.
   if (purge.length) await purgeAssetsNow(purge);
+}
+
+/**
+ * Publishing copies an output's bytes into new public assets, so what a request names is rarely the
+ * only copy. Taking down just that one would leave the creator's source creation, which they could
+ * publish again under a new slug at once, and any other template made from it. The copies are all
+ * assets with the same SHA-256, whoever owns them: a byte-identical file is the same image, and a
+ * second account can make it with the same prompt and seed. Their creations are soft-deleted and
+ * their templates removed. Returns the asset ids not already in `assetIds`, to be held or deleted
+ * with them.
+ */
+async function takeDownCopies(tx: Tx, assetIds: string[], now: Date): Promise<string[]> {
+  if (!assetIds.length) return [];
+  const named = await tx.selectDistinct({ sha256: mediaAssets.sha256 }).from(mediaAssets).where(inArray(mediaAssets.id, assetIds));
+  if (!named.length) return [];
+  // A publish of the same file in flight has either committed its new copy (found below) or waits and then sees this takedown.
+  await lockContent(tx, named.map((n) => n.sha256));
+  const rows = await tx.select({ id: mediaAssets.id }).from(mediaAssets).where(inArray(mediaAssets.sha256, named.map((n) => n.sha256)));
+  const same = new Set(rows.map((r) => r.id));
+  if (!same.size) return [];
+  const ids = [...same];
+  const outs = await tx
+    .select()
+    .from(generationOutputs)
+    .where(or(inArray(generationOutputs.assetId, ids), inArray(generationOutputs.posterAssetId, ids)));
+  if (outs.length) {
+    await tx.update(generationOutputs).set({ deletedAt: now }).where(and(inArray(generationOutputs.id, outs.map((o) => o.id)), isNull(generationOutputs.deletedAt)));
+    await tx.update(generationJobs).set({ deletedAt: now }).where(and(inArray(generationJobs.id, [...new Set(outs.map((o) => o.jobId))]), isNull(generationJobs.deletedAt)));
+  }
+  const tpls = await tx
+    .update(templates)
+    .set({ status: "removed", deletedAt: now, updatedAt: now })
+    .where(and(or(inArray(templates.posterAssetId, ids), inArray(templates.previewAssetId, ids)), isNull(templates.deletedAt)))
+    .returning({ posterAssetId: templates.posterAssetId, previewAssetId: templates.previewAssetId });
+  for (const o of outs) [o.assetId, o.posterAssetId].forEach((id) => id && same.add(id));
+  for (const p of tpls) [p.posterAssetId, p.previewAssetId].forEach((id) => id && same.add(id));
+  return [...same].filter((id) => !assetIds.includes(id));
+}
+
+/**
+ * A lock on a file's bytes until the transaction ends. A takedown takes it before it looks for
+ * copies, and publishTemplate before its last checks and its new public copy, so the two never
+ * interleave: whichever comes second sees what the first committed. Files are locked in sorted
+ * order, so two transactions that each lock several never wait on each other in a cycle.
+ */
+export async function lockContent(tx: Tx, sha256s: string[]) {
+  for (const sha256 of [...new Set(sha256s)].sort()) await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${sha256}, 0))`);
+}
+
+/**
+ * Whether any of these files was taken down or is held as evidence, by its bytes: an actioned
+ * takedown records the SHA-256 of everything it removed, and a scanner match holds the file
+ * itself. A byte-identical copy is the same content, whoever made it and however.
+ */
+export async function isTakenDownOrHeld(db: Pick<Tx, "select">, sha256s: string[]): Promise<boolean> {
+  if (!sha256s.length) return false;
+  const [listed] = await db.select({ sha256: takenDownHashes.sha256 }).from(takenDownHashes).where(inArray(takenDownHashes.sha256, sha256s)).limit(1);
+  if (listed) return true;
+  const [held] = await db
+    .select({ id: mediaAssets.id })
+    .from(mediaAssets)
+    .where(and(inArray(mediaAssets.sha256, sha256s), eq(mediaAssets.legalHold, true)))
+    .limit(1);
+  return Boolean(held);
 }
 
 function unresolved() {

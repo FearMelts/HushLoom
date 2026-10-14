@@ -6,9 +6,10 @@ import { and, eq, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "@/server/audit";
 import { getDb, type Tx } from "@/server/db";
-import { accountFlags, mediaAssets, moderationEvents, sessions, templates, users } from "@/server/db/schema";
+import { accountFlags, mediaAssets, moderationEvents, templates } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { logger } from "@/server/log";
+import { suspendForAbuse } from "@/server/safety/suspend";
 import { sha256 } from "@/server/storage";
 import { cloudflareEdgeProvider } from "./providers/cloudflare";
 import { devScanProvider } from "./providers/dev";
@@ -397,15 +398,7 @@ export async function recordVerdict(subject: Omit<ScanSubject, "bytes">, verdict
       details: { assetId: asset.id, escalationId: event!.id, provider: verdict.provider, ref: verdict.ref ?? null, origin: subject.origin },
     });
     if (verdict.category !== "csam") return null;
-    const [suspended] = await t
-      .update(users)
-      .set({ status: "suspended", updatedAt: now })
-      .where(and(eq(users.id, ownerId), eq(users.status, "active")))
-      .returning({ id: users.id });
-    if (!suspended) return null;
-    await audit(null, "user.suspend", "user", ownerId, { reason: "scan_match", assetId: asset.id, escalationId: event!.id }, t);
-    await t.delete(sessions).where(eq(sessions.userId, ownerId));
-    return ownerId;
+    return (await suspendForAbuse(t, ownerId, { reason: "scan_match", assetId: asset.id, escalationId: event!.id })) ? ownerId : null;
   };
 
   const suspended = tx ? await handle(tx) : await getDb().transaction(handle);
