@@ -70,11 +70,19 @@ export const MAX_SCANNED_VIDEO_S = 60;
 export const MAX_VIDEO_SIDE = 4096;
 /** Frames are scanned downscaled to fit this side (PhotoDNA hashes a much smaller grid), so each one stays a few MB. */
 const FRAME_SIDE = 1024;
-/** One frame for every second of the clip, plus every frame that differs sharply from the one before, up to these counts. */
+/**
+ * One frame for every second of the clip, plus every frame that differs sharply from the last one picked, up to
+ * these counts: 60 changes, or 3 for every second of a longer clip (steady camera motion picks one or two a second).
+ */
 const PERIODIC_MAX = MAX_SCANNED_VIDEO_S + 1;
 const CHANGES_MAX = 60;
-/** Mean absolute difference from the previous frame, in percent (ffmpeg scdet's mafd), that counts as a sharp change. Ordinary motion stays under 3; a cut is 15 or more. */
+const CHANGES_PER_S = 3;
+/** Mean absolute difference, in percent (as ffmpeg scdet's mafd), that counts as a sharp change. Ordinary motion between two frames stays under 3; a cut is 15 or more. */
 const CHANGE_MAFD = 10;
+/** How far a frame short of a sharp change must be from the last frame picked, and the picture must then move from it, for it to be picked as a peak. */
+const APEX_MAFD = CHANGE_MAFD / 2;
+/** Every frame of a clip is compared for change at this size: plenty to tell what is on screen, small enough to read them all. */
+const CHANGE_SIDE = 128;
 
 export type VideoInfo = { durationS: number; width: number; height: number };
 
@@ -121,14 +129,116 @@ function ffmpeg(args: string[]): Promise<void> {
   });
 }
 
+/** Mean absolute difference of two frames of the same size, in percent of the 8-bit range, as ffmpeg scdet computes mafd. */
+function mafd(a: Buffer, b: Buffer): number {
+  let sad = 0;
+  for (let i = 0; i < a.length; i++) sad += Math.abs(a[i]! - b[i]!);
+  return (sad * 100) / a.length / 256;
+}
+
+/**
+ * Picks the frames of a clip the scan must see, given every frame in order (all the same size): the
+ * first frame, and each frame that differs by more than CHANGE_MAFD from the last frame picked, not
+ * merely from the frame before it. So a cut or an inserted frame is picked, and so is content that
+ * fades in too slowly to differ sharply from one frame to the next: every frame of the clip is within
+ * CHANGE_MAFD of a picked one. Short of that, the frame furthest from the last pick is picked too
+ * when it is over APEX_MAFD away and the picture then leaves it (comes back, or changes sharply to
+ * something else) or the clip ends, so a flash that fades in and out between picks is seen at its
+ * peak. Throws when more than `max` frames are picked (a strobe).
+ */
+async function pickChanges(frames: AsyncIterable<Buffer>, max: number): Promise<number[]> {
+  const picked: number[] = [];
+  let last: Buffer | null = null;
+  let apex: { n: number; d: number; frame: Buffer } | null = null;
+  const tooMany = () => new Error(`the clip changes sharply more than the ${max} times the scan samples`);
+  let n = 0;
+  for await (const frame of frames) {
+    let d: number = last ? mafd(last, frame) : Infinity;
+    if (apex && d <= CHANGE_MAFD && apex.d - d > APEX_MAFD) {
+      // The picture went part of the way towards something and came back.
+      picked.push(apex.n);
+      last = apex.frame;
+      apex = null;
+      d = mafd(last, frame);
+    }
+    if (d > CHANGE_MAFD) {
+      if (apex && mafd(apex.frame, frame) > APEX_MAFD) picked.push(apex.n);
+      picked.push(n);
+      last = Buffer.from(frame);
+      apex = null;
+    } else if (d > APEX_MAFD && d > (apex?.d ?? 0)) {
+      apex = { n, d, frame: Buffer.from(frame) };
+    }
+    if (picked.length > max) throw tooMany();
+    n++;
+  }
+  if (apex) picked.push(apex.n);
+  if (picked.length > max) throw tooMany();
+  return picked;
+}
+
+/** Splits a raw video stream into frames of `size` bytes. Each frame is yielded in the same buffer, refilled for the next. */
+async function* rawFrames(stream: AsyncIterable<Buffer>, size: number): AsyncGenerator<Buffer> {
+  const frame = Buffer.alloc(size);
+  let filled = 0;
+  for await (const chunk of stream) {
+    for (let at = 0; at < chunk.length; ) {
+      const take = Math.min(size - filled, chunk.length - at);
+      chunk.copy(frame, filled, at, at + take);
+      filled += take;
+      at += take;
+      if (filled === size) {
+        yield frame;
+        filled = 0;
+      }
+    }
+  }
+}
+
+/**
+ * Decodes the whole clip once: writes the frame on screen at every second (fps=1) into `dir` as
+ * p-NNNN.png, and reads every frame at CHANGE_SIDE for pickChanges. Returns the picked frame numbers.
+ */
+async function sampleClip(input: string, dir: string, fit: string, maxChanges: number): Promise<number[]> {
+  const child = spawn(
+    "ffmpeg",
+    [
+      // Two decoder threads at most, so one upload cannot take every core while it is scanned.
+      "-v", "error", "-y", "-threads", "2", "-i", input, "-filter_complex_threads", "1",
+      "-filter_complex", `[0:v]split=2[p][c];[p]fps=1,${fit}[po];[c]scale=${CHANGE_SIDE}:${CHANGE_SIDE},format=yuv420p[co]`,
+      "-map", "[po]", "-fps_mode", "passthrough", "-frames:v", String(PERIODIC_MAX + 1), path.join(dir, "p-%04d.png"),
+      "-map", "[co]", "-fps_mode", "passthrough", "-f", "rawvideo", "pipe:1",
+    ],
+    { stdio: ["ignore", "pipe", "pipe"], signal: AbortSignal.timeout(env().SCAN_TIMEOUT_S * 2000) },
+  );
+  let stderr = "";
+  child.stderr.on("data", (d: Buffer) => (stderr = (stderr + d.toString()).slice(-300)));
+  const exited = new Promise<number | null>((resolve, reject) => {
+    child.on("error", (e) => reject(new Error(`ffmpeg unavailable: ${e.name}`)));
+    child.on("close", resolve);
+  });
+  // Awaited below; this only keeps an early stop (a strobe) from leaving the rejection unhandled.
+  exited.catch(() => undefined);
+  let picked: number[];
+  try {
+    picked = await pickChanges(rawFrames(child.stdout, CHANGE_SIDE * CHANGE_SIDE * 1.5), maxChanges); // yuv420p
+  } catch (err) {
+    child.kill();
+    throw err;
+  }
+  const code = await exited;
+  if (code !== 0) throw new Error(`ffmpeg exited ${code}: ${stderr}`);
+  return picked;
+}
+
 /**
  * Pulls frames as PNG across the whole clip: the frame on screen at every second (fps=1), plus every
- * frame that differs sharply from the frame before it (a cut, a flash, an inserted frame), so a shot
- * shorter than a second between two samples is still seen. Frames are downscaled to fit FRAME_SIDE
- * and read from disk one at a time as the caller asks for them. Throws, so the verdict is
- * "unavailable" and never clean, when ffmpeg is missing, the clip cannot be read, it runs longer
- * than MAX_SCANNED_VIDEO_S or is larger than MAX_VIDEO_SIDE, or it holds more frames than the caps
- * allow (frames past its stated duration, or more sharp changes than are sampled, such as a strobe).
+ * frame that differs sharply from the last frame picked (a cut, a flash, an inserted frame, or content
+ * that fades in), so a shot shorter than a second between two samples is still seen. Frames are
+ * downscaled to fit FRAME_SIDE and read from disk one at a time as the caller asks for them. Throws,
+ * so the verdict is "unavailable" and never clean, when ffmpeg is missing, the clip cannot be read, it
+ * runs longer than MAX_SCANNED_VIDEO_S or is larger than MAX_VIDEO_SIDE, or it holds more frames than
+ * the caps allow (frames past its stated duration, or more sharp changes than are sampled, such as a strobe).
  */
 export async function* extractKeyframes(clip: Buffer): AsyncGenerator<{ frame: Buffer; index: number; total: number }> {
   const dir = await mkdtemp(path.join(os.tmpdir(), "hl-scan-"));
@@ -139,18 +249,20 @@ export async function* extractKeyframes(clip: Buffer): AsyncGenerator<{ frame: B
     if (info.durationS > MAX_SCANNED_VIDEO_S) throw new Error(`the clip runs ${Math.ceil(info.durationS)} s, longer than the ${MAX_SCANNED_VIDEO_S} s the scan covers`);
     if (Math.max(info.width, info.height) > MAX_VIDEO_SIDE) throw new Error(`the clip is ${info.width}x${info.height}, larger than the ${MAX_VIDEO_SIDE} px the scan reads`);
     const fit = `scale=w='min(${FRAME_SIDE},iw)':h='min(${FRAME_SIDE},ih)':force_original_aspect_ratio=decrease`;
-    await ffmpeg([
-      // Two decoder threads at most, so one upload cannot take every core while it is scanned.
-      "-v", "error", "-y", "-threads", "2", "-i", input, "-filter_complex_threads", "1",
-      "-filter_complex", `[0:v]${fit},split=2[p][c];[p]fps=1[po];[c]scdet=threshold=100,metadata=mode=select:key=lavfi.scd.mafd:value=${CHANGE_MAFD}:function=greater[co]`,
-      "-map", "[po]", "-fps_mode", "passthrough", "-frames:v", String(PERIODIC_MAX + 1), path.join(dir, "p-%04d.png"),
-      "-map", "[co]", "-fps_mode", "passthrough", "-frames:v", String(CHANGES_MAX + 1), path.join(dir, "c-%04d.png"),
-    ]);
+    const picked = await sampleClip(input, dir, fit, Math.max(CHANGES_MAX, Math.ceil(info.durationS * CHANGES_PER_S)));
+    if (picked.length) {
+      // The second pass stops at the last picked frame.
+      await ffmpeg([
+        "-v", "error", "-y", "-threads", "2", "-i", input, "-filter_complex_threads", "1",
+        "-filter_complex", `[0:v]select='${picked.map((k) => `eq(n\\,${k})`).join("+")}',${fit}[co]`,
+        "-map", "[co]", "-fps_mode", "passthrough", "-frames:v", String(picked.length), path.join(dir, "c-%04d.png"),
+      ]);
+    }
     const names = await readdir(dir);
     const periodic = names.filter((n) => n.startsWith("p-")).sort();
     const changes = names.filter((n) => n.startsWith("c-")).sort();
     if (periodic.length > PERIODIC_MAX) throw new Error(`the clip has frames past the ${MAX_SCANNED_VIDEO_S} s the scan covers`);
-    if (changes.length > CHANGES_MAX) throw new Error(`the clip changes sharply more than the ${CHANGES_MAX} times the scan samples`);
+    if (changes.length !== picked.length) throw new Error(`the clip gave ${changes.length} of the ${picked.length} changed frames picked`);
     const all = [...periodic, ...changes];
     for (const [index, n] of all.entries()) yield { frame: await readFile(path.join(dir, n)), index, total: all.length };
   } finally {

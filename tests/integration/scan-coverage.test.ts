@@ -75,6 +75,15 @@ describe("video scan coverage (R06)", () => {
     expect(await scanClip(await clip([strobe]))).toMatchObject({ status: "unavailable" });
   });
 
+  it("scans a long clip of steady camera motion rather than refusing it as a strobe", async () => {
+    // A 40 s pan over a detailed picture: new content keeps coming into view, so frames are picked for change
+    // about twice a second, more than 60 in all but well under the 3 a second a longer clip may have.
+    const pan = await clip([`testsrc=s=1600x360:r=24:d=40,crop=320:180:'t*30':'90+60*sin(t)'`]);
+    const verdict = await scanClip(pan);
+    expect(verdict).toMatchObject({ status: "clean" });
+    expect(Number(/^keyframes:(\d+)/.exec((verdict as { ref: string }).ref)?.[1])).toBeGreaterThan(41 + 60);
+  });
+
   it("refuses an upload longer than the scan covers before storing anything", async () => {
     const u = await makeUser();
     const long = await clip([solid("blue", 61.5)]);

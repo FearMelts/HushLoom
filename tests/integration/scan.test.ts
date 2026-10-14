@@ -408,7 +408,8 @@ describe("clean content", () => {
     const [clip] = await getDb().select().from(mediaAssets).where(eq(mediaAssets.id, out!.assetId));
     const [poster] = await getDb().select().from(mediaAssets).where(eq(mediaAssets.id, out!.posterAssetId!));
     expect(clip!.scanStatus).toBe("clean");
-    expect(clip!.scanRef).toMatch(/^keyframes:3/);
+    // Three once-a-second frames, plus the opening frame, which the change picker always scans (R06-fade).
+    expect(clip!.scanRef).toMatch(/^keyframes:4;/);
     expect(poster).toMatchObject({ scanStatus: "clean", scanRef: `derived:${clip!.id}` });
   });
 

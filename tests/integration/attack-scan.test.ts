@@ -88,15 +88,13 @@ afterAll(async () => {
 });
 
 describe("R06/R25 video scan coverage — bypass attempts", () => {
-  // HOLE. The scan samples one frame per real second (ffmpeg fps=1 lands at t ≈ k + 0.467) plus every
-  // frame whose scdet mafd jumps over 10%. Red content that fades in and out inside the ~0.5 s gap
-  // between two periodic samples never lands on a sample, and a fade slow enough (here ±0.3 s ramps)
-  // keeps every frame-to-frame mafd under 10%, so scdet never fires either. A frame that is fully red
-  // at its peak (a human sees a clear red flash at ~9.97 s) is therefore never extracted, and the clip
-  // is cleared. The R06 commit acknowledges this class ("content shown for under a second that fades
-  // in rather than cutting in can still fall between two samples"); the addendum still requires every
-  // output to be scanned before display, so matched content stored as "clean" is a live hole.
-  it.fails("a sub-second red flash that fades in and out between samples is cleared, not matched", async () => {
+  // Was a hole (R06-fade). The scan sampled one frame per real second (ffmpeg fps=1 lands at
+  // t ≈ k + 0.467) plus every frame whose mafd from the frame before jumped over 10% (scdet). Red
+  // content that fades in and out inside the ~0.5 s gap between two periodic samples, slowly enough
+  // (here ±0.3 s ramps) that no frame differs sharply from the one before, was never extracted, so a
+  // clip holding a fully-red frame was cleared. Changes are now measured against the last frame the
+  // scan picked, not the frame before, so a slow fade is picked once it has drifted far enough.
+  it("a sub-second red flash that fades in and out between samples is matched", async () => {
     const CENTER = 9.967; // mid-gap between the periodic samples at 9.467 s and 10.467 s
     const HALF = 0.3; // ramp each side: slow enough that no frame-to-frame change trips scdet (>10% mafd)
     const pulse = (t: number) => Math.max(0, Math.min(1, 1 - Math.abs(t - CENTER) / HALF));
@@ -104,13 +102,36 @@ describe("R06/R25 video scan coverage — bypass attempts", () => {
       const p = pulse(n / 30);
       return [Math.round(255 * p), 0, Math.round(255 * (1 - p))];
     });
-    // The clip genuinely contains a fully-red frame (visible content), yet the scanner never sees it.
+    // The clip genuinely contains a fully-red frame (visible content); the scanner must see it.
     const verdict = await scanClip(fade);
     expect(verdict).toMatchObject({ status: "matched" });
   });
 
+  // Variants of the same attack: other backgrounds, steeper ramps, and content that fades in and then
+  // leaves by a cut or a fade to something else instead of fading back. The first three were cleared
+  // before; the last one is caught only because a frame short of a sharp change is still picked at its
+  // peak (a pick at p≈0.67 left the fully-red peak within 10% mafd of a frame the scan saw).
+  const mix = (a: [number, number, number], b: [number, number, number], p: number) =>
+    a.map((v, i) => Math.round(v * (1 - p) + b[i]! * p)) as [number, number, number];
+  const GREEN: [number, number, number] = [0, 200, 0];
+  const at = (n: number) => n / 30 - 9.967; // seconds from the mid-gap moment
+  it.each([
+    ["flashes from black over ±0.2 s", (n: number) => mix([0, 0, 0], RED, Math.max(0, 1 - Math.abs(at(n)) / 0.2))],
+    ["fades in over 0.3 s, then cuts to green", (n: number) => (at(n) > 0 ? GREEN : mix(BLUE, RED, Math.max(0, 1 + at(n) / 0.3)))],
+    ["fades in over 0.3 s, then fades to green", (n: number) => (at(n) > 0 ? mix(RED, GREEN, Math.min(1, at(n) / 0.3)) : mix(BLUE, RED, Math.max(0, 1 + at(n) / 0.3)))],
+    ["flashes from blue over ±0.1 s", (n: number) => mix(BLUE, RED, Math.max(0, 1 - Math.abs(at(n)) / 0.1))],
+  ])("red content that %s between samples is matched", async (_, color) => {
+    expect(await scanClip(await rawClip(15 * 30, color))).toMatchObject({ status: "matched" });
+  });
+
+  it("red content shown only before the first once-a-second sample (t < 0.47 s) is matched", async () => {
+    // The first sample lands at t ≈ 0.467 s and a cut away from the opening is a change to blue, so
+    // only scanning the opening frame itself sees this.
+    expect(await scanClip(await rawClip(15 * 30, (n) => (n < 10 ? RED : BLUE)))).toMatchObject({ status: "matched" });
+  });
+
   it("the same red content shown as a hard cut (not a fade) is caught by scene detection", async () => {
-    // Three red frames dropped in at the same mid-gap moment; the blue->red jump trips scdet.
+    // Three red frames dropped in at the same mid-gap moment; the blue->red jump is a sharp change.
     const cut = await rawClip(15 * 30, (n) => (n >= 298 && n <= 300 ? RED : BLUE));
     expect(await scanClip(cut)).toMatchObject({ status: "matched" });
   });
