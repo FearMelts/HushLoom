@@ -201,12 +201,14 @@ function TakedownCard({ t }: { t: TakedownItem }) {
         )}
       </p>
       {t.details ? <p className="mt-1.5 whitespace-pre-line text-[13px] text-bone-300">{t.details}</p> : null}
-      <div className="mt-2.5 grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+      <div className="mt-2.5 max-w-md">
         <Field label="Note" htmlFor={`tdn-${t.id}`} hint="Required to dismiss.">
           <input id={`tdn-${t.id}`} className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} />
         </Field>
+      </div>
+      <div className="mt-2.5 flex flex-wrap gap-2">
         <Button size="sm" variant="danger" busy={busy === `td:${t.id}:action`} onClick={() => void send("action")}>
-          Action
+          Take it down
         </Button>
         <Button size="sm" variant="quiet" busy={busy === `td:${t.id}:dismiss`} disabled={note.trim().length < 3} onClick={() => void send("dismiss")}>
           Dismiss

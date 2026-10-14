@@ -53,19 +53,20 @@ export default async function AbuseReviewPage() {
           <Badge tone={scanner.failClosed ? "plain" : "warn"}>fail-closed {scanner.failClosed ? "on" : "off"}</Badge>
         </div>
         <p className="mt-2 text-[13px] text-bone-300">
-          {scanner.label}.{" "}
           {scanner.isDev
-            ? "It matches only test hashes and the drill fixture, so it protects no one. Production needs PhotoDNA (and, as a second layer, Cloudflare's edge tool)."
-            : scanner.failClosed
-              ? "Anything the scanner cannot check is not kept: uploads are refused for now and creations retry."
-              : "Fail-closed is off: content the scanner could not check is kept unserved until a rescan."}
+            ? "This demo scanner matches only test hashes and the drill fixture, so it protects no one. Production needs PhotoDNA (and, as a second layer, Cloudflare's edge tool)."
+            : `${scanner.label}. ${
+                scanner.failClosed
+                  ? "Anything the scanner cannot check is not kept: uploads are refused for now and creations retry."
+                  : "Fail-closed is off: content the scanner could not check is kept unserved until a rescan."
+              }`}
         </p>
       </div>
 
       <Panel title="Scanner matches" hint="File the report with the authority first, then record its reference. Clear only a confirmed false match.">
         <EscalationQueue items={open} />
       </Panel>
-      <Panel title="Takedown requests" hint="Intimate images shared without consent come first. Action removes what the request points at; dismiss needs a note.">
+      <Panel title="Takedown requests" hint="Intimate images shared without consent come first. “Take it down” removes what the request points at; dismissing needs a note.">
         <TakedownQueue items={takedowns} />
       </Panel>
       <Panel title="Recently closed">
