@@ -2,11 +2,12 @@ import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "@/server/audit";
 import type { SessionUser } from "@/server/auth/session";
-import { getDb } from "@/server/db";
-import { generationJobs, generationOutputs, mediaAssets, moderationEvents, takedownRequests, templates, userProfiles } from "@/server/db/schema";
+import { getDb, type Tx } from "@/server/db";
+import { accountFlags, generationJobs, generationOutputs, mediaAssets, moderationEvents, takedownRequests, templates, userProfiles } from "@/server/db/schema";
 import { env } from "@/server/env";
 import { HttpError, notFound } from "@/server/http";
 import { purgeAssetsNow } from "@/server/media";
+import { suspendForAbuse } from "@/server/safety/suspend";
 
 /**
  * Takedown requests (addendum §3): anyone, signed in or not, can ask for content to come down,
@@ -135,9 +136,11 @@ export const takedownActionSchema = z.object({ action: z.enum(["action", "dismis
 
 /**
  * "Action" soft-deletes what the request points at (an output with its creation, a template with
- * its public media, or one asset). NCII and likeness requests purge the files right away, as a
- * consent withdrawal does. A CSAM request puts the files on legal hold instead and opens an
- * escalation, so the reporting step runs through the same review queue as a scanner match.
+ * its public media, or one asset) and every other copy of the same creation (takeDownCopies).
+ * NCII and likeness requests purge the files right away, as a consent withdrawal does. A CSAM
+ * request puts the files on legal hold instead, opens an escalation per file, and flags and
+ * suspends the owner, exactly as a scanner match does, so the reporting step runs through the
+ * same review queue and the owner cannot publish the material again meanwhile.
  */
 export async function resolveTakedown(adminId: string, takedownId: string, input: z.infer<typeof takedownActionSchema>) {
   if (input.action === "dismiss" && input.note.length < 3) throw new HttpError(422, "note_required", "Add a short note on why this is dismissed.");
@@ -186,6 +189,7 @@ export async function resolveTakedown(adminId: string, takedownId: string, input
     } else {
       throw unresolved();
     }
+    assetIds.push(...(await takeDownCopies(tx, assetIds, now)));
 
     if (assetIds.length) {
       if (t.category === "csam") {
@@ -193,14 +197,27 @@ export async function resolveTakedown(adminId: string, takedownId: string, input
         await tx.update(mediaAssets).set({ deletedAt: now, legalHold: true }).where(inArray(mediaAssets.id, assetIds));
         const held = await tx.select().from(mediaAssets).where(inArray(mediaAssets.id, assetIds));
         for (const a of held) {
-          await tx.insert(moderationEvents).values({
-            subjectType: a.storageKey.startsWith("uploads/") ? "upload" : "output",
-            subjectId: a.id,
-            action: "escalate",
-            status: "open",
-            reason: "csam_report",
-            details: { assetId: a.id, sha256: a.sha256, provider: "takedown", ref: t.id, origin: "takedown", ownerId: a.ownerId, storageKey: a.storageKey },
+          const [event] = await tx
+            .insert(moderationEvents)
+            .values({
+              subjectType: a.storageKey.startsWith("uploads/") ? "upload" : "output",
+              subjectId: a.id,
+              action: "escalate",
+              status: "open",
+              reason: "csam_report",
+              details: { assetId: a.id, sha256: a.sha256, provider: "takedown", ref: t.id, origin: "takedown", ownerId: a.ownerId, storageKey: a.storageKey },
+            })
+            .returning({ id: moderationEvents.id });
+          if (!a.ownerId) continue;
+          // The owner takes the same path as after a scanner match: a flag per case, suspended until review.
+          await tx.insert(accountFlags).values({
+            userId: a.ownerId,
+            kind: "csam_match",
+            reason: "A CSAM takedown request was actioned. Held for human review.",
+            details: { assetId: a.id, escalationId: event!.id, provider: "takedown", ref: t.id, origin: "takedown" },
+            createdBy: adminId,
           });
+          await suspendForAbuse(tx, a.ownerId, { reason: "takedown_csam", assetId: a.id, escalationId: event!.id, takedownId: t.id }, adminId);
         }
       } else {
         await tx.update(mediaAssets).set({ deletedAt: now }).where(and(inArray(mediaAssets.id, assetIds), eq(mediaAssets.legalHold, false), isNull(mediaAssets.deletedAt)));
@@ -212,6 +229,42 @@ export async function resolveTakedown(adminId: string, takedownId: string, input
   });
   // Purge skips anything on legal hold.
   if (purge.length) await purgeAssetsNow(purge);
+}
+
+/**
+ * Publishing copies an output's bytes into new public assets, so what a request names is rarely the
+ * only copy. Taking down just that one would leave the creator's source creation, which they could
+ * publish again under a new slug at once, and any other template made from it. The copies are the
+ * same owner's assets with the same SHA-256: their creations are soft-deleted and their templates
+ * removed. Returns the asset ids not already in `assetIds`, to be held or deleted with them.
+ */
+async function takeDownCopies(tx: Tx, assetIds: string[], now: Date): Promise<string[]> {
+  if (!assetIds.length) return [];
+  const named = await tx.select({ ownerId: mediaAssets.ownerId, sha256: mediaAssets.sha256 }).from(mediaAssets).where(inArray(mediaAssets.id, assetIds));
+  const same = new Set<string>();
+  for (const n of named) {
+    if (!n.ownerId) continue;
+    const rows = await tx.select({ id: mediaAssets.id }).from(mediaAssets).where(and(eq(mediaAssets.ownerId, n.ownerId), eq(mediaAssets.sha256, n.sha256)));
+    for (const r of rows) same.add(r.id);
+  }
+  if (!same.size) return [];
+  const ids = [...same];
+  const outs = await tx
+    .select()
+    .from(generationOutputs)
+    .where(or(inArray(generationOutputs.assetId, ids), inArray(generationOutputs.posterAssetId, ids)));
+  if (outs.length) {
+    await tx.update(generationOutputs).set({ deletedAt: now }).where(and(inArray(generationOutputs.id, outs.map((o) => o.id)), isNull(generationOutputs.deletedAt)));
+    await tx.update(generationJobs).set({ deletedAt: now }).where(and(inArray(generationJobs.id, [...new Set(outs.map((o) => o.jobId))]), isNull(generationJobs.deletedAt)));
+  }
+  const tpls = await tx
+    .update(templates)
+    .set({ status: "removed", deletedAt: now, updatedAt: now })
+    .where(and(or(inArray(templates.posterAssetId, ids), inArray(templates.previewAssetId, ids)), isNull(templates.deletedAt)))
+    .returning({ posterAssetId: templates.posterAssetId, previewAssetId: templates.previewAssetId });
+  for (const o of outs) [o.assetId, o.posterAssetId].forEach((id) => id && same.add(id));
+  for (const p of tpls) [p.posterAssetId, p.previewAssetId].forEach((id) => id && same.add(id));
+  return [...same].filter((id) => !assetIds.includes(id));
 }
 
 function unresolved() {
