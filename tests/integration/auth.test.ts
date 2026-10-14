@@ -34,7 +34,7 @@ import { setErrorSink } from "@/server/log";
 import { updateProfile } from "@/server/me";
 import { toErrorEvent, type ErrorEvent } from "@/server/observability";
 import { closeRedis } from "@/server/redis";
-import { resetDb } from "../helpers";
+import { resetDb, withTrustedProxyHops } from "../helpers";
 
 type Handler = (req: NextRequest, ctx: never) => Promise<Response>;
 
@@ -49,7 +49,7 @@ async function victim(email = "victim@example.test", handle = "victim") {
   return registerUser({ email, password: PASSWORD, handle, displayName: "Victim", dateOfBirth: "1990-01-01", acceptTerms: true, confirmAdult: true });
 }
 
-/** What an appending reverse proxy forwards: whatever the client sent, then the address it saw. */
+/** What an appending reverse proxy (TRUSTED_PROXY_HOPS 1) forwards: whatever the client sent, then the address it saw. */
 const viaProxy = (clientSent: string, seen: string) => ({ "x-forwarded-for": `${clientSent}, ${seen}` });
 
 beforeEach(async () => {
@@ -64,6 +64,8 @@ afterAll(async () => {
 });
 
 describe("R05 sign-in and sign-up limits", () => {
+  withTrustedProxyHops(1);
+
   it("padding or recasing the email does not open a fresh per-account login bucket", async () => {
     await victim();
     // Ten wrong guesses, each spelled differently; authenticate() trims and lowercases every one to the same account.

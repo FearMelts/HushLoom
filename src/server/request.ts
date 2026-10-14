@@ -6,18 +6,21 @@ import { env } from "@/server/env";
  * The client's address, for rate limits. Every proxy appends the address it received from to
  * X-Forwarded-For, so the entries left of those our own proxies added are whatever the client chose to
  * send. Only the entry added by the outermost of the TRUSTED_PROXY_HOPS proxies is believed: the n-th
- * from the right. With 0 (no proxy) it is the connection's address, which Next.js writes into the
- * header only when the request arrives without one; that is also the right-most entry. An IPv6 client is
- * keyed by its /64 (see addressKey).
+ * from the right. With 0 (no proxy) nothing in the header is: Next.js writes the connection's address
+ * there only when the request arrives without one, so a client that reaches the app directly names its
+ * own. Every request then shares the key "local", so each per-address limit holds for the whole site
+ * rather than not at all. An IPv6 client is keyed by its /64 (see addressKey).
  */
 export function clientIp(req: Pick<Request, "headers">): string {
+  const hops = env().TRUSTED_PROXY_HOPS;
+  if (hops === 0) return "local";
   const chain = (req.headers.get("x-forwarded-for") ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
   if (!chain.length) return "local";
   // Fewer entries than proxies: the request skipped the outer ones, so the entry nearest the client is used.
-  return addressKey(chain[Math.max(chain.length - Math.max(env().TRUSTED_PROXY_HOPS, 1), 0)]!);
+  return addressKey(chain[Math.max(chain.length - hops, 0)]!);
 }
 
 /**

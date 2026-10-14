@@ -13,9 +13,13 @@ afterEach(() => {
 });
 
 describe("clientIp (R05)", () => {
-  it("defaults to no proxy: the connection's address, which Next.js writes as the only entry", async () => {
+  it("defaults to no proxy, where the header may be the client's own, so every request shares one key", async () => {
     const clientIp = await clientIpWith(undefined);
-    expect(clientIp(req("198.51.100.4"))).toBe("198.51.100.4");
+    // Next.js writes the connection's address only into a request that has no X-Forwarded-For, so a client
+    // that reaches the app directly would otherwise pick its own key with each request (R05-H5).
+    expect(clientIp(req("198.51.100.4"))).toBe("local");
+    expect(clientIp(req("10.66.0.1"))).toBe("local");
+    expect(clientIp(req("6.6.6.6, 203.0.113.9"))).toBe("local");
     expect(clientIp(req())).toBe("local");
     expect(clientIp(req(" , "))).toBe("local");
   });
@@ -24,6 +28,9 @@ describe("clientIp (R05)", () => {
     const clientIp = await clientIpWith("1");
     expect(clientIp(req("6.6.6.6, 203.0.113.9"))).toBe("203.0.113.9");
     expect(clientIp(req("6.6.6.6,7.7.7.7 ,203.0.113.9"))).toBe("203.0.113.9");
+    // One proxy that sets the header instead of appending to it leaves a single entry: the address it saw.
+    expect(clientIp(req("203.0.113.9"))).toBe("203.0.113.9");
+    expect(clientIp(req())).toBe("local");
   });
 
   it("with two proxies, uses the address the outer one saw and ignores both what the client sent and the outer proxy's own address", async () => {
@@ -56,7 +63,7 @@ describe("clientIp (R05)", () => {
   });
 
   it("bounds the bucket key", async () => {
-    const clientIp = await clientIpWith("0");
+    const clientIp = await clientIpWith("1");
     expect(clientIp(req("x".repeat(500))).length).toBe(64);
   });
 });

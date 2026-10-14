@@ -16,11 +16,13 @@ const schema = z.object({
   REDIS_URL: z.string().default("redis://localhost:6379"),
   SESSION_TTL_DAYS: z.coerce.number().int().positive().default(30),
   /**
-   * How many reverse proxies you run in front of the app that append to X-Forwarded-For. Rate limits
-   * key on the address the outermost of them saw (the n-th entry from the right, src/server/request.ts);
-   * entries further left are whatever the client sent and are never used. 0: nothing in front of the
-   * app, so the connection's address is used (Next.js records it only when the request carries no
-   * X-Forwarded-For, so a site reachable without a proxy cannot tell a forged address from a real one).
+   * How many reverse proxies you run in front of the app that append to (or set) X-Forwarded-For. Rate
+   * limits key on the address the outermost of them saw (the n-th entry from the right,
+   * src/server/request.ts); entries further left are whatever the client sent and are never used.
+   * 0: nothing in front of the app. Next.js records the connection's address only when the request
+   * carries no X-Forwarded-For, so the app cannot tell a forged address from a real one, and every
+   * request shares one key: the per-address limits then hold for the whole site at once. A public site
+   * runs behind a proxy and sets at least 1.
    */
   TRUSTED_PROXY_HOPS: z.coerce.number().int().nonnegative().default(0),
   MEDIA_SIGNING_SECRET: z.string().min(32).optional(),

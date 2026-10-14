@@ -24,7 +24,7 @@ import { registerUser } from "@/server/auth/account";
 import { createSession } from "@/server/auth/session";
 import { closeDb } from "@/server/db";
 import { closeRedis, requestRedis } from "@/server/redis";
-import { resetDb } from "../helpers";
+import { resetDb, withTrustedProxyHops } from "../helpers";
 
 type Handler = (req: NextRequest, ctx: never) => Promise<Response>;
 
@@ -41,7 +41,7 @@ async function member(email: string, handle: string) {
   return registerUser({ email, password: PASSWORD, handle, displayName: handle, dateOfBirth: "1990-01-01", acceptTerms: true, confirmAdult: true });
 }
 
-/** What one appending reverse proxy (TRUSTED_PROXY_HOPS 0 or 1, the default) forwards: the client's copy, then the address it saw. */
+/** What one appending reverse proxy (TRUSTED_PROXY_HOPS 1) forwards: the client's copy, then the address it saw. */
 const viaProxy = (seen: string, clientSent?: string) => ({ "x-forwarded-for": clientSent === undefined ? seen : `${clientSent}, ${seen}` });
 
 const login = (email: string, password: string, headers: HeadersInit) => call(loginRoute, "POST", "/api/auth/login", { email, password }, headers);
@@ -61,6 +61,8 @@ afterAll(async () => {
 });
 
 describe("R05 attack: the per-account sign-in limit", () => {
+  withTrustedProxyHops(1);
+
   it("every spelling that reaches the account (Unicode spaces, BOM, line separators, Kelvin sign, case) counts against one bucket", async () => {
     await member("kim@example.test", "kim");
     // U+212A KELVIN SIGN lowercases to an ASCII "k", so this spelling signs in to kim@example.test.
@@ -121,6 +123,8 @@ describe("R05 attack: the per-account sign-in limit", () => {
 });
 
 describe("R05 attack: the per-IP limits behind one appending proxy", () => {
+  withTrustedProxyHops(1);
+
   it("odd shapes of the client's own X-Forwarded-For never move the key off the address the proxy saw", async () => {
     const seen = "203.0.113.20";
     const forged: HeadersInit[] = [
@@ -191,13 +195,14 @@ describe("R05 attack: the per-IP limits behind one appending proxy", () => {
 });
 
 describe("R05 attack: the shipped default, no proxy in front", () => {
-  // HOLE (acknowledged residual (a) in the R05 report, still open): TRUSTED_PROXY_HOPS defaults to 0 and
-  // docker-compose.yml publishes the web port on every interface with no proxy (docs/deployment.md: "No proxy
-  // is bundled"). Next.js only fills X-Forwarded-For when the request has none
+  // Was a hole (R05-H5, acknowledged residual (a) in the R05 report; fixed): TRUSTED_PROXY_HOPS defaults to 0
+  // and docker-compose.yml publishes the web port with no proxy (docs/deployment.md: "No proxy is bundled").
+  // Next.js only fills X-Forwarded-For when the request has none
   // (node_modules/next/dist/server/base-server.js:565, `??=`), so a client talking straight to the app
-  // forwards its own single entry, which clientIp() takes as the address. The original R05 exploit
-  // (rotate X-Forwarded-For on every request) works unchanged on that setup.
-  it.fails("a client that reaches the app directly cannot pick its own sign-up bucket", async () => {
+  // forwarded its own single entry, which clientIp() took as the address, and the original R05 exploit
+  // (rotate X-Forwarded-For on every request) worked unchanged. With 0 hops nothing in the header is believed
+  // now: every request shares one key, so the limits hold site-wide until a proxy is configured.
+  it("a client that reaches the app directly cannot pick its own sign-up bucket", async () => {
     const statuses: number[] = [];
     for (let i = 0; i < 11; i++) statuses.push((await call(signupRoute, "POST", "/api/auth/signup", {}, { "x-forwarded-for": `10.66.0.${i + 1}` })).status);
     expect(statuses).toEqual([...Array(10).fill(422), 429]);
@@ -205,6 +210,8 @@ describe("R05 attack: the shipped default, no proxy in front", () => {
 });
 
 describe("R05 attack: other ways to the same behaviour", () => {
+  withTrustedProxyHops(1);
+
   // Was a hole (R05-H3, fixed): DELETE /api/me checked the password with bcrypt (cost 12) and had no attempt
   // limit at all. A stolen session could guess the account password without limit (a right guess deletes the
   // account but reveals a password people reuse), and any member could drive unlimited bcrypt work from one
@@ -252,6 +259,8 @@ describe("R05 attack: other ways to the same behaviour", () => {
 });
 
 describe("R05 attack: membership probe at sign-up", () => {
+  withTrustedProxyHops(1);
+
   // HOLE (acknowledged residual (b) in the R05 report, still open): sign-up answers 409 email_taken for an
   // address that has an account and 201 for one that does not, so anyone can check whether a given person
   // is a member of an adults-only site (ten probes an hour per address, unlimited over IPv6 as above).
