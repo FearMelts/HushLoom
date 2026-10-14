@@ -182,8 +182,9 @@ export function Sheet({ open, onClose, title, children, wide }: { open: boolean;
       }}
       aria-label={view.title}
       className={cn(
-        "sheet m-auto max-h-[92dvh] w-[min(100vw-24px,var(--w))] overflow-auto rounded-panel bg-ink-900 p-0 text-bone-50 hairline data-[closing]:pointer-events-none",
-        "max-sm:mb-0 max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none max-sm:pb-[env(safe-area-inset-bottom)]",
+        // A real border, not the inset .hairline shadow: the sticky header paints over an inset shadow.
+        "sheet m-auto max-h-[92dvh] w-[min(100vw-24px,var(--w))] overflow-auto rounded-panel border border-[var(--line)] bg-ink-900 p-0 text-bone-50 data-[closing]:pointer-events-none",
+        "max-sm:mb-0 max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]",
       )}
       style={{ ["--w" as string]: wide ? "880px" : "480px" }}
     >
