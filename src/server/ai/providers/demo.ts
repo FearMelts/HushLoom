@@ -73,9 +73,13 @@ export function captionLines(prompt: string, perLine: number, maxLines = 2): str
   return lines;
 }
 
-export function demoSvg(prompt: string, seed: number, width: number, height: number): string {
+/** Height of the watermark band along the bottom of every demo frame. */
+export const demoBandHeight = (height: number) => Math.round(height * 0.09);
+
+/** The demo art. `band: false` leaves out the watermark band, for the moving layer of a clip (see execute). */
+export function demoSvg(prompt: string, seed: number, width: number, height: number, { band: withBand = true }: { band?: boolean } = {}): string {
   const p = seededPalette(`${prompt}|${seed}`);
-  const band = Math.round(height * 0.09);
+  const band = demoBandHeight(height);
   // The watermark fits the width too: on a 9:16 frame the band-sized type ran off both edges.
   const markFs = Math.min(Math.round(band * 0.36), Math.floor((width * 0.9 - 2 * DEMO_WATERMARK.length) / (DEMO_WATERMARK.length * 0.72)));
   const fs = Math.max(14, Math.round(width / 26));
@@ -98,17 +102,17 @@ export function demoSvg(prompt: string, seed: number, width: number, height: num
   <rect width="100%" height="100%" fill="url(#g2)"/>
   <rect width="100%" height="100%" fill="url(#g1)"/>
   <circle cx="${Math.round(width * p.x[2]!)}" cy="${Math.round(height * p.y[2]!)}" r="${Math.round(Math.min(width, height) * 0.22)}" fill="#fff" fill-opacity="0.08"/>
-  <rect y="${height - band}" width="100%" height="${band}" fill="url(#stripe)"/>
+  ${withBand ? `<rect y="${height - band}" width="100%" height="${band}" fill="url(#stripe)"/>
   <rect y="${height - band}" width="100%" height="${band}" fill="#000" fill-opacity="0.55"/>
-  <text x="50%" y="${height - band / 2}" dominant-baseline="middle" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" font-size="${markFs}" fill="#fff" letter-spacing="2">${DEMO_WATERMARK}</text>
+  <text x="50%" y="${height - band / 2}" dominant-baseline="middle" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" font-size="${markFs}" fill="#fff" letter-spacing="2">${DEMO_WATERMARK}</text>` : ""}
   <text font-family="DejaVu Sans, Arial, sans-serif" font-size="${fs}" fill="#fff" fill-opacity="0.85">${caption}</text>
 </svg>`;
 }
 
-async function renderStill(req: ProviderRequest, longSide: number): Promise<{ png: Buffer; width: number; height: number }> {
+async function renderStill(req: ProviderRequest, longSide: number, { band = true }: { band?: boolean } = {}): Promise<{ png: Buffer; width: number; height: number }> {
   const { width, height } = dims(req.params.aspectRatio, longSide);
   const seed = req.params.seed ?? 0;
-  const art = Buffer.from(demoSvg(req.prompt, seed, width, height));
+  const art = Buffer.from(demoSvg(req.prompt, seed, width, height, { band }));
   // Image-to-image uses the upload; reference-guided uses the character reference. The demo treats
   // both the same way: the photo, recolored, under the same watermark band. It is not a likeness match.
   const source = req.inputs.find((i) => i.kind === "image" && i.role !== "reference") ?? req.inputs.find((i) => i.kind === "image" && i.role === "reference");
@@ -166,18 +170,27 @@ export const demoProvider: ProviderAdapter = {
     const durationS = req.params.durationS ?? 5;
     const fps = 24;
     const frames = durationS * fps;
+    // The camera moves the picture, never the watermark: zoompan runs over the art without its band, and the
+    // band, cut from the finished still, is laid over every frame where it sits on a demo image. Zooming or
+    // panning the whole still cropped the band away for most of a clip. The overlay works in RGB: in its default
+    // yuv420 it rounds the position to an even row, and the band (an odd row on every size offered) sat one row high.
     const { png, width, height } = await renderStill(req, 1280);
+    const { png: moving } = await renderStill(req, 1280, { band: false });
+    const band = demoBandHeight(height);
+    const strip = await sharp(png).extract({ left: 0, top: height - band, width, height: band }).png().toBuffer();
     const dir = await mkdtemp(path.join(os.tmpdir(), "hl-demo-"));
     try {
       const inPath = path.join(dir, "still.png");
+      const bandPath = path.join(dir, "band.png");
       const outPath = path.join(dir, "out.mp4");
-      await writeFile(inPath, png);
+      await writeFile(inPath, moving);
+      await writeFile(bandPath, strip);
       const zp = zoompanFor(req.params.cameraMovement, req.params.motionIntensity ?? 5, frames);
       await run(
         "ffmpeg",
         [
-          "-v", "error", "-y", "-loop", "1", "-i", inPath,
-          "-vf", `scale=${width * 2}:${height * 2},zoompan=${zp}:d=${frames}:s=${width}x${height}:fps=${fps},format=yuv420p`,
+          "-v", "error", "-y", "-loop", "1", "-i", inPath, "-i", bandPath,
+          "-filter_complex", `[0:v]scale=${width * 2}:${height * 2},zoompan=${zp}:d=${frames}:s=${width}x${height}:fps=${fps}[moving];[moving][1:v]overlay=0:${height - band}:format=rgb,format=yuv420p`,
           "-t", String(durationS), "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-movflags", "+faststart", "-an", outPath,
         ],
         ctx.signal,

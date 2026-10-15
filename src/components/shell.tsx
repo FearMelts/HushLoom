@@ -212,7 +212,7 @@ export function Shell({ user, children }: { user: ShellUser; children: ReactNode
                 <span className="lg:hidden">
                   <CreditPill credits={user.credits} />
                 </span>
-                <Link href="/generate/image" className={buttonClass("bone", "sm", "hidden lg:inline-flex")}>
+                <Link href="/generate/image" className={buttonClass("bone", "sm", "max-lg:hidden")}>
                   <Wand2 size={15} aria-hidden /> Create
                 </Link>
               </>

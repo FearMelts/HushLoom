@@ -14,6 +14,7 @@ import { STATUS_LABEL, relativeTime } from "@/lib/format";
 import { JOB_STARTED_EVENT, useJobEvents } from "./job-tray";
 import { CreationThumb } from "./library";
 import { OfflineGuard } from "./offline";
+import { WithheldMedia } from "./template-card";
 import { BackLink, Badge, Button, ButtonLink, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
 
 type ProjectSummary = {
@@ -23,10 +24,23 @@ type ProjectSummary = {
   updatedAt: string;
   scenes: number;
   clips: number;
-  cover: { kind: "image" | "video"; url: string | null; posterUrl: string | null; isDemo: boolean } | null;
+  cover: { kind: "image" | "video"; url: string | null; posterUrl: string | null; mediaWithheld: boolean; isDemo: boolean } | null;
 };
 
-function Media({ output, className }: { output: { kind: "image" | "video"; url: string | null; posterUrl?: string | null } | null; className?: string }) {
+function Media({ output, className }: { output: { kind: "image" | "video"; url: string | null; posterUrl?: string | null; mediaWithheld?: boolean } | null; className?: string }) {
+  if (output?.mediaWithheld) {
+    // The server sent no media URL: the age rules here need a verification first, as on a Library thumbnail.
+    // No link of its own: covers and scene tiles sit inside a link or a button, and the compare panes, like a
+    // Library thumbnail, offer none. The inner box fills the grid and holds the cover, so the caller's rounded
+    // corners clip it.
+    return (
+      <div className={cn("grid overflow-hidden", className)}>
+        <div className="relative">
+          <WithheldMedia signedIn compact link={false} label="Verify your age to see this" />
+        </div>
+      </div>
+    );
+  }
   if (!output?.url) return <div className={cn("grid place-items-center bg-ink-850 text-bone-500", className)}><Clapperboard size={22} aria-hidden /></div>;
   return output.kind === "video" ? (
     <video src={output.url} poster={output.posterUrl ?? undefined} muted playsInline preload={output.posterUrl ? "none" : "metadata"} className={cn("object-cover", className)} />
@@ -408,7 +422,7 @@ export function ProjectWorkspace({ data, characters }: { data: Workspace; charac
         </section>
       ) : null}
 
-      <SequencePlayer open={playing} onClose={() => setPlaying(false)} clips={sequence.map((v) => ({ id: v!.id, url: v!.creation.output!.url! }))} />
+      <SequencePlayer open={playing} onClose={() => setPlaying(false)} clips={sequence.map((v) => ({ id: v!.id, url: v!.creation.output!.url!, isDemo: v!.creation.isDemo }))} />
       <RenameSheet open={renaming} onClose={() => setRenaming(false)} project={data.project} />
       <Sheet open={Boolean(pending)} onClose={dismissPending} title={pending?.relation === "continuation" ? "Continue this clip?" : "Make a variation?"}>
         {pending ? (
@@ -607,7 +621,7 @@ function RenameSheet({ open, onClose, project }: { open: boolean; onClose: () =>
 }
 
 /** Plays each scene's chosen clip in order. */
-function SequencePlayer({ open, onClose, clips }: { open: boolean; onClose: () => void; clips: { id: string; url: string }[] }) {
+function SequencePlayer({ open, onClose, clips }: { open: boolean; onClose: () => void; clips: { id: string; url: string; isDemo: boolean }[] }) {
   const [index, setIndex] = useState(0);
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
@@ -621,7 +635,14 @@ function SequencePlayer({ open, onClose, clips }: { open: boolean; onClose: () =
     <Sheet open={open} onClose={onClose} title="Sequence" wide>
       {clip ? (
         <div>
-          <video ref={ref} key={clip.id} src={clip.url} controls playsInline className="aspect-video w-full rounded-xl bg-black" onEnded={() => setIndex((i) => (i + 1 < clips.length ? i + 1 : i))} />
+          <div className="relative">
+            <video ref={ref} key={clip.id} src={clip.url} controls playsInline className="aspect-video w-full rounded-xl bg-black" onEnded={() => setIndex((i) => (i + 1 < clips.length ? i + 1 : i))} />
+            {clip.isDemo ? (
+              <div className="pointer-events-none absolute left-2 top-2 flex gap-1">
+                <Badge tone="demo">Demo</Badge>
+              </div>
+            ) : null}
+          </div>
           <p className="mt-2 font-mono text-[12px] text-bone-400">
             Clip {index + 1} of {clips.length}. Scenes without a finished clip are skipped.
           </p>

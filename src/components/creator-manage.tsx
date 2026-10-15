@@ -18,6 +18,8 @@ type Row = {
   mediaType: string;
   version: number;
   posterUrl: string | null;
+  /** The cover was made by a demo model: a labeled placeholder, not AI output. */
+  isDemo: boolean;
   favorites: number;
   generations: number;
   rating: number | null;
@@ -77,7 +79,9 @@ export function CreatorManage({ rows }: { rows: Row[] }) {
     );
   const status = (r: Row) => (
     <>
-      <Badge tone={r.status === "published" ? "new" : "plain"}>{r.status}</Badge> {r.isVip ? <Badge tone="vip">VIP</Badge> : null}
+      <Badge tone={r.status === "published" ? "new" : "plain"}>{r.status}</Badge> {r.isVip ? <Badge tone="vip">VIP</Badge> : null}{" "}
+      {/* The thumbnail is too small to carry the badge, so it sits with the status, beside the thumbnail on phones. */}
+      {r.isDemo ? <Badge tone="demo">Demo</Badge> : null}
     </>
   );
 
