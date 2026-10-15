@@ -1,25 +1,77 @@
 {
-  "updatedAt": "2026-10-12T22:00:00Z",
-  "branch": "claude/playbox-2-foundation",
+  "updatedAt": "2026-10-13T02:15:00Z",
+  "branch": "claude/playbox-2-foundation-q7fpbs",
   "headCommit": "0987b7c",
   "productName": "Hushloom",
-  "source": { "tsFiles": 125, "tsLines": 11285, "testLines": 1040, "migrations": 2, "apiRoutes": 42 },
-  "checks": {
-    "typecheck": { "result": "pass", "commit": "0987b7c" },
-    "lint": { "result": "pass", "warnings": 0, "commit": "0987b7c" },
-    "vitest": { "result": "pass", "passed": 79, "failed": 0, "files": 6, "durationS": 27.7, "commit": "0987b7c" },
-    "build": { "result": "pass", "commit": "0987b7c" },
-    "e2e": { "result": "pass", "passed": 8, "failed": 0, "durationMin": 2.4, "commit": "0987b7c" }
+  "source": {
+    "tsFiles": 125,
+    "tsLines": 11285,
+    "testLines": 1040,
+    "migrations": 2,
+    "apiRoutes": 42
   },
-  "databases": { "dev": "playbox", "vitest": "playbox_test", "e2e": "playbox_e2e" },
-  "seedAccounts": ["admin@hushloom.local", "demo@hushloom.local", "six creator accounts @hushloom.local"],
-  "remaining": [
-    "visual review of admin at narrow widths",
-    "deliverables A-G (vision, design system, IA, engineering docs, deployment, verification report)",
-    "Dockerfiles, docker-compose, .env.example, README",
-    "poster backfill for pre-0001 clips",
-    "Copilot comparison and recommendation",
-    "final report with prepared PR text"
+  "checks": {
+    "typecheck": {
+      "result": "pass",
+      "commit": "bcf9113"
+    },
+    "lint": {
+      "result": "pass",
+      "warnings": 0,
+      "commit": "bcf9113"
+    },
+    "vitest": {
+      "result": "pass",
+      "passed": 121,
+      "failed": 0,
+      "files": 9,
+      "commit": "bcf9113"
+    },
+    "build": {
+      "result": "pass",
+      "commit": "0987b7c"
+    },
+    "e2e": {
+      "result": "pass",
+      "passed": 8,
+      "failed": 0,
+      "durationMin": 2.4,
+      "commit": "0987b7c",
+      "note": "last run before the payments and age merges; must be re-run"
+    }
+  },
+  "databases": {
+    "dev": "playbox",
+    "vitest": "playbox_test",
+    "e2e": "playbox_e2e"
+  },
+  "seedAccounts": [
+    "admin@hushloom.local",
+    "demo@hushloom.local",
+    "six creator accounts @hushloom.local"
   ],
-  "gates": ["open PR", "merge or port anything", "push to main"]
+  "remaining": [
+    "tracks scan, pwa, fixes-core, fixes-ui, infra",
+    "phase 2 merge + full verification + browser journey",
+    "phase 3 adversarial review",
+    "phase 4 visual review",
+    "phase 5 docs (finish vision, IA; write design system, engineering, deployment, verification)",
+    "phase 6 Copilot comparison and final report"
+  ],
+  "gates": [
+    "open PR",
+    "merge or port anything",
+    "push to main"
+  ],
+  "tracker": "notes/progress.md",
+  "handoff": "notes/handoff.md",
+  "tracks": {
+    "payments": "verified, merged",
+    "age": "verified, merged",
+    "scan": "not done",
+    "pwa": "not done",
+    "fixes-core": "not done",
+    "fixes-ui": "not done",
+    "infra": "not done"
+  }
 }

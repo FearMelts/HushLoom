@@ -72,6 +72,14 @@ export function checkPrompt(...texts: string[]): PolicyVerdict {
   return { allowed: true };
 }
 
+/**
+ * Every string value in a generation's settings. Free-text settings (atmosphere, and anything a
+ * client or an older row carries) go through the same check as the prompt, at draft and at publish.
+ */
+export function paramTexts(params: Record<string, unknown> | null | undefined): string[] {
+  return Object.values(params ?? {}).filter((v): v is string => typeof v === "string");
+}
+
 export const ADULT_AGE = 18;
 
 export function ageOn(dateOfBirth: string, today = new Date()): number {
@@ -84,8 +92,9 @@ export function ageOn(dateOfBirth: string, today = new Date()): number {
 
 /**
  * Regions whose law requires verified age assurance (not self-declaration) are
- * configured in AGE_ASSURANCE_STRICT_REGIONS. Until a verification provider is
- * integrated, accounts assured only by self-declaration cannot generate there.
+ * configured in AGE_ASSURANCE_STRICT_REGIONS. The provider-backed gate in
+ * src/server/age folds that list into its own rules, so this helper is kept
+ * only as a pure predicate for tooling and tests.
  */
 export function ageAssuranceBlocksRegion(method: string, country: string | null, strictRegions: string): boolean {
   if (!country) return false;

@@ -1,0 +1,171 @@
+# Hushloom on one machine: Postgres, Redis, a one-shot migration, the web app and the worker.
+#
+#   cp .env.example .env        # set POSTGRES_PASSWORD and MEDIA_SIGNING_SECRET at least (see README)
+#   docker compose up -d --build
+#   docker compose --profile seed run --rm seed   # optional sample data, private previews only
+#   docker compose --profile s3 up -d             # optional MinIO for STORAGE_DRIVER=s3
+#
+# Every container reads .env (env_file) for keys and options; the values under `environment`
+# below are fixed by this file and win over .env, because they point at the services defined here.
+# Without provider accounts the app refuses to boot as a live site; README.md explains APP_ENV.
+
+name: hushloom
+
+x-app-environment: &app-environment
+  NODE_ENV: production
+  DATABASE_URL: postgres://${POSTGRES_USER:-hushloom}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-hushloom}
+  REDIS_URL: redis://redis:6379
+  # The web app and the worker read and write the same files: one volume, one absolute path.
+  STORAGE_LOCAL_DIR: /data/storage
+  APP_URL: ${APP_URL:-http://localhost:3000}
+  MEDIA_SIGNING_SECRET: ${MEDIA_SIGNING_SECRET:?Set MEDIA_SIGNING_SECRET in .env (openssl rand -hex 32)}
+
+x-app: &app
+  env_file:
+    - path: .env
+      required: false
+  environment: *app-environment
+  volumes:
+    - storage:/data/storage
+  init: true
+
+x-worker-build: &worker-build
+  context: .
+  dockerfile: Dockerfile.worker
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hushloom}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-hushloom}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    # BullMQ needs every key kept: append-only persistence and no eviction.
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # One-shot: applies the SQL migrations in drizzle/ and exits. Safe to re-run.
+  migrate:
+    <<: *app
+    build: *worker-build
+    image: hushloom-worker:local
+    command: ["npm", "run", "db:migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  web:
+    <<: *app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hushloom-web:local
+    # This machine only, unless WEB_BIND says otherwise. The app trusts the geo headers as received,
+    # so only the edge that sets them (and strips the client's copies) may reach it; and a port
+    # published on every interface skips host firewalls such as ufw (Docker's own iptables rules).
+    ports:
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      s3-init:
+        condition: service_completed_successfully
+        required: false
+    restart: unless-stopped
+
+  worker:
+    <<: *app
+    build: *worker-build
+    image: hushloom-worker:local
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      s3-init:
+        condition: service_completed_successfully
+        required: false
+    restart: unless-stopped
+
+  # Optional sample data: categories, sample templates, creator accounts, an admin and a member, all
+  # sharing SEED_PASSWORD. Private previews only (APP_ENV=staging): it refuses to run on a live site.
+  seed:
+    <<: *app
+    build: *worker-build
+    image: hushloom-worker:local
+    profiles: ["seed"]
+    command:
+      - sh
+      - -c
+      - |
+        if [ -z "$${SEED_PASSWORD}" ]; then echo "Set SEED_PASSWORD in .env first." >&2; exit 1; fi
+        case "$${APP_ENV:-production}" in
+          production) echo "The seed creates sample accounts that share one password; it runs only on a private preview (APP_ENV=staging)." >&2; exit 1 ;;
+        esac
+        exec npm run db:seed
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      disable: true
+    restart: "no"
+
+  # Optional S3-compatible storage for STORAGE_DRIVER=s3 (see README: MinIO's own images left Docker
+  # Hub, so this defaults to a community build; set MINIO_IMAGE to use another). Local use only: the
+  # ports bind to 127.0.0.1, and MinIO's root credentials are the app's S3 keys from .env.
+  minio:
+    image: ${MINIO_IMAGE:-pgsty/minio:RELEASE.2026-08-04T00-00-00Z}
+    profiles: ["s3"]
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - miniodata:/data
+    restart: unless-stopped
+
+  # One-shot: creates the private bucket named by S3_BUCKET, waiting for MinIO to answer.
+  s3-init:
+    <<: *app
+    build: *worker-build
+    image: hushloom-worker:local
+    profiles: ["s3"]
+    command: ["node", "--import", "tsx", "scripts/s3-bucket.ts"]
+    depends_on:
+      minio:
+        condition: service_started
+    healthcheck:
+      disable: true
+    restart: "no"
+
+volumes:
+  pgdata:
+  redisdata:
+  storage:
+  miniodata:

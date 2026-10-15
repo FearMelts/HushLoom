@@ -1,0 +1,949 @@
+[
+ {
+  "id": "R01",
+  "severity": "critical",
+  "cluster": "payments",
+  "title": "CCBill: a buyer can pay for the cheapest item and be credited for any pack or pass, because the pass-through item is not bound to the price",
+  "originalSeverities": [
+   "critical"
+  ],
+  "locations": [
+   "src/app/api/checkout/route.ts:105",
+   "src/components/pricing.tsx:46-47",
+   "src/server/generation/service.ts:109",
+   "src/server/payments/providers/ccbill.ts:140-163",
+   "src/server/payments/providers/ccbill.ts:58",
+   "src/server/payments/providers/ccbill.ts:65-78",
+   "src/server/payments/service.ts:54-57",
+   "src/server/payments/service.ts:64-83",
+   "src/server/payments/service.ts:96-101"
+  ],
+  "scenario": "1) A signed-in user calls POST /api/checkout {itemKey:\"plan_studio\"} (or pack_large) and copies X-hlItem and X-hlSig from the returned FlexForm URL. 2) They call POST /api/checkout {itemKey:\"pack_small\"}, which returns initialPrice=9.99 with a formDigest that is valid for that price. 3) In the small URL they swap in X-hlItem=plan_studio and the matching X-hlSig, then pay $9.99 at CCBill. formDigest still validates, because it covers only the price, period and currency. 4) CCBill's NewSaleSuccess echoes the X- values. The digest (computed by CCBill) and the pass-through HMAC (user + item) both verify. ccbillEventFromParams returns subscription_started for plan_studio with amountCents=999. processPaymentEvent grants plan_studio's 1500 credits and writes an active Studio Pass. A one-time form sends no nextRenewalDate, so currentPeriodEnd is null, and activePlan treats the pass as active until a Cancellation or Expiration event arrives. Variants: (a) use the Night Pass recurring form ($19.99/month) with X-hlItem=plan_studio. Every RenewalSuccess then grants 1500 credits, because the renewal path grants by sub.planKey. (b) pay for pack_small and claim pack_large: 1200 credits instead of 100. I confirmed this with a tsx probe against ccbillCheckoutUrl and ccbillEventFromParams (scratchpad, no DB). The spliced form kept the same formDigest, and the webhook produced subscription_started plan_studio amountCents 999 with no period end. The existing test newSale(u.id, \"pack_large\", ...) already posts billedInitialPrice 9.99 for pack_large; it is rejected only because its sig is pack_small's.",
+  "evidence": "passthroughSignature = hmacHex(salt, `ccbill:${userId}:${itemKey}`) (line 58) contains no price, period or currency. The formDigest at lines 71 and 74 covers only price, period, rebills and currency, so the X- pairs are unauthenticated relative to the price. Line 147 parses billedInitialPrice into amountCents but never compares it with item.priceCents. service.ts apply() takes credits from checkoutItem(event.itemKey) or plan.monthlyCredits and treats amountCents only as a recorded value. The checkout route returns the full URL to the browser, which navigates to it with window.location.assign.",
+  "suggestedFix": "In the NewSaleSuccess path, require the billed initial price and currency to equal the item's priceCents and currency. For plans, also require that recurring terms are present. On a mismatch, grant nothing and raise a manual_review flag. Put price, period and currency into the pass-through HMAC (or reference a server-side checkout-intent row by nonce), so a spliced pair fails verification. Add a provider-neutral guard in service.apply() for purchase_completed, subscription_started and subscription_renewed: amountCents >= the item's or plan's price, in the configured currency."
+ },
+ {
+  "id": "R02",
+  "severity": "high",
+  "cluster": "payments",
+  "title": "Segpay: the item/price-point check fails open, so an unmapped price point or a missing eticketid lets a buyer claim any item at any price",
+  "originalSeverities": [
+   "high"
+  ],
+  "locations": [
+   "src/server/payments/providers/segpay.ts:149",
+   "src/server/payments/providers/segpay.ts:162-168",
+   "src/server/payments/providers/segpay.ts:176",
+   "src/server/payments/providers/segpay.ts:184",
+   "src/server/payments/providers/segpay.ts:50-60",
+   "src/server/payments/providers/segpay.ts:83-100"
+  ],
+  "scenario": "The buyer gets a pay-page URL for pack_large (hlitem=pack_large plus a valid hlsig) and edits x-eticketid to another price point in the same package that SEGPAY_PRICE_POINT_ID does not map. Examples are a cheap or trial price point that exists in the merchant's Segpay package, or the fallback form \"12345\" that the env doc offers as \"one price point for everything\". Segpay charges that price point, and the postback carries the user's hlitem and hlsig. `mapped` is undefined, so the mismatch check on line 166 is skipped and 1200 credits are granted for whatever was charged. The same happens if the operator's postback template does not include <eticketid>. A tsx probe (no DB) with map {pack_small:1, pack_large:3} gave these results: eticket 111:1 was rejected; eticket 111:999 returned purchase_completed pack_large with amountCents 100; a postback without eticketid returned purchase_completed pack_large.",
+  "evidence": "`const mapped = pricePointId ? ...find(...) : undefined; if (mapped && mapped !== itemFromPass) throw ...` accepts every unmapped or absent price point. parsePricePoints allows a bare fallback value that is never in the map. amountCents is parsed from `price` (line 149) but only recorded, never compared (lines 176 and 184, `amountCents || item.priceCents`). x-eticketid is a plain query parameter on a URL the client holds (line 92).",
+  "suggestedFix": "Fail closed. Require eticketid to be present and its price point to map to exactly the claimed item; otherwise reject, or ignore and raise a manual_review flag. Drop the single-fallback form when more than one item is sold, or refuse checkout for items without their own price point. Also compare price and currency with the item, as in the CCBill fix and the generic guard in service.apply()."
+ },
+ {
+  "id": "R03",
+  "severity": "high",
+  "cluster": "age",
+  "title": "Stored account jurisdiction overrides the current request's location, so one sign-in from an uncovered place unlocks everything from GB or a covered US state",
+  "originalSeverities": [
+   "high",
+   "medium"
+  ],
+  "locations": [
+   "src/app/api/auth/login/route.ts:18",
+   "src/app/api/auth/signup/route.ts:13",
+   "src/server/age/service.ts:65-71",
+   "src/server/age/service.ts:67",
+   "src/server/age/service.ts:78-83",
+   "src/server/age/service.ts:90",
+   "src/server/age/service.ts:90-96",
+   "src/server/auth/account.ts:66",
+   "tests/integration/age.test.ts:161-163"
+  ],
+  "scenario": "1. A UK user signs up, or signs in once, over a VPN that exits in the Netherlands. users.jurisdiction is stored as \"NL\". 2. They turn the VPN off. Every request now arrives with x-country-code: GB. 3. viewerAccess() calls requirementFor(), which takes f.jurisdiction (\"NL\") and ignores the GB header, so required=false and explicitAllowed=true. Signed template poster and preview URLs are issued on the home page, explore, template pages and /api/templates, and POST /api/generations and /api/uploads pass assertAgeVerified. 4. This lasts for the whole 30-day session (SESSION_TTL_DAYS), and the jurisdiction is only refreshed at the next sign-in, which can be done over the VPN again. The same browser signed out is blocked from GB, so signing in gives less protection than staying anonymous. It also hits honest users who signed up while travelling or who moved into a covered state: they stay ungated until they sign in again.\n\nA user in GB (a covered region, enforcement on) signs up or signs in once through a VPN whose exit country is not covered, for example NL. users.jurisdiction is stored as \"NL\". The VPN is then turned off. Every later request carries the edge's GB header, but requirementFor() uses the stored \"NL\" and reports required=false. The unverified user can generate (createDraft), upload (/api/uploads) and receive explicit template preview URLs (viewerAccessFor) until the session expires (SESSION_TTL_DAYS=30). Another VPN sign-in renews this. A signed-out visitor from the same GB connection would be gated, so signing in weakens the check. This is a different gap from the listed open issue about edges passing client geo headers: here the edge headers are correct and are ignored.",
+  "evidence": "requirementFor: `const jurisdiction = f.jurisdiction ?? contextJurisdiction(ctx);` The request headers are consulted only when nothing is stored. rememberJurisdiction runs only in the signup and login routes. The integration test checks only one direction (stored GB beats a DE header). The reverse (stored uncovered value, GB header) is untested, and that is the bypass. Jurisdiction changes are also not audited.\n\nservice.ts:67 `const jurisdiction = f.jurisdiction ?? contextJurisdiction(ctx);` prefers the stored value over the current request. The stored value is written only at signup (account.ts:66 via opts.jurisdiction) and at sign-in (login/route.ts:18 -> rememberJurisdiction). Nothing refreshes it per request or per session.",
+  "suggestedFix": "Require verification when either the stored jurisdiction or the current request's jurisdiction is covered: required = jurisdictionRequired(stored) || jurisdictionRequired(fromHeaders). Treat the stored value only as a fallback when the headers are missing. Audit jurisdiction changes in rememberJurisdiction. Add the reverse test (stored DE, GB header must return 451 and withhold media).\n\nRequire verification when either the stored jurisdiction or the current request's jurisdiction is covered, using required = jurisdictionRequired(stored) || jurisdictionRequired(fromRequest). Or refresh the stored value on every authenticated request that carries a geo header."
+ },
+ {
+  "id": "R04",
+  "severity": "high",
+  "cluster": "age",
+  "title": "Character photo upload (/api/characters) skips the age-verification gate",
+  "originalSeverities": [
+   "high",
+   "medium",
+   "medium"
+  ],
+  "locations": [
+   "src/app/api/characters/route.ts:11",
+   "src/app/api/characters/route.ts:11-23",
+   "src/app/api/characters/route.ts:22",
+   "src/app/api/characters/route.ts:22-34",
+   "src/app/api/uploads/route.ts:13",
+   "src/server/age/gate.ts:6",
+   "src/server/characters.ts:37-46",
+   "src/server/characters.ts:46",
+   "src/server/media.ts:50-91"
+  ],
+  "scenario": "A signed-in user in GB or US-TX with status unverified, failed or expired calls POST /api/uploads and gets 451. They then POST multipart to /api/characters with file=<any JPG/PNG/WebP, explicit or not>, name=x, consentAdult=true and consentLikeness=true. createCharacter calls acceptUpload(..., \"reference\"), which stores the image and creates the asset, upload and consent rows. The image is then served back via listCharacters/assetUrl on /train. Up to 20 images per account at 10 per hour. The addendum requires that covered users cannot upload until verified, and the route has no assertAgeVerified call.\n\nAn unverified user in a covered jurisdiction (GB, enforcement on) is refused by /api/uploads with 451. The same user sends POST /api/characters (multipart file + name + consentAdult/consentLikeness=true). The photo is accepted, stored as a reference upload and scanned. GET /api/characters then returns signed URLs to it. The addendum requires that users who need verification cannot upload until verified, and the gate's own docblock says it is called before anything that uploads.\n\nA signed-in user in a covered jurisdiction (GB, US-TX) who has not completed age verification POSTs a likeness photo to /api/characters. It is accepted and stored, and served back to them through GET /api/characters. /api/uploads refuses the same user through assertAgeVerified.",
+  "evidence": "/api/uploads calls `assertAgeVerified(user, { country: requestCountry(req), region: requestRegion(req) })` before accepting. /api/characters POST goes straight to createCharacter, and neither it nor acceptUpload checks age status. Generating with the reference later is still blocked by createDraft, but the upload itself is not.\n\ncharacters/route.ts calls requireUser and rateLimit and then createCharacter, with no assertAgeVerified. createCharacter calls acceptUpload(..., \"reference\") (characters.ts:46), which has no age check of its own. assertAgeVerified is called only in src/app/api/uploads/route.ts:13 and src/server/generation/service.ts:175.\n\nassertAgeVerified is called only in uploads/route.ts:13 and generation/service.ts:175 (grep). The characters POST goes straight to createCharacter, then acceptUpload.",
+  "suggestedFix": "Call assertAgeVerified(user, { country: requestCountry(req), region: requestRegion(req) }) at the top of the /api/characters POST handler, or move the check into acceptUpload so every upload path is covered. Add an integration test that an unverified GB user gets 451 from /api/characters.\n\nCall assertAgeVerified(user, { country: requestCountry(req), region: requestRegion(req) }) in POST /api/characters before reading the form. Better, move the check into acceptUpload so every upload path is covered.\n\nCall `assertAgeVerified(user, { country: requestCountry(req), region: requestRegion(req) })` in the characters POST before the rate limit and formData parsing."
+ },
+ {
+  "id": "R05",
+  "severity": "high",
+  "cluster": "auth",
+  "title": "Login brute-force limits can be bypassed: padding the email with whitespace dodges the per-account limit, and a spoofed X-Forwarded-For dodges the per-IP limit",
+  "originalSeverities": [
+   "high",
+   "medium",
+   "medium"
+  ],
+  "locations": [
+   "src/app/api/auth/login/route.ts:11",
+   "src/app/api/auth/login/route.ts:12",
+   "src/app/api/auth/login/route.ts:13",
+   "src/app/api/auth/signup/route.ts:9",
+   "src/app/api/auth/signup/route.ts:9-10",
+   "src/app/api/takedowns/route.ts:10",
+   "src/app/api/takedowns/route.ts:11",
+   "src/server/auth/account.ts:105",
+   "src/server/auth/account.ts:91-94"
+  ],
+  "scenario": "An attacker targets victim@example.com. Each POST /api/auth/login sends a slightly different email string, for example \" victim@example.com\", \"victim@example.com \", \"\\tvictim@example.com\" or \"\u00a0victim@example.com\u2003\". Strings up to 200 characters allow practically unlimited variants. Each request also sends a fresh X-Forwarded-For: <random ip>. Every request lands in a new rate-limit bucket on both counters, yet authenticate() trims and lowercases every variant to the victim's account. The result is unlimited online password guessing against one account, and also credential stuffing across many accounts. The only remaining limit is bcrypt CPU time, which also makes this a CPU denial-of-service vector. A guessable or reused password leads to account takeover.\n\nA client sends a new random `X-Forwarded-For: <random>` on each request. Next only fills x-forwarded-for when it is absent (base-server.js:565 `??=`), and reverse proxies append the real address on the right, so split(',')[0] is always the attacker's value. Effects: (1) POST /api/takedowns signed out is unlimited, flooding the human abuse-review queue where CSAM/NCII requests wait. (2) POST /api/auth/signup is unlimited, and each request runs bcrypt cost 12 in pure-JS bcryptjs before the uniqueness check. (3) POST /api/auth/login with a fresh XFF and a fresh email each time runs a bcrypt compare (dummy hash for unknown emails) with no effective limit, so a modest request rate pins the web process's CPU. Separately, the per-email bucket `login:email:<victim>` (10 per 15 min) lets anyone lock a known user out indefinitely by sending 10 bad attempts every 15 minutes.\n\nAn attacker wants to know whether a specific person (partner, coworker) uses this adults-only site. They POST /api/auth/signup with that person's email, a random handle, an adult date of birth and both checkboxes. Response 409 {code:'email_taken', message:'That email already has an account.'} means the person is a member. Response 201 means they are not; the attacker then deletes the throwaway account with DELETE /api/me using the password they chose. Suspended accounts are revealed too, because only deleted accounts get their email rewritten. Ten probes an hour per IP is enough for targeted outing. The limit key is the first X-Forwarded-For value, which the client controls when no proxy overwrites it (no reverse proxy is bundled). Rotating that header therefore allows bulk enumeration. The login path takes care to avoid this leak (dummy-hash timing, one generic 401), so signup undoes it.",
+  "evidence": "The per-email bucket key is `login:email:${email.toLowerCase()}` with no trim (route.ts:13), but authenticate() matches `lower(users.email) = email.trim().toLowerCase()` (account.ts:105). The login zod schema is z.string().max(200), so the email is not normalized before the key is built. The per-IP bucket uses the first X-Forwarded-For entry (route.ts:12). That entry is client-supplied when there is no proxy, and also behind proxies that append rather than overwrite (nginx $proxy_add_x_forwarded_for, ALB, Cloudflare). The `&&` at line 13 means a request that passes the spoofed IP bucket reaches the email bucket, which is fresh for every variant. Signup and takedowns build their keys from the same spoofable header, so signup's 10 per hour per IP limit is also void. That allows mass account creation, and free-credit farming if SIGNUP_GRANT_CREDITS > 0.\n\n`req.headers.get(\"x-forwarded-for\")?.split(\",\")[0]?.trim()` is used as the IP in all three routes. No TRUST_PROXY or hop-count configuration exists in src/server/env.ts. redis.ts:18-22 is a plain fixed-window counter.\n\nregisterUser catches the users_email_uq unique violation and throws HttpError(409, 'email_taken', ...) with a field error (account.ts:93). The signup route sets ip = x-forwarded-for.split(',')[0] and calls rateLimit(`signup:${ip}`, 10, 3600) (route.ts:9-10). No email verification step exists, so a probe against an unregistered email also creates an account under someone else's address.",
+  "suggestedFix": "Normalize the email once with the same transform authenticate() uses (trim().toLowerCase(), ideally in the zod schema) and use that value for both the bucket key and the lookup. Derive the client IP from a trusted-proxy setting: take the right-most untrusted hop, or a header the edge overwrites, configured through env. Never take the left-most X-Forwarded-For entry. Consider also limiting per account on failed attempts only, so the bucket cannot be used to lock a victim out.\n\nDerive the client IP from a trusted proxy hop: the right-most entry minus a configured hop count, or a platform header such as CF-Connecting-IP when configured. Add a global limit on login/signup bcrypt work. Make the per-email lockout progressive or CAPTCHA-gated rather than a hard block an attacker can trigger.\n\nReturn the same response for new and existing emails, and send an email to the address instead: either a 'verify your account' link, or 'someone tried to sign up with your email'. Activate accounts only after email verification. Key the rate limit on the address the trusted edge reports (or the rightmost XFF hop added by your proxy), and add a per-email limit."
+ },
+ {
+  "id": "R06",
+  "severity": "high",
+  "cluster": "scan",
+  "title": "Video scan covers only the first 30 seconds (1 frame per second); the rest of any longer upload is stored marked clean",
+  "originalSeverities": [
+   "high"
+  ],
+  "locations": [
+   "src/server/media.ts:105",
+   "src/server/media.ts:40",
+   "src/server/media.ts:63-69",
+   "src/server/safety/scan/index.ts:106-128",
+   "src/server/safety/scan/index.ts:66-67",
+   "src/server/safety/scan/index.ts:76"
+  ],
+  "scenario": "A user uploads an MP4 under 100 MB to /api/uploads. The first ~30 s are harmless and the payload (for example known-hash frames) starts at 30.5 s. extractKeyframes runs `ffmpeg -vf fps=1 -frames:v 30`, so the scanner only sees frames at t=0..29 s. The verdict is clean, and the asset is stored with scan_status=clean. It is never escalated or reported. It passes validateInputs and processJob as a usable video input (video_extension, scene_continuation, video_to_video), so the bytes would go to any video-input provider. Even inside the first 30 s, content placed between whole-second marks is never sampled.",
+  "evidence": "I ran ffmpeg standalone with the exact argument lists, not through the app. I made a 45.5 s H.264 clip: blue for 30.5 s, then red. I ran it through the stripVideoMetadata args (media.ts:133), then the extractKeyframes args (scan/index.ts:76). Result: 30 frames, all blue (centre pixel 0000fe). The same clip at fps=1 with no cap gives 46 frames, with red from frame 32 on. Nothing limits video duration: only MAX_VIDEO_BYTES = 100 MB. scanVideo returns clean after the 30 sampled frames (scan/index.ts:127). Source uploads are never signed back to anyone (no read path), which is why this is high and not critical: the content is stored and usable as an input, not served.",
+  "suggestedFix": "Sample across the whole duration. Read the duration with ffprobe and space N frames over it (`fps=N/duration`, or `select` on scene changes plus I-frames), and refuse or fail closed when the clip is longer than a stated maximum. Alternatively cap upload duration (for example 30 s) and reject longer clips before storage. Record frame coverage in scan_ref."
+ },
+ {
+  "id": "R07",
+  "severity": "high",
+  "cluster": "scan",
+  "title": "Alpha channel hides image content from the PhotoDNA copy, while the stored WebP keeps it and is served back to the uploader",
+  "originalSeverities": [
+   "high"
+  ],
+  "locations": [
+   "src/server/characters.ts:30",
+   "src/server/characters.ts:46",
+   "src/server/media.ts:105",
+   "src/server/media.ts:81",
+   "src/server/safety/scan/providers/photodna.ts:50",
+   "src/server/safety/scan/providers/photodna.ts:71"
+  ],
+  "scenario": "A user uploads a PNG whose RGB is the payload image and whose alpha is 1/255 everywhere, as a character reference (/api/characters) or a source upload. acceptUpload re-encodes it to WebP and keeps the alpha. photoDnaJpeg sends PhotoDNA `flatten({background:'#000'})` of that WebP, which is an almost all-black image, so there is no match and the asset is recorded clean. GET /api/characters then returns imageUrl, a signed URL to the stored WebP. The owner downloads it and drops the alpha channel to get the full image back. The same bytes go to providers as the reference or source input (processor.ts:133,188). A variant with RGB=0 and the picture only in alpha scans as solid black but shows the picture on any light background.",
+  "evidence": "I ran sharp standalone with the app's exact calls, not the app. Input: a 1024x1024 RGBA PNG (red/green/blue/white quadrants, alpha 1). After `rotate().webp({quality:92})` and then the photoDnaJpeg chain, the copy sent to PhotoDNA had channel means 0.5 and max 2, with quadrant pixels [0,0,0],[1,1,1],[0,0,0],[1,1,1]. The stored WebP with alpha removed had quadrant pixels [255,1,0],[0,255,1],[0,0,255],[255,255,255]. Alpha-only variant: the scan copy was [0,0,0] on both halves, while flattening on white gave [0,0,0] and [255,255,255].",
+  "suggestedFix": "Make stored bytes equal scanned bytes. At upload, flatten (or `removeAlpha()`) before the WebP encode so no alpha is stored. If transparency must be kept, scan both the RGB with alpha removed and the composites on black and on white, and treat a match on any of them as a match."
+ },
+ {
+  "id": "R08",
+  "severity": "high",
+  "cluster": "moderation",
+  "title": "Takedowns remove only the public copies; the creator can republish the same creation straight away, and confirmed CSAM takedowns never suspend the owner",
+  "originalSeverities": [
+   "high"
+  ],
+  "locations": [
+   "src/server/safety/review.ts:107-134",
+   "src/server/safety/takedowns.ts:170-178",
+   "src/server/safety/takedowns.ts:190-204",
+   "src/server/templates/publish.ts:41-73",
+   "src/server/templates/publish.ts:88-101"
+  ],
+  "scenario": "1) Creator C publishes job J. publishTemplate copies J's output into new public assets P (same sha256). 2) Someone files an NCII or CSAM takedown on /templates/<slug>. An admin actions it: the template is removed, P is purged (NCII) or held and escalated (CSAM). 3) J and its private output are untouched: still scan_status=clean, legal_hold=false, not deleted. 4) C calls POST /api/templates {jobId: J} again. publishTemplate only checks that J's output is clean and not held, so the identical content is public again under a new slug. For a CSAM-category request, confirming the escalation in /admin/review (resolveEscalation 'confirm') only sets the hold and the report reference. It does not suspend C, because takedown-origin escalations never suspended anyone, so C stays active and can republish confirmed CSAM.",
+  "evidence": "The template branch of resolveTakedown only collects tpl.posterAssetId and previewAssetId, which are the public copies made at publish.ts:90-101. templates has no source-job column (schema.ts templates table), so the source cannot be found. publishTemplate has no check for a removed template from the same job or for a held asset with the same sha256. The confirm branch of review.ts never touches users.status.",
+  "suggestedFix": "Store the source job and asset on templates (or match on sha256). When a takedown is actioned, also soft-delete (NCII) or hold (CSAM) the source output and its poster, and block publishing any job whose output sha256 matches a removed or held asset. When a CSAM escalation is confirmed, suspend the owner and destroy their sessions if they are not already suspended."
+ },
+ {
+  "id": "R09",
+  "severity": "high",
+  "cluster": "scan",
+  "title": "Image decompression bomb: an 817 KB PNG makes the upload path use about 1.3 GB RSS and 14.6 s of CPU",
+  "originalSeverities": [
+   "high",
+   "high"
+  ],
+  "locations": [
+   "src/app/api/characters/route.ts:13-22",
+   "src/app/api/characters/route.ts:22",
+   "src/app/api/uploads/route.ts:14-21",
+   "src/app/api/uploads/route.ts:19",
+   "src/server/characters.ts:46",
+   "src/server/media.ts:71",
+   "src/server/media.ts:71-81",
+   "src/server/media.ts:74",
+   "src/server/media.ts:81",
+   "src/server/safety/scan/providers/photodna.ts:50"
+  ],
+  "scenario": "A signed-in user sends several concurrent uploads of a 16383x16383 flat PNG (817 KB, well under the 20 MB cap). The rate limits allow 40 per hour on /api/uploads and 10 per hour on /api/characters. Each request decodes the full image, re-encodes it to a 16383x16383 WebP and, with PhotoDNA, decodes it again to downscale. About 10 concurrent requests need about 13 GB, so the web process is OOM-killed on a normally sized container and every user's flows go down with it.\n\nA signed-in user (for /api/characters any user, since that route does not call assertAgeVerified; for /api/uploads any user outside a covered jurisdiction or already verified) builds a solid-colour 16000x16000 PNG of about 776 KB. That passes the 20 MB MAX_IMAGE_BYTES check. acceptUpload decodes it and re-encodes it to WebP. I ran the same sharp calls (metadata, then rotate().webp({quality:92}), then metadata) on such a PNG with the snapshot's sharp: 776,368-byte input, peak RSS 1266 MB, 13.7 s. The rate limits allow 40 uploads/hour and 10 characters/hour per user and do not limit concurrency. A few parallel requests from one account push the web process past a typical container memory limit, so it is OOM-killed and every user's requests fail.",
+  "evidence": "I ran sharp standalone with the exact calls from media.ts:74 and :81, not the app. Input: 817,378 bytes. Peak RSS rose from 64 MB to 1299 MB, and the calls took 14,567 ms. No limitInputPixels or sharp.cache/concurrency setting exists anywhere in src (grep), so sharp's default limit of 268M pixels is the only bound.\n\nMAX_IMAGE_BYTES limits only the compressed size (media.ts:71). sharp(file.bytes) is built without limitInputPixels (media.ts:74, 81), so sharp's default of 268,402,689 pixels (16383^2) applies. WebP encoding holds the full RGBA frame in memory. Neither route caps concurrent uploads.",
+  "suggestedFix": "Pass `{ limitInputPixels: 40_000_000 }` (or similar) to every sharp() call on untrusted input, and reject width or height above a fixed maximum (for example 8192) from metadata() before decoding. Downscale large images before the WebP encode. Process uploads in a bounded queue or worker rather than inline in the web process.\n\nPass { limitInputPixels: e.g. 40_000_000 } to every sharp() call on user bytes, and reject with 413 when meta.width*meta.height is over the cap before re-encoding. Set sharp.concurrency and a small per-process semaphore for upload processing. Apply the same limits on the character-reference path."
+ },
+ {
+  "id": "R10",
+  "severity": "high",
+  "cluster": "payments",
+  "title": "A refund or chargeback that arrives before its purchase is dropped for good, and the purchase still grants credits when it lands",
+  "originalSeverities": [
+   "high"
+  ],
+  "locations": [
+   "src/server/payments/service.ts:119-127",
+   "src/server/payments/service.ts:161-166",
+   "src/server/payments/service.ts:25-36",
+   "src/server/payments/service.ts:96-100"
+  ],
+  "scenario": "1) A CCBill NewSaleSuccess for pack_large (1200 credits) gets a 5xx during a deploy or DB blip, so CCBill queues a retry. 2) The sale is voided or refunded the same day, or the buyer files a chargeback. That Refund/Void/Chargeback webhook arrives first. 3) clawback() finds no credited event, so it returns outcome 'ignored' with metadata reason 'original_not_found'. The payment_events row is committed and we answer 200. 4) The NewSaleSuccess retry arrives and grant() adds 1200 credits. 5) If the processor sends the refund again, the unique (provider, provider_event_id) row makes it 'duplicate'. Result: the buyer keeps credits for money they got back. For a chargeback, no 'chargeback' account flag is written either, so assertCanCheckout keeps checkout open. Nothing in src/ or scripts/ reprocesses 'original_not_found' rows (I grepped and found none). The same ordering hole applies to a subscription: a cancellation for a subscription not yet seen is 'ignored' (line 126), and the later subscription_started inserts it as active.",
+  "evidence": "processPaymentEvent inserts the event row with onConflictDoNothing and commits whatever apply() returns. clawback() returns a normal 'ignored' result, not an error, when findCreditedEvent() returns null. In contrast, subscription_renewed deliberately throws when its parent is missing (lines 98-100), so the transaction rolls back and the processor retries. Reversals get no such treatment. grant() never looks for earlier reversals of the same transactionRef.",
+  "suggestedFix": "When the original is not found, throw, as the renewal path does. The insert of the event row then rolls back and the processor redelivers until the purchase exists. Or store the reversal as pending and have the purchase/subscription_started path apply any pending reversals with a matching transactionRef/subscriptionRef in the same transaction. Do the same for subscription_cancelled/updated on an unknown subscription."
+ },
+ {
+  "id": "R11",
+  "severity": "high",
+  "cluster": "moderation",
+  "title": "updateTemplate writes back a status read before its transaction, so a concurrent edit undoes a moderation removal or suspension",
+  "originalSeverities": [
+   "high"
+  ],
+  "locations": [
+   "src/server/admin.ts:117-119",
+   "src/server/admin.ts:210-219",
+   "src/server/discovery/templates.ts:159",
+   "src/server/safety/scan/index.ts:167-172",
+   "src/server/templates/publish.ts:151-155",
+   "src/server/templates/publish.ts:162-196"
+  ],
+  "scenario": "1) A creator whose template has been reported runs a loop that sends parallel no-op PATCH /api/templates/:id {\"title\":\"x\"}. 2) Request R1 reads t.status='published' at line 153, outside any transaction. 3) The admin resolves the report with 'remove' (admin.ts:119 sets status='removed') and it commits. 4) R1's transaction runs UPDATE templates SET status = input.status ?? t.status ('published'), with no status condition in the WHERE, and the template is public again. Discovery's 'published' filter checks only status and deletedAt, not the creator's account status. The same interleaving undoes suspendUser's unpublish (admin.ts:215-219): requests already past requireUser complete after the sessions are destroyed. It also undoes the template takedown that recordVerdict does when a public asset matches the abuse scanner (scan/index.ts:167-172). With many requests in flight, nearly every removal lands inside some request's read-to-write window. The same stale read also loses updates: an edit that changes only the title writes back the old currentVersion after a concurrent prompt edit created version N+1, so the template silently reverts to the old prompt. Two concurrent prompt edits both insert version N+1 and hit template_versions_uq, which surfaces as a 500.",
+  "evidence": "The template is read with getDb() outside the transaction, and the 'removed' check happens on that stale row. The transaction writes every column from the stale row (status, currentVersion, title, tags, isVip...) with .where(eq(templates.id, t.id)) only. There is no FOR UPDATE and no optimistic version check.",
+  "suggestedFix": "Inside the transaction, SELECT ... FOR UPDATE the template, re-check status <> 'removed' (and the creator's status) under the lock, compute the next version from the locked row, and write only the fields actually supplied. Add AND status <> 'removed' to the UPDATE as a backstop. Only an explicit input.status may change the status."
+ },
+ {
+  "id": "R12",
+  "severity": "high",
+  "cluster": "generation",
+  "title": "If recording an abuse-scan match fails, the worker deletes the matched output's bytes immediately: no hold, no escalation, no suspension",
+  "originalSeverities": [
+   "high"
+  ],
+  "locations": [
+   "src/server/auth/account.ts:160-169",
+   "src/server/generation/processor.ts:218-226",
+   "src/server/generation/processor.ts:265-284",
+   "src/server/generation/processor.ts:84-91",
+   "src/server/generation/processor.ts:96-108",
+   "src/server/safety/scan/index.ts:159-212"
+  ],
+  "scenario": "An output matches PhotoDNA. scanAsset \u2192 recordVerdict opens its match transaction: it locks the asset row FOR UPDATE, inserts the escalation, flag and audit rows, and for a CSAM match runs UPDATE users SET status='suspended'. Any exception in that transaction rolls it back, so legal_hold stays false. Causes include a DB connection reset or failover, a statement timeout, or a deadlock. One concrete deadlock: the owner's deleteAccount transaction has already updated (locked) the users row and is waiting on the same media_assets row in its UPDATE media_assets ... WHERE owner_id=... AND legal_hold=false, while the match transaction holds the asset and waits on the users row. The exception propagates out of storeAndSettle to processJob's catch, which calls discardAfterFault(track). The asset was added to track.assetIds by recorded() before the scan (line 281), so discardStored soft-deletes it (legal_hold=false matches) and purgeAssetsNow deletes the file at once. Then finishFailed refunds the job as 'internal'. Net effect: CSAM evidence destroyed, nothing in the review queue, account not suspended, user refunded.",
+  "evidence": "recorded(key, asset.id) runs before scanAsset. The catch at 219-227 discards everything in track without checking whether the asset's scan finished. discardStored and purgeAssetsNow only spare rows whose legal_hold is already true, and the match transaction that would have set it rolled back.",
+  "suggestedFix": "Never purge an asset whose scan did not complete. Remove the current asset from track before calling scanAsset and leave it as scan_status 'pending' (never served; scan-backfill rescans it), or wrap scanAsset so an exception is treated as 'unavailable' without deleting bytes, and alert. Also take the users row lock before the asset lock in recordVerdict (or lock in a consistent order) to remove the deadlock with deleteAccount."
+ },
+ {
+  "id": "R13",
+  "severity": "high",
+  "cluster": "scan",
+  "title": "With STORAGE_DRIVER=s3, signed media links skip every serve-time check, so taken-down or deleted media stays downloadable after removal (up to 1 hour for public media, 5 minutes for private)",
+  "originalSeverities": [
+   "high",
+   "medium"
+  ],
+  "locations": [
+   "docs/abuse-response.md:39",
+   "src/app/api/media/route.ts:22-23",
+   "src/app/api/media/route.ts:37-49",
+   "src/app/policies/page.tsx:74-80",
+   "src/server/admin.ts:117-119",
+   "src/server/media.ts:174-179",
+   "src/server/media.ts:22-30",
+   "src/server/media.ts:27-30",
+   "src/server/safety/takedowns.ts:191-193",
+   "src/server/storage/index.ts:96-106"
+  ],
+  "scenario": "Setup: production runs with STORAGE_DRIVER=s3, the S3/MinIO option the infra compose profile supports. (1) A creator publishes template T. Every explore, home, template and creator page render calls assetUrl(), which returns a presigned S3 GET URL valid for 3600 s. Each adult viewer receives one in the HTML or RSC payload. (2) Someone files a takedown on T with category csam, and an admin takes it down. resolveTakedown sets deletedAt and legalHold on T's poster and preview. Because the assets are held, purgeAssetsNow and purgeDeletedMedia never delete the S3 object. (3) Every presigned URL issued in the previous hour still returns the bytes directly from the bucket until it expires. Anyone holding one (any viewer, a scraper, or someone they forwarded it to) can download and re-share the reported content for up to 60 minutes after the takedown. The same gap applies when a moderator removes a template from the Reports panel (assets are never even marked), and to account or creation deletion ('hides it at once' per the Policies page) for the length of the retention window. The deletedAt/scanStatus checks in /api/media, which docs/abuse-response.md:39 names as the control ('404 ... even with a validly signed link issued earlier'), run only for the local driver.\n\nWith S3 storage, assetUrl returns a direct S3 presigned GetObject URL that is valid for 3600 s for public assets. Visitors to a public template receive such URLs. An admin then actions a CSAM takedown: deleted_at is set and legal_hold=true, so the object is deliberately kept in the bucket. Every URL issued in the past hour, and any copy shared on another site, keeps returning the file until it expires. The re-check of scan_status and deleted_at in /api/media ('even with a link signed before the verdict changed') runs only for the local driver.",
+  "evidence": "S3Driver.signedUrl calls getSignedUrl(GetObjectCommand) with expiresIn: ttl, so the browser goes straight to the bucket and app code never runs again. assetUrl uses ttl = 3600 for public assets (media.ts:29). The only per-request check (deletedAt, scanStatus === 'clean') is in src/app/api/media/route.ts:23, which only LocalDriver URLs reach. The CSAM takedown branch (takedowns.ts:193) sets deletedAt plus legalHold and adds the assets to no purge list. purgeAssetsNow and purgeDeletedMedia both filter legal_hold = false, so the object, and every URL that points at it, stays alive. S3 objects are also put without CacheControl, and presigned URLs set no ResponseCacheControl. The local route sends 'private'; S3 sends nothing.\n\nS3Driver.signedUrl signs straight against the bucket, so /api/media never sees the request. The legal hold means purgeAssetsNow and purgeDeletedMedia never delete the object (media.ts:168,179).",
+  "suggestedFix": "Make removal revoke links on S3. When an asset is held, taken down, removed or deleted, move the object to a new key (for example CopyObject to evidence/<assetId>, DeleteObject on the old key, then update storageKey). Old presigned URLs then 404 while the evidence survives. Alternatively, serve S3 media through /api/media, or a CDN with signed cookies that checks the DB, instead of handing out bucket URLs. Shorten the public TTL. Pass ResponseCacheControl: 'private, no-store' when presigning. Correct docs/abuse-response.md:39 to match.\n\nIn S3 mode, serve through the app route (or a CDN with a revocation check) so status is re-checked per request. Alternatively, when an asset is held, deleted or matched, move or copy it to a quarantine key or bucket (or update the object ACL), and shorten the public TTL."
+ },
+ {
+  "id": "R14",
+  "severity": "medium",
+  "cluster": "age",
+  "title": "A US location without a state code resolves to \"US\" and fails open; the derive route always drops the state",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/app/api/generations/[id]/derive/route.ts:15",
+   "src/config/jurisdictions.ts:46-51",
+   "src/config/jurisdictions.ts:54-62",
+   "src/server/age/rules.ts:25-33",
+   "src/server/age/rules.ts:40-45",
+   "src/server/age/service.ts:67"
+  ],
+  "scenario": "(a) The derive route builds its context as `{ country: requestCountry(req) }` with no region. Take a Texas user with no stored jurisdiction (an account seeded or created before migration 0002, or a signup that arrived without geo headers) whose verification is unverified or expired, and who owns an earlier job. POST /api/generations returns 451, because the context there is US plus TX. POST /api/generations/<ownJobId>/derive {relation:\"variation\"} resolves to jurisdictionCode(\"US\", null) = \"US\". That matches none of the defaults (all are \"US-XX\"), so required=false. A new draft is created and can be confirmed, so explicit generation continues with no valid verification. Retry, continuation and extension work the same way. (b) More generally, any request where the edge sends a country but no usable state (no region header configured, the GeoIP lookup has no subdivision, or a value like \"Texas\" fails /^[A-Z0-9]{1,3}$/) resolves to \"US\" and is treated as a known, uncovered place. AGE_VERIFICATION_FAIL_CLOSED never applies because the code is not null. The same holds for country values that mean unknown, such as Cloudflare's \"XX\" and \"T1\" (Tor) when GEO_COUNTRY_HEADER=cf-ipcountry. A US signup in that state stores \"US\", which then sticks (see the stored-jurisdiction finding).",
+  "evidence": "jurisdictionCode returns `c === \"US\" && r ? `US-${r}` : c`. jurisdictionRequiresVerification matches only `rr === upper || rr === country`, and \"US-TX\" equals neither \"US\" nor \"US\". jurisdictionRequired applies FAIL_CLOSED only when `!code`. The other gated routes (generations, uploads, start, me, viewerAccess) all pass the region. Derive is the only one that does not.",
+  "suggestedFix": "Pass `region: requestRegion(req)` in the derive route. In jurisdictionRequired, treat a country that has covered sub-regions but no known region (\"US\" with any US-XX configured), and known unknown markers (XX, T1, A1, A2), the same as an unknown location under AGE_VERIFICATION_FAIL_CLOSED, or require verification outright. Never store a region-less \"US\" as the account's jurisdiction."
+ },
+ {
+  "id": "R15",
+  "severity": "medium",
+  "cluster": "age",
+  "title": "A user who now needs verification still sees, downloads and can publish their own explicit back catalogue",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/app/api/generations/[id]/download/route.ts:21",
+   "src/app/api/generations/[id]/route.ts:8-14",
+   "src/app/api/generations/route.ts:40-45",
+   "src/app/collection/page.tsx:103",
+   "src/server/age/service.ts:69",
+   "src/server/generation/views.ts:156-165",
+   "src/server/projects.ts:107",
+   "src/server/templates/publish.ts:41"
+  ],
+  "scenario": "A user with stored jurisdiction DE makes explicit outputs. They then sign in from GB (stored jurisdiction becomes GB, status unverified), or their GB verification passes AGE_VERIFICATION_VALID_DAYS and reads as expired. Template media is now correctly withheld from them. But /collection, GET /api/generations, GET /api/generations/:id, the creation detail page, the favorites \"Your creations\" tab, project covers and GET /api/generations/:id/download all still issue signed URLs for every output, because hydrate() calls assetUrl(out.asset, userId) with no explicitAllowed check. They can also POST /api/templates to publish any of those outputs as a new public template, since publishTemplate has no age check. So an unverified user in a covered place sees explicit media the service generated, and can share more.",
+  "evidence": "Only the template discovery path (toCards, creatorAnalytics) checks viewer.explicitAllowed. The views, projects, download and publish paths do not consult viewerAccess or assertAgeVerified.",
+  "suggestedFix": "Gate the own-content media paths on viewerAccess().explicitAllowed: withhold url/posterUrl with a 'verify to view' state, as the template cards do, and call assertAgeVerified in the download route and in publishTemplate."
+ },
+ {
+  "id": "R16",
+  "severity": "medium",
+  "cluster": "age",
+  "title": "The gate honours a 'verified' status set by the sandbox once the site goes live",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/app/verify/sandbox/page.tsx:20-31",
+   "src/server/age/providers/sandbox.ts:49",
+   "src/server/age/service.ts:65-75",
+   "src/server/env.ts:127-135"
+  ],
+  "scenario": "The operator runs a private preview with APP_ENV=staging, where the sandbox is allowed, with real invitees. Each invitee clicks \"Simulate verified\", which sets users.ageVerificationStatus='verified' and ageVerificationProvider='sandbox'. The same database is then promoted to production with AGE_VERIFICATION_PROVIDER=yoti. requirementFor and satisfied() look only at status and ageVerifiedAt, so those users count as age-verified on the live site for 365 days, with no real provider result. This breaks the addendum rule 'never mark a real user verified without a real provider result'.",
+  "evidence": "ageFields loads ageVerificationProvider, but requirementFor and satisfied never read it. The live-site guards (env() boot check, refuseInProduction, isConfigured) only stop the sandbox from running. They do not invalidate sandbox results already stored.",
+  "suggestedFix": "In requirementFor, treat a verified status whose provider is a sandbox, or is not the active provider, as unverified when isLiveDeployment(). Optionally add a go-live migration that resets sandbox-verified rows and writes an audit entry for each."
+ },
+ {
+  "id": "R17",
+  "severity": "medium",
+  "cluster": "payments",
+  "title": "Refund/chargeback clawback takes only available credits; credits reserved by in-flight jobs come back after the refund and the user keeps them",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/server/credits/ledger.ts:97-107",
+   "src/server/generation/processor.ts:292-296",
+   "src/server/generation/processor.ts:44-61",
+   "src/server/generation/service.ts:378-385",
+   "src/server/payments/service.ts:184-187",
+   "src/server/payments/service.ts:201-208",
+   "src/server/payments/service.ts:242-245"
+  ],
+  "scenario": "A user buys a pack, confirms jobs up to their active-job limit (credits move from available to reserved), then files a chargeback or refund. If the reversal webhook lands while those jobs are queued or processing, clawback computes reversed = min(account.available, owed). The reserved credits are recorded as a credit_debt \"already spent\" shortfall. The user then cancels the queued or processing jobs, or they fail; a scanner outage, for example, keeps them retrying with the reservation held. releaseJob returns the reserved amount to available, and the user spends credits that were refunded. Nothing enforces credit_debt: only a chargeback flag blocks checkout, and neither flag blocks generation. At default pricing the gain per window is bounded by maxActive \u00d7 max job cost (about 144 to 288 credits), and the user can repeat the confirm/cancel cycle while the reversal is pending.",
+  "evidence": "Line 185 reads account.available and ignores account.reserved. A later releaseJob (key job:<id>:close) adds the amount back to available with no knowledge of the reversal. The credit_debt flag is informational only; checkoutBlock() checks only kind === 'chargeback'.",
+  "suggestedFix": "Record the unrecovered shortfall as a debt and collect it from future credits to available: either a debt column applied in applyMovement for release, purchase and grant movements, or a follow-up clawback movement run whenever a reservation is released on an account with an open credit_debt. At minimum, stop calling reserved credits 'spent' in the flag text, and block new confirms while a credit_debt flag is open."
+ },
+ {
+  "id": "R18",
+  "severity": "medium",
+  "cluster": "payments",
+  "title": "Concurrent reversals of the same payment each claw back the full grant (earlier reversals are read before the account lock)",
+  "originalSeverities": [
+   "medium",
+   "medium"
+  ],
+  "locations": [
+   "src/server/payments/service.ts:162-176",
+   "src/server/payments/service.ts:170-176",
+   "src/server/payments/service.ts:178-200",
+   "src/server/payments/service.ts:180-187",
+   "src/server/payments/service.ts:184"
+  ],
+  "scenario": "Two different reversal events for one original are processed at the same time. Examples: a CCBill Refund and a Chargeback for one transaction delivered together, or two Stripe charge.refunded events from quick successive partial refunds. Both transactions run the `earlier` SUM query before either commits, so both see alreadyReversed = 0. Each then locks the account in turn and claws back its full target. Non-cumulative refund plus chargeback: 1200 + 1200 claimed against a 1200-credit grant. Stripe cumulative 50% then 100%: 600 + 1200. The user loses up to twice the grant (bounded by their available balance), and a second credit_debt shortfall is written. Run one after another, the second event would compute owed = 0.\n\nA user bought pack_medium (550 credits, $44.99) and holds 1000 credits. A full refund and a chargeback (or two reversal events with different ids) for that transaction are processed at the same time. T1 and T2 each sum earlier reversals (lines 171-174) before either has committed, so alreadyReversed=0 and owed=550 for both. They then serialize on the credit_accounts FOR UPDATE (line 184). T1 reverses 550, leaving 450. T2 gets the lock and, under READ COMMITTED, sees available=450, but still uses its stale owed=550, so it reverses 450 and writes a credit_debt flag for a 100-credit 'shortfall'. The user loses 1000 credits for one $44.99 reversal. Processed one after the other, T2 would have computed owed=0.",
+  "evidence": "The `earlier` aggregate (lines 171-176) and findCreditedEvent run without any lock. The only lock is `select ... from credit_accounts ... for update` at line 184, taken after `owed` has been computed from the stale sum. The idempotency keys differ per event, so the ledger does not dedupe.\n\nThe 'earlier' aggregate reads payment_events rows whose reversesEventId is only set in the final UPDATE of each transaction, and it runs before the only lock taken (the account row). Nothing locks the original purchase event.",
+  "suggestedFix": "Before reading earlier reversals, serialize on the original payment: either `select ... from payment_events where id = original.id for update`, or take the account lock before the SUM query. Recompute owed after the lock.\n\nLock first, then read. SELECT the original payment_events row FOR UPDATE (or the credit account) before computing 'earlier', so the second reversal sees the first one's committed row."
+ },
+ {
+  "id": "R19",
+  "severity": "medium",
+  "cluster": "payments",
+  "title": "CCBill replay protection depends on unsigned fields, and one sale digest also authenticates unlimited RenewalSuccess events",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/server/payments/providers/ccbill.ts:114-134",
+   "src/server/payments/providers/ccbill.ts:165-175",
+   "src/server/payments/service.ts:101",
+   "src/server/payments/service.ts:57"
+  ],
+  "scenario": "providerEventId is `${eventType}:${transactionId ?? subscriptionId}:${timestamp}`, but the signature (dynamicPricingValidationDigest) covers only subscriptionId. If one NewSaleSuccess body or its digest is ever exposed (logged by a proxy or WAF, or echoed to the buyer's approval redirect), it can be re-posted with any new timestamp or transactionId. Each post is a new payment_events row and a new ledger key, so credits are granted again. The timestamp is never checked for freshness. When CCBILL_WEBHOOK_TOKEN is unset, the same sale digest is also accepted on non-sale events (line 124-125), so the holder can mint RenewalSuccess events for that subscription without limit, each granting the plan's monthly credits. A tsx probe (no DB) produced three distinct providerEventIds from one signed sale by changing only timestamp or transactionId. With no token, the same probe got a RenewalSuccess carrying the sale digest accepted as subscription_renewed.",
+  "evidence": "ref and timestamp come straight from the request (lines 113-114, 132-134). validationDigest(c.salt, subscriptionId, true) is constant per subscription, and the `else if (digest)` branch reuses it for lifecycle events. Grant idempotency keys are derived from providerEventId (service.ts:57, 101).",
+  "suggestedFix": "Key CCBill sales on the signed subscriptionId (for example NewSaleSuccess:<subscriptionId>) rather than on transactionId and timestamp. Reject timestamps outside a window. Do not accept the sale digest as authentication for RenewalSuccess, Refund or Chargeback. Allowlist CCBill IPs at the edge, and require the token for every lifecycle event."
+ },
+ {
+  "id": "R20",
+  "severity": "medium",
+  "cluster": "payments",
+  "title": "CCBill without CCBILL_WEBHOOK_TOKEN reports itself configured but silently rejects every refund, chargeback, renewal and cancellation",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/server/env.ts:50-51",
+   "src/server/payments/providers/ccbill.ts:126-130",
+   "src/server/payments/providers/ccbill.ts:212-218"
+  ],
+  "scenario": "An operator sets the four required CCBill variables and leaves the optional token unset. isConfigured() is true and configurationProblem() is null, so the pricing page and health check show CCBill as live, and sales are credited. Every Refund, Return, Chargeback, RenewalSuccess, Cancellation and Expiration gets 400 'unsigned'. Refunded or charged-back buyers keep their credits, chargebacks never flag the account, paid renewals never grant credits, and cancelled passes stay active. A tsx probe with token=null rejected Refund, Chargeback and RenewalSuccess.",
+  "evidence": "Lines 126-130 throw for any non-sale event without a digest when c.token is null. cfg() and missing() do not list CCBILL_WEBHOOK_TOKEN. The test suite always sets the token (vitest.config.ts:23), so this path is untested.",
+  "suggestedFix": "Make CCBILL_WEBHOOK_TOKEN required: include it in cfg() and missing(), so isConfigured() is false and configurationProblem() names it. Alternatively, refuse to start live with CCBill without it, as env() does for the scanner and age sandboxes."
+ },
+ {
+  "id": "R21",
+  "severity": "medium",
+  "cluster": "moderation",
+  "title": "Clearing a scanner false positive silently lifts an admin's manual suspension",
+  "originalSeverities": [
+   "medium",
+   "medium"
+  ],
+  "locations": [
+   "src/server/admin.ts:210",
+   "src/server/admin.ts:210-224",
+   "src/server/admin.ts:213",
+   "src/server/admin.ts:214",
+   "src/server/safety/review.ts:137-175",
+   "src/server/safety/review.ts:157",
+   "src/server/safety/review.ts:162",
+   "src/server/safety/review.ts:164",
+   "src/server/safety/review.ts:169",
+   "src/server/safety/review.ts:170",
+   "src/server/safety/takedowns.ts:171-204"
+  ],
+  "scenario": "(a) User X has an open non-CSAM abuse_match escalation. A non-CSAM match only adds a manual_review flag and does not suspend. An admin separately suspends X through POST /api/admin/users/X/suspend, for example for harassment or a takedown. Later a reviewer clears the abuse_match as a false positive in Admin > Abuse review. resolveEscalation clears the flag, finds no open csam_match flag, and runs `update users set status='active' where status='suspended'`. X is reinstated and can sign in, although the manual suspension was never lifted. (b) X is auto-suspended by a CSAM false positive. An admin who also wants X suspended for another reason calls suspendUser, which returns 404 because X's status is not 'active', so the second reason is never recorded. Clearing the escalation then reinstates X.\n\n(a) Two people report the same template under CSAM. Actioning both runs the template branch twice (it does not filter on deleted_at or status), which opens two escalations per asset. An admin confirms one (reported to NCMEC) and closes the duplicate with 'clear', the only other action available. The clear sets legal_hold=false and scan_status=clean on the reported evidence, so purgeDeletedMedia deletes the file once the 30-day retention passes. (b) An admin suspends user U (suspendUser adds no flag). A job U had in flight then gets a scanner false positive, which adds a csam_match flag but leaves status alone because U is not active. When that is cleared, the code finds no open csam_match flag and sets U back to active, silently undoing the manual suspension.",
+  "evidence": "suspendUser records the suspension only as status='suspended' plus an audit row (admin.ts:213-220). It writes no account flag or suspension source, and it throws notFound() when the user is already suspended (admin.ts:214). On a false-positive clear, the reinstate guard in review.ts:164-169 checks only uncleared csam_match flags before setting status 'active' (review.ts:170-173). No admin unsuspend route exists, so this clear is the only reinstatement path, and it ignores why the account was suspended.\n\nThe clear branch updates mediaAssets by id without checking other open or confirmed escalate or hold events on the same subject. Reinstatement checks only for open csam_match flags, then runs `update users set status='active' where status='suspended'`.",
+  "suggestedFix": "Record each suspension with its source: an account_flags row of kind manual_review/admin_suspension, or a suspensions table. Reinstate only when no open suspension source of any kind remains. Let suspendUser add a reason to an already-suspended account instead of returning 404.\n\nBefore lifting the hold, check for any other open or confirmed escalate or hold moderation_events on the asset and refuse (or keep the hold) if one exists. Add a 'duplicate' resolution that keeps the hold. Record why a user was suspended and reinstate only scan-originated suspensions."
+ },
+ {
+  "id": "R22",
+  "severity": "medium",
+  "cluster": "auth",
+  "title": "Anyone can block a creator's account deletion by taking the handle deleteAccount will assign (deleted_<first 8 chars of user id>)",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/server/auth/account.ts:167",
+   "src/server/discovery/templates.ts:125",
+   "src/server/http.ts:69",
+   "src/server/me.ts:100",
+   "src/server/me.ts:106"
+  ],
+  "scenario": "An attacker reads a creator's user id from GET /api/templates, where each card carries creator.id, the full uuid. For id ab12cd34-..., the attacker sets their own handle with PATCH /api/me {handle:\"deleted_ab12cd34\"}. The handle passes the 3-24 character [A-Za-z0-9_] rule, and signup accepts it too. When the creator later calls DELETE /api/me with the correct password, the transaction's userProfiles update to handle `deleted_ab12cd34` violates user_profiles_handle_uq (lower(handle)). The whole deletion rolls back and the route returns a generic 500. The creator cannot delete the account for as long as the attacker keeps the handle. The same failure happens without an attacker once two deleted accounts share an 8-hex-character id prefix: about 1% chance at 10k deletions, and it rises quadratically.",
+  "evidence": "account.ts:167 sets `handle: deleted_${userId.slice(0, 8)}` inside the deletion transaction and does not catch the error. updateProfile only checks that no other user holds the handle (me.ts:101-105), and nothing reserves the deleted_ prefix. route() maps only 22P02 to 404, so the 23505 unique violation becomes a 500. updateProfile's check-then-update (me.ts:106) has the same race: two concurrent claims of one handle give the loser a 500 instead of the 409.",
+  "suggestedFix": "Use the full user id, or a random suffix with a retry, for the deleted handle. Better still, null the handle or move it to a non-unique column for deleted rows. Reserve the `deleted_` prefix in profileSchema and signupSchema. Map 23505 on user_profiles_handle_uq to 409 in updateProfile."
+ },
+ {
+  "id": "R23",
+  "severity": "medium",
+  "cluster": "auth",
+  "title": "Open redirect after sign-in via /auth?next=/\\evil.com (or /%09/evil.com)",
+  "originalSeverities": [
+   "medium",
+   "medium"
+  ],
+  "locations": [
+   "src/app/auth/page.tsx:10",
+   "src/app/auth/page.tsx:11",
+   "src/components/auth-forms.tsx:46"
+  ],
+  "scenario": "An attacker sends https://<app>/auth?next=/%5Cevil.example. `next` = \"/\\evil.example\" passes the check (starts with \"/\" and not \"//\"). After a real sign-in or sign-up, AuthForms calls router.replace(next). Next resolves it with new URL(href, location.href), and the WHATWG parser treats \"\\\" like \"/\" for https, so this becomes https://evil.example/. Next treats that as an external URL and navigates the window there. A user who is already signed in gets the same result server-side: redirect(next) sends `Location: /\\evil.example`, and browsers follow it to evil.example. \"/%09/evil.example\" works the same way, because the parser strips tabs and newlines. The attacker's page can then show a fake \"session expired, sign in again\" form right after a genuine Hushloom sign-in.\n\nAn attacker sends https://<app>/auth?mode=signin&next=%2F%5Cevil.example (or next=%2F%09%2Fevil.example). The guard accepts '/\\evil.example' because it starts with '/' and not with '//'. If the victim is already signed in, redirect(next) sends them straight to evil.example. Otherwise they sign in and AuthForms calls router.replace(next). Next's router builds new URL(href, location.href), which resolves to https://evil.example/, treats it as external (isExternalURL) and runs location.replace on it. I ran the same guard and new URL resolution in Node: both payloads resolve to https://evil.example/, and '/settings' stays on the app. On an adult site that asks for age verification, the landing page can be a convincing fake 'verify your age / re-enter password' page.",
+  "evidence": "auth/page.tsx:10 validates with `sp.next?.startsWith(\"/\") && !sp.next.startsWith(\"//\")` only. Next 15.5's redirect() writes the string straight into the location header (app-render.js addPathPrefix(getURLFromRedirectError(err))), and the client router's isExternalURL compares url.origin after `new URL(addBasePath(href), location.href)`.\n\nauth/page.tsx:10 `sp.next?.startsWith(\"/\") && !sp.next.startsWith(\"//\")` does not reject '\\' or ASCII tab/newline, which the WHATWG URL parser normalises to '//'. Next's app-render passes the redirect URL through unchanged as the Location header (addPathPrefix with an empty basePath). The client navigate path uses new URL(addBasePath(href), location.href).",
+  "suggestedFix": "Resolve the candidate with new URL(next, APP_URL), require url.origin === APP_URL origin, and pass on only pathname+search+hash. Alternatively, reject any `next` that contains \"\\\\\" or control characters, or whose second character is \"/\" or \"\\\\\".\n\nResolve the candidate with new URL(next, APP_URL) and accept it only when url.origin === new URL(APP_URL).origin, then use url.pathname+search+hash. Or allow only next values matching /^\\/(?![\\\\/])[\\w\\-./?=&%#]*$/ with no control characters."
+ },
+ {
+  "id": "R24",
+  "severity": "medium",
+  "cluster": "moderation",
+  "title": "Auto-suspension after a CSAM match leaves the creator's other templates published and generatable",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/server/admin.ts:217",
+   "src/server/discovery/templates.ts:159",
+   "src/server/safety/scan/index.ts:167",
+   "src/server/safety/scan/index.ts:200",
+   "src/server/templates/queries.ts:18"
+  ],
+  "scenario": "Creator X has 10 published templates. X uploads an image that the scanner reports as a CSAM match. recordVerdict holds the asset, suspends X and deletes X's sessions. If the matched asset was public, it also removes the one template using it. X's other templates stay status='published': they keep appearing in Explore, the home rails and /templates/<id>, and anyone can generate from them, although X's creator page now returns 404. An admin suspension of the same user would have unpublished all of them in the same transaction.",
+  "evidence": "The scan match path only updates templates whose poster or preview is the matched asset (scan/index.ts:167-172), then suspends at :200-208. Only admin.ts suspendUser unpublishes all of a creator's templates (admin.ts:215-219). Its docblock says this exists so that \"discovery never lists work whose creator page now 404s\". Discovery's `published` filter (templates.ts:159) and templateForViewer (queries.ts:18) never check the creator's users.status.",
+  "suggestedFix": "In recordVerdict's suspend branch, unpublish the owner's published templates in the same transaction (as suspendUser does). Also make the discovery and template queries require the creator to be active, so any suspension path hides that creator's work."
+ },
+ {
+  "id": "R25",
+  "severity": "medium",
+  "cluster": "scan",
+  "title": "Keyframe extraction has no resolution bound: a 42 MB 8K clip makes ffmpeg write 2.7 GB of PNGs, which are read into memory together",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/app/api/uploads/route.ts:15-21",
+   "src/server/media.ts:63-68",
+   "src/server/safety/scan/index.ts:70-90"
+  ],
+  "scenario": "A user uploads a 42 MB MP4: a static 8192x8192 noise frame held for 30 s. Stripping takes 1.2 s. extractKeyframes then has ffmpeg encode 30 PNGs of about 94 MB each. On a 4-core host this runs past the default 60 s timeout (SCAN_TIMEOUT_S*2000), so each request burns about 3.4 cores for 60 s and about 1 GB of tmp disk before the abort and a 503. On a host fast enough to finish within 60 s, `Promise.all(names.map(readFile))` loads all 30 frames (about 2.7 GB) at once, and photoDnaJpeg then decodes each 8K frame. Separately, req.formData() and arrayBuffer() buffer the whole request body before the 100 MB check at media.ts:64, so an oversized body is held in memory first. I did not run that part.",
+  "evidence": "I ran ffmpeg standalone with the exact argument lists. Building the clip took 29 s. Strip (media.ts:133 args): 1.17 s. Keyframes (scan/index.ts:76 args): 2m22s wall, 8m02s user CPU, 30 files, 2.7 GB total, first frame 94,324,403 bytes. Nothing passes -max_pixels or a scale filter, and nothing checks width or height before extraction.",
+  "suggestedFix": "Probe the stream first with ffprobe and reject anything above a maximum resolution and duration. Add `scale='min(1024,iw)':-2` to the keyframe filter and emit JPEG instead of PNG. Read the frames one at a time. Enforce a request body size limit at the edge or the route before formData()."
+ },
+ {
+  "id": "R26",
+  "severity": "medium",
+  "cluster": "moderation",
+  "title": "Takedown rate limit uses a client-set X-Forwarded-For, and the admin queue fetches the oldest 100 before sorting by urgency, so spam can hide new CSAM and NCII reports",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/app/admin/review/page.tsx:30",
+   "src/app/api/takedowns/route.ts:9-11",
+   "src/server/safety/takedowns.ts:96-131"
+  ],
+  "scenario": "A signed-out attacker POSTs /api/takedowns in a loop with a different `X-Forwarded-For: <random>` header each time (it is honoured directly, or kept as the leftmost entry by a proxy that appends). Each request lands in a fresh bucket, so the 10-per-hour limit never applies. After 100 or more junk 'other' requests are open, listTakedowns selects the oldest 100 open rows (ORDER BY created_at LIMIT 100) and only then sorts csam, ncii and likeness first. Any genuine report filed after the flood is missing from /admin/review and /api/admin/review until an admin dismisses the junk one at a time, each with a note of at least 3 characters.",
+  "evidence": "The bucket is `takedown:ip:${x-forwarded-for.split(',')[0]}` and nothing establishes a trusted proxy (grep finds no other IP helper). The query orders by createdAt and limits to 100 at takedowns.ts:103-104, and the urgency sort is applied in memory at :131.",
+  "suggestedFix": "Derive the client IP from the rightmost trusted hop (or a platform header the edge sets), and add a global cap on signed-out requests. Sort by urgency in SQL (CASE on category, then created_at) before the LIMIT, show the total open count, and add bulk dismiss."
+ },
+ {
+  "id": "R27",
+  "severity": "medium",
+  "cluster": "scan",
+  "title": "Uploads over 10 MB fail with a 500 because middleware truncates the body (documented limits are 20 MB images / 100 MB videos)",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/app/api/characters/route.ts:14",
+   "src/app/api/uploads/route.ts:15",
+   "src/middleware.ts:24",
+   "src/server/http.ts:69",
+   "src/server/media.ts:39",
+   "src/server/media.ts:40"
+  ],
+  "scenario": "A user picks a 12 MB PNG or JPEG in the Create panel, which accepts image/jpeg,png,webp, or posts an MP4 between 10 and 100 MB to /api/uploads. The middleware matcher covers /api/*. Next 15.5 clones the body for middleware with experimental.middlewareClientMaxBodySize, default 10 MB (node_modules/next/dist/server/body-streams.js:30, 86-97), and hands the route a body cut at 10 MB. req.formData() then throws TypeError 'Failed to parse body as FormData.' I reproduced that exact throw with Node 22's Request.formData on a 12 MB multipart body truncated to 10 MB. route() does not recognise the TypeError, so the user gets a 500 'Something went wrong on our side' instead of the intended 413. The same 500 occurs for any POST to /api/uploads or /api/characters whose body is not multipart (for example application/json).",
+  "evidence": "next.config.ts sets no middlewareClientMaxBodySize. media.ts:39-40 promise 20 MB and 100 MB limits that can never be reached. route() maps only HttpError, ZodError, InsufficientCreditsError and 22P02.",
+  "suggestedFix": "Either set experimental.middlewareClientMaxBodySize to just above 100 MB, or exclude /api/uploads and /api/characters from the middleware matcher and do the origin check inside those handlers. Wrap req.formData() in try/catch and map failures to 400 or 413. Check Content-Length before parsing so oversize requests are rejected early."
+ },
+ {
+  "id": "R28",
+  "severity": "medium",
+  "cluster": "auth",
+  "title": "Unhandled-error logging writes full SQL parameters (prompts, emails, bcrypt hashes, takedown requester details) to logs",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/server/auth/account.ts:63",
+   "src/server/auth/account.ts:95",
+   "src/server/generation/service.ts:269",
+   "src/server/http.ts:69",
+   "src/server/log.ts:7",
+   "src/server/safety/takedowns.ts:65"
+  ],
+  "scenario": "Drizzle 0.45 wraps every failed query in DrizzleQueryError, whose message is `Failed query: <sql>\\nparams: <all bound values>` (node_modules/drizzle-orm/errors.js:10-13, pg-core/session.js:36-41). route() logs any unrecognised error with { err }, and serialize() copies err.message and err.stack (which repeats the message). Deterministic trigger: POST /api/auth/signup with dateOfBirth \"1990-02-31\". It passes the regex and ageOn(), then the users insert fails in Postgres (date out of range). registerUser rethrows and the log line contains the email, the bcrypt passwordHash and the date of birth. In production, any Postgres error landing on a write that carries user content does the same: a connection reset during failover, a lock or statement timeout, or an FK race. That covers the generation_jobs insert with the explicit prompt and negativePrompt, preset and template prompt writes, profile updates, and the takedown insert with requester email, name and details. The addendum says no explicit or private content may leak through logs, and the planned infra error webhook would forward these lines off-host.",
+  "evidence": "http.ts:69 `logger.error(\"unhandled route error\", { path, err })`. log.ts:7 serialises `{ name, message, stack }` for any Error with no redaction. Drizzle's error message embeds `${params}`.",
+  "suggestedFix": "In route() (and the worker's failed handler), log only err.name, err.cause?.code and a request id. For DrizzleQueryError drop .message, .stack and .params and log the Postgres code/constraint instead. Add a redaction step in log.ts that strips `params:` sections and known keys (prompt, email, details)."
+ },
+ {
+  "id": "R29",
+  "severity": "medium",
+  "cluster": "scan",
+  "title": "/api/media reads the whole file into memory on every request, including 1-byte Range requests (amplification, local driver)",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/app/api/media/route.ts:25",
+   "src/app/api/media/route.ts:34",
+   "src/server/storage/index.ts:52"
+  ],
+  "scenario": "With STORAGE_DRIVER=local, which production allows (env.ts:121 only requires an absolute path), anonymous visitors in non-covered jurisdictions get signed /api/media URLs for public template previews from GET /api/templates (1 h TTL). Sending many concurrent `Range: bytes=0-0` requests to a video URL makes each request readFile the entire asset into a Buffer before slicing out one byte. With N concurrent requests, memory is N x file size while the attacker downloads almost nothing, until the process runs out of memory. Ordinary mobile video seeking (many range requests) also re-reads the full file every time.",
+  "evidence": "route.ts:25 `const body = await storage().get(key)` runs before the Range header is parsed. LocalDriver.get is `readFile(...)` with no streaming. /api/media has no rate limit and is not wrapped in route().",
+  "suggestedFix": "Stat the file and stream only the requested range with fs.createReadStream(path, { start, end }) (return a ReadableStream). Validate the range against the stat size, and add a per-IP limit on concurrent media streams."
+ },
+ {
+  "id": "R30",
+  "severity": "medium",
+  "cluster": "auth",
+  "title": "Shared Redis client uses maxRetriesPerRequest: null, so rate-limited endpoints and the health check hang instead of failing when Redis is down",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/app/api/auth/login/route.ts:13",
+   "src/app/api/health/route.ts:17",
+   "src/server/redis.ts:20",
+   "src/server/redis.ts:8"
+  ],
+  "scenario": "Redis restarts or becomes unreachable. With maxRetriesPerRequest: null and the default offline queue, ioredis keeps every command queued until it reconnects. Every handler that awaits rateLimit() therefore hangs with no response until the proxy times out: login, signup, uploads, drafts, checkout, takedowns, age-verification start, push subscribe, reports, characters. Promises and sockets pile up in the process. GET /api/health awaits redis().ping() the same way, so it never returns its intended 503 {redis:'down'} body and monitoring sees only timeouts.",
+  "evidence": "redis.ts:8 creates a single shared IORedis with { maxRetriesPerRequest: null }, a setting BullMQ needs only for worker connections. rateLimit() and health both use that client with no timeout.",
+  "suggestedFix": "Give rate limiting and health their own IORedis client with maxRetriesPerRequest set to e.g. 1, enableOfflineQueue: false and a commandTimeout. Wrap rateLimit in a timeout and decide explicitly whether to fail open or closed for each endpoint. Keep maxRetriesPerRequest: null only on BullMQ connections."
+ },
+ {
+  "id": "R31",
+  "severity": "medium",
+  "cluster": "generation",
+  "title": "The active-jobs cap is checked before any lock, so parallel confirms exceed it (a paid perk)",
+  "originalSeverities": [
+   "medium",
+   "low"
+  ],
+  "locations": [
+   "src/server/credits/ledger.ts:29-34",
+   "src/server/generation/service.ts:305",
+   "src/server/generation/service.ts:305-328",
+   "src/server/generation/service.ts:321-328"
+  ],
+  "scenario": "A free user (USER_MAX_ACTIVE_JOBS=3) with 2 active jobs creates 5 drafts and fires 5 POST /api/generations/:id/confirm requests in parallel. Each transaction locks only its own job row and runs count(*) of queued and processing jobs, sees 2, and passes. The first lock shared by all of them is the credit_accounts FOR UPDATE inside reserveForJob, which comes after the check. All 5 queue (7 active), as long as credits cover them. 'N generations at once' is sold as a pass perk (pricing.ts: 3 or 6), and one user can fill the shared worker queue ahead of everyone else.\n\nA user with 2 active jobs and a limit of 3 sends confirm requests for two different drafts at once. Each transaction locks only its own job row, both count 2 active, both reserve (serialized on the account lock, so the balance stays correct), and both queue. The user ends up with 4 active jobs. Money stays consistent; only the concurrency limit is bypassed.",
+  "evidence": "The count query runs before reserveForJob \u2192 lockAccount, so concurrent confirms for one user are not serialized at the point of the check.\n\nThe count(*) at lines 321-324 runs before reserveForJob takes the credit_accounts row lock, and nothing locks per user before the count.",
+  "suggestedFix": "Take the per-user lock before counting: call lockAccount (SELECT credit_accounts ... FOR UPDATE) or pg_advisory_xact_lock(hash(user_id)) at the start of the confirm transaction, then count.\n\nTake the account lock (or a per-user advisory lock) before counting active jobs in confirmJob."
+ },
+ {
+  "id": "R32",
+  "severity": "medium",
+  "cluster": "payments",
+  "title": "A processor 'Cancellation' (stop rebilling) ends the paid pass immediately instead of at period end",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/server/generation/service.ts:101-111",
+   "src/server/payments/providers/ccbill.ts:176-178",
+   "src/server/payments/providers/segpay.ts:198-200",
+   "src/server/payments/service.ts:118-127"
+  ],
+  "scenario": "A user buys the Studio Pass on day 1 and on day 2 cancels the auto-renewal at CCBill or Segpay, which is common. CCBill sends Cancellation now and Expiration at the end of the period. Segpay sends Cancellation now and Disable at expiry. Both adapters map the cancellation itself to subscription_cancelled, and processPaymentEvent sets status='canceled'. activePlan() counts only active/trialing rows, so VIP templates and the 6-job concurrency stop on day 2, although the user paid through day 30.",
+  "evidence": "CCBill maps both 'Cancellation' and 'Expiration', and Segpay maps 'cancel'/'cancellation' alongside 'disable', to the same subscription_cancelled event. The handler sets status canceled no matter what current_period_end says, and activePlan filters on status before period end.",
+  "suggestedFix": "Map 'stop rebilling' events (CCBill Cancellation, Segpay Cancellation) to a status that stays entitled until current_period_end, for example status 'active' with a cancelAtPeriodEnd marker. Only Expiration/Disable should end access."
+ },
+ {
+  "id": "R33",
+  "severity": "medium",
+  "cluster": "payments",
+  "title": "Account deletion leaves the processor subscription billing, and renewals keep granting credits to the deleted account",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/server/auth/account.ts:156-178",
+   "src/server/payments/service.ts:96-105",
+   "src/server/payments/types.ts:118-119"
+  ],
+  "scenario": "A Night Pass holder deletes their account in Settings. deleteAccount soft-deletes content and sessions but never touches the subscriptions row or calls the provider. The optional cancelSubscription is not called anywhere, and the deletion sheet says nothing about passes. Each month CCBill/Segpay rebills the card, and subscription_renewed grants 400 credits to an account nobody can sign in to.",
+  "evidence": "deleteAccount has no subscriptions update and no provider call. The renewal handler looks up the subscription by provider id and grants to sub.userId without checking users.status or deleted_at.",
+  "suggestedFix": "In deleteAccount, mark the user's subscriptions canceled and either call provider.cancelSubscription or block deletion until the pass is cancelled at the processor, with that explained in the deletion sheet. Ignore or refund renewals for deleted users."
+ },
+ {
+  "id": "R34",
+  "severity": "medium",
+  "cluster": "scan",
+  "title": "Removing a template from the Reports panel, or suspending its creator, leaves its media servable through links already handed out (up to about 2 hours on the default local driver)",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/app/api/media/route.ts:22-30",
+   "src/server/admin.ts:117-119",
+   "src/server/admin.ts:215-219",
+   "src/server/media.ts:29",
+   "src/server/safety/takedowns.ts:176-177",
+   "src/server/storage/index.ts:57-60"
+  ],
+  "scenario": "A member reports a published template with reason 'minor' or 'non_consent'. An admin resolves the report with action 'remove'. resolveReport only sets templates.status = 'removed'. The template's public poster and preview media rows keep deletedAt = null and scanStatus = 'clean'. Each viewer who loaded explore, home, the template page or a creator page in the previous 1 to 2 hours holds a signed /api/media URL. The media route accepts any valid signature for a clean, non-deleted asset, so those URLs keep returning the image or video, with 'Cache-Control: private, max-age=<remaining>' so browsers keep it too. Public links are signed with exp = ceil((now+3600)/3600)*3600, so they last 3600 to 7199 s. suspendUser behaves the same way (it sets templates to 'unpublished' only). The takedown path does soft-delete the assets (takedowns.ts:206), so the two removal paths are inconsistent. The removed template's files are also never soft-deleted, so they are never purged.",
+  "evidence": "admin.ts:119 updates only templates. No mediaAssets update exists for subjectType 'template'; the 'output' branch at :121-122 does update media. The media route checks only `asset.deletedAt` and `asset.scanStatus !== 'clean'` (route.ts:23). It does not check visibility, template status or owner status. LocalDriver.signedUrl rounds expiry up to the next TTL boundary (storage/index.ts:60). I checked the arithmetic with node: lifetimes are 3600 to 7197 s for public links and 300 to 599 s for private ones.",
+  "suggestedFix": "In resolveReport's template 'remove' branch and in suspendUser, soft-delete the template's posterAssetId and previewAssetId. For SEVERE reasons such as 'minor', place them on legal hold and open an escalation, as resolveTakedown does. Optionally have /api/media refuse public assets whose template is no longer published."
+ },
+ {
+  "id": "R35",
+  "severity": "medium",
+  "cluster": "moderation",
+  "title": "A VIP template's full recipe (prompt, negative prompt, model, settings) is sent to and shown to viewers without a pass, and the same generation succeeds without the templateId",
+  "originalSeverities": [
+   "medium"
+  ],
+  "locations": [
+   "src/app/templates/[id]/page.tsx:142-152",
+   "src/app/templates/[id]/page.tsx:38",
+   "src/components/create-panel.tsx:104-114",
+   "src/server/generation/service.ts:229-238"
+  ],
+  "scenario": "A signed-in member without a pass opens /templates/<vip-slug>. The page computes locked = true and shows the 'A pass unlocks it' banner. It still passes prompt: data.version.prompt, negativePrompt, modelKey and defaults to CreatePanel, which preloads them into the visible, editable prompt textarea. The member copies them into /generate/image and submits with no templateId. createDraft checks VIP only inside `if (input.templateId)`, so the same recipe runs on the same model and the VIP gate is bypassed. If the recipe is meant to be the paid part of a VIP template, this delivers paid content without payment. If prompts are meant to be public teasers, the gate only blocks attribution. Product owner to decide; payments reviewers may already cover this.",
+  "evidence": "template page: `const locked = t.isVip && !ctx.vip && !data.own;` then `template={{ ..., prompt: data.version.prompt, negativePrompt: data.version.negativePrompt, modelKey: data.version.modelKey, defaults: ..., locked }}`. create-panel: `prompt: prefill?.prompt ?? template?.prompt ?? \"\"` \u2192 useState(original.prompt), rendered in the textarea whether or not the template is locked. service.ts:236 throws vip_required only when templateId is set.",
+  "suggestedFix": "When `locked`, leave prompt, negativePrompt and defaults out of the page and RSC payload (send the title and model only), and show the recipe after purchase. If the recipe is meant to be public, say so on the pricing page and rename the gate so it does not suggest the recipe is paid content."
+ },
+ {
+  "id": "R36",
+  "severity": "low",
+  "cluster": "age",
+  "title": "The step-one age gate cookie is enforced only by the root layout's render, so the JSON API (and the page's RSC payload) serve media without it",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/app/api/age-gate/route.ts:5-10",
+   "src/app/api/templates/route.ts:236-241",
+   "src/app/layout.tsx:56-69"
+  ],
+  "scenario": "An anonymous visitor from an uncovered place who never clicks 'I am 18 or older' (no hl_age_ok cookie) requests GET /api/templates?sort=new. They get template cards with signed posterUrl and previewUrl, which /api/media then serves. Nothing checks the gate cookie outside the layout. The layout also swaps {children} for <AgeGate/> without stopping the page from rendering. In Next 15.5, create-component-tree.js puts the page element into the segment seed data regardless of whether the layout renders children, so the page's RSC payload (card props with signed URLs) should also be present in the gated HTML. That second point was read from the Next source, not run.",
+  "evidence": "The cookie is read only in layout.tsx (`ageOk = Boolean(user) || cookie === \"1\"`). The middleware and the API routes ignore it. The gate is a self-declaration, which is why this is rated low.",
+  "suggestedFix": "Enforce hl_age_ok (or a session) in middleware for page routes and for /api/templates: redirect pages to the gate and return 403 or withhold media from the API. Do not rely on the layout for this."
+ },
+ {
+  "id": "R37",
+  "severity": "low",
+  "cluster": "scan",
+  "title": "Public template media URLs are bearer links that are not tied to a viewer and live up to about 2x their stated TTL",
+  "originalSeverities": [
+   "low",
+   "low"
+  ],
+  "locations": [
+   "src/app/api/media/route.ts:214-218",
+   "src/app/api/media/route.ts:29",
+   "src/app/policies/page.tsx:75",
+   "src/server/media.ts:29",
+   "src/server/storage/index.ts:57-60",
+   "src/server/storage/index.ts:57-65"
+  ],
+  "scenario": "A verified user copies a template's /api/media?k=...&e=...&s=... URL and hands it to an unverified GB user, or keeps using it themselves after their status expires. /api/media checks only the HMAC, expiry, deletedAt and scanStatus, never who is asking or their age status. For public assets the TTL is 3600 s, but LocalDriver rounds exp up to the next TTL boundary (`Math.ceil((now + ttl)/ttl)*ttl`), so a link can stay valid for up to 7200 s. Responses also carry `Cache-Control: private, max-age=<remaining>`, so the browser cache can serve them for that long.\n\nThe Policies page tells users a private link 'lasts five minutes by default'. LocalDriver.signedUrl rounds expiry up to the next multiple of the TTL. A private link signed at 10:00:01 expires at 10:10:00 (599 s), and a public link signed at 10:00:01 expires at 12:00:00 (7199 s, not 1 hour). The media route then sends Cache-Control: private, max-age=<remaining>, so a shared browser keeps the bytes for that whole span. A user relying on the stated 5-minute window when sharing a link (which the page warns about) gets up to 10 minutes.",
+  "evidence": "signLocal covers key, exp and download only. No viewer id or status goes into the signature.\n\n`const exp = Math.ceil((now + ttlSeconds) / ttlSeconds) * ttlSeconds;` I checked the lifetimes with node: 300 to 599 s private, 3600 to 7197 s public. route.ts:29 sets max-age to exp minus now.",
+  "suggestedFix": "Acceptable as a design choice if documented. To tighten it, shorten the public TTL, drop the round-up (or round to a smaller window), and optionally bind the signature to the viewer id and check the session in /api/media for explicit assets.\n\nRound to a sub-window instead (for example ceil to 60 s) so a link lasts at most TTL + 60 s, or change the Policies text to say 'up to ten minutes'. Consider 'private, no-store' on private media rather than max-age."
+ },
+ {
+  "id": "R38",
+  "severity": "low",
+  "cluster": "payments",
+  "title": "The chargeback checkout block is enforced only at /api/checkout; saved processor URLs never expire and webhooks grant regardless of flags",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/server/payments/index.ts:55",
+   "src/server/payments/providers/ccbill.ts:76-78",
+   "src/server/payments/providers/segpay.ts:98-100",
+   "src/server/payments/service.ts:241-245",
+   "src/server/payments/service.ts:54-63"
+  ],
+  "scenario": "Before charging back, a user saves the FlexForm or Segpay URL that /api/checkout returned. After the chargeback flag is set, /api/checkout returns 403, but the saved URL still works: the pass-through HMAC has no expiry or nonce. Paying through it credits the account, because processPaymentEvent never checks open flags. A fraudster can keep buying with other cards, which adds chargebacks to the merchant's ratio; that ratio matters to CCBill and Segpay.",
+  "evidence": "assertCanCheckout is called only in startCheckout. The pass-through signatures cover only user and item. apply() never consults accountFlags.",
+  "suggestedFix": "Add an expiry or nonce to the pass-through, or use a server-side checkout-intent row. On purchase_completed or subscription_started for an account with an open chargeback flag, record the payment and raise a manual_review flag instead of granting automatically."
+ },
+ {
+  "id": "R39",
+  "severity": "low",
+  "cluster": "payments",
+  "title": "Stripe pass refunds and disputes never match the credited invoice, so no clawback and no chargeback flag",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/server/payments/providers/stripe.ts:100-109",
+   "src/server/payments/providers/stripe.ts:119-142",
+   "src/server/payments/service.ts:142-158"
+  ],
+  "scenario": "With PAYMENT_PROVIDER=stripe (off by default), pass credits are granted on invoice.paid with transactionRef = invoice id and metadata.subscriptionRef = sub_ id. A charge.refunded event carries transactionRef = payment_intent id and subscriptionRef = invoice id, or none on newer API versions. A charge.dispute.created event carries the payment_intent id and no subscriptionRef. findCreditedEvent matches neither, so the reversal is recorded as ignored/original_not_found: credits are kept and a dispute does not flag the account.",
+  "evidence": "Reversal lookup is by transactionRef equality, then by metadata->>'subscriptionRef'. Neither key matches what invoice.paid stored.",
+  "suggestedFix": "Record the invoice's payment_intent as transactionRef on subscription_renewed, or look up by invoice id, so Stripe reversals find the original grant."
+ },
+ {
+  "id": "R40",
+  "severity": "low",
+  "cluster": "payments",
+  "title": "The webhook provider lookup uses `in`, so /api/webhooks/payments/constructor (or toString, __proto__) throws a TypeError and returns 500",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/server/payments/index.ts:18-22",
+   "src/server/payments/webhook.ts:233-237"
+  ],
+  "scenario": "An unauthenticated POST to /api/webhooks/payments/constructor: isProviderKey('constructor') is true via the prototype, and providerByKey returns Object. `!provider.isSandbox && provider.webhookConfigured()` then throws 'webhookConfigured is not a function', which route() logs as an unhandled error and returns as 500. Anyone can repeat this to add error-log noise. A tsx probe confirmed the TypeError for constructor, toString and __proto__.",
+  "evidence": "`const isProviderKey = (k) => k in PROVIDERS;` checks inherited properties as well as the four providers.",
+  "suggestedFix": "Use Object.hasOwn(PROVIDERS, k), or a switch or Set over the four keys."
+ },
+ {
+  "id": "R41",
+  "severity": "low",
+  "cluster": "auth",
+  "title": "Signup accepts impossible calendar dates; the insert then fails with a 500 and logs the email, bcrypt hash and date of birth",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/server/auth/account.ts:41",
+   "src/server/auth/account.ts:48",
+   "src/server/http.ts:69",
+   "src/server/log.ts:7"
+  ],
+  "scenario": "POST /api/auth/signup with dateOfBirth \"2000-02-30\" or \"1990-13-01\" passes the regex and ageOn(). The users insert fails with Postgres 22008. route() maps only 22P02, so the client gets a 500. logger.error serializes the DrizzleQueryError, whose message is \"Failed query: ... params: <email>,<bcrypt hash>,2000-02-30,...\". That puts the new user's credentials hash and PII into error logs, which the planned error webhook may forward. The UI's type=\"date\" input prevents this for normal users, so it is reachable through the API only.",
+  "evidence": "dateOfBirth is z.string().regex(/^\\d{4}-\\d{2}-\\d{2}$/) with no calendar check. ageOn() does not validate month or day. drizzle-orm 0.45 DrizzleQueryError embeds params in .message, and log.ts serializes err.message.",
+  "suggestedFix": "Validate the date as a real calendar date in signupSchema, for example by parsing and round-tripping it. In route(), log a Drizzle error's cause code and query name rather than the message that carries the params."
+ },
+ {
+  "id": "R42",
+  "severity": "low",
+  "cluster": "scan",
+  "title": "Missing guards on verdict and purge writes: a later non-match verdict can overwrite 'matched', and a purge deletes without re-checking the hold",
+  "originalSeverities": [
+   "low",
+   "low"
+  ],
+  "locations": [
+   "scripts/scan-backfill.ts:30-46",
+   "src/server/media.ts:163-170",
+   "src/server/media.ts:183-189",
+   "src/server/media.ts:183-194",
+   "src/server/safety/scan/index.ts:150-156",
+   "src/server/safety/takedowns.ts:191-193"
+  ],
+  "scenario": "scan-backfill selects every 'pending' row, which includes uploads and outputs that live requests are scanning right now. If the backfill records 'matched' (hold, escalation, suspension) and the live scan then returns 'unavailable' (for example a PhotoDNA 429, because each process throttles to 5 rps on its own), recordVerdict's non-match branch overwrites scan_status from matched to unavailable. The fail-closed path then hard-deletes the uploads row and consent record of evidence that has an open escalation. Separately, purgeRows deletes the stored object for rows chosen earlier without re-checking legal_hold, so a hold set while a batch of up to 500 is in progress does not stop the delete.\n\nThe hourly purgeDeletedMedia selects up to 500 soft-deleted rows with legal_hold=false, then deletes them one at a time. While it iterates, an admin actions a CSAM takedown on one of those assets: legal_hold=true is set and an escalation opened. purgeRows still calls storage().delete(key) and overwrites storage_key with 'purged/<id>', so the escalation points at evidence that no longer exists.",
+  "evidence": "The non-match update has no `scan_status <> 'matched'` condition. discardUnscannedUpload deletes uploads and consentRecords unconditionally (media.ts:152-153). In purgeRows, storage().delete runs before any update and has no hold condition.\n\npurgeRows neither re-checks legal_hold nor locks the row. Its final UPDATE has no legal_hold condition.",
+  "suggestedFix": "Add `and scan_status <> 'matched'` to the non-match update, and skip discardUnscannedUpload's row deletes when the asset is held. In purgeRows, set storage_key='purged/\u2026' only where legal_hold=false and the row is still deleted (UPDATE ... RETURNING), then delete the object only if that update matched.\n\nPer row, first run UPDATE media_assets SET storage_key='purged/'||id WHERE id=$1 AND legal_hold=false AND storage_key=$key RETURNING, or SELECT ... FOR UPDATE, and delete the bytes only if that claimed the row."
+ },
+ {
+  "id": "R43",
+  "severity": "low",
+  "cluster": "auth",
+  "title": "Malformed but schema-valid inputs reach code that throws non-HttpError, producing 500s and error logs",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/app/api/generations/route.ts:20",
+   "src/app/api/takedowns/route.ts:14",
+   "src/server/auth/account.ts:48",
+   "src/server/http.ts:66",
+   "src/server/safety/takedowns.ts:50"
+  ],
+  "scenario": "(1) Signed out, POST /api/takedowns with {category:'other', target:'/templates/%zz', email:'a@b.co', goodFaith:true}: resolveTarget calls decodeURIComponent('%zz'), which throws URIError (confirmed in Node), so the response is a 500. (2) POST /api/auth/signup with dateOfBirth '1990-02-31' or '1990-13-01' passes the regex and ageOn(), then the users insert fails in Postgres (22008), giving a 500 (and the log leak above). (3) Any string param or body field containing U+0000 (for example GET /api/projects/%00, or q=%00 on /api/templates) is rejected by Postgres with 22021, not the 22P02 that route() maps, so the response is a 500. (4) GET /api/generations?offset=1e20 passes z.coerce.number().int().min(0) with no max. postgres.js sends '100000000000000000000', the OFFSET bigint overflows (22003) and the response is a 500. Cases 2-4 are reasoned from the code and postgres.js/drizzle serialisation; no database was run.",
+  "evidence": "isBadIdentifier (http.ts:76-81) maps only 22P02. The DOB schema is a bare /^\\d{4}-\\d{2}-\\d{2}$/ regex. The generations listQuery offset has no .max(), unlike /api/templates (max 10_000).",
+  "suggestedFix": "Wrap decodeURIComponent in try/catch and fall back to 'url'. Validate the date of birth as a real calendar date in zod. Add .max() to offset, and add a .refine rejecting \\u0000 on free-text fields, or map 22021, 22008 and 22003 to 400 in route()."
+ },
+ {
+  "id": "R44",
+  "severity": "low",
+  "cluster": "scan",
+  "title": "Download redirect uses the server's bind origin, not APP_URL, which breaks downloads behind a proxy (local driver)",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/app/api/generations/[id]/download/route.ts:23"
+  ],
+  "scenario": "On a local-storage deployment behind a TLS reverse proxy, GET /api/generations/<id>/download returns `Location: http://<HOSTNAME>:<PORT>/api/media?...`, for example http://0.0.0.0:3000/... The browser cannot reach that address, so every download fails, and the response exposes the internal host and port. Next builds req.nextUrl from initURL = `${protocol}://${fetchHostname}:${port}` (next-server.js:1314; NextURL.origin is url.origin), and the middleware's own comment says the request URL may carry the internal host.",
+  "evidence": "`NextResponse.redirect(new URL(url, req.nextUrl.origin), 302)`, where url is the relative '/api/media?...' path from LocalDriver.signedUrl. The age-verification return route uses env().APP_URL correctly.",
+  "suggestedFix": "Build the redirect with new URL(url, env().APP_URL), or return a relative Location."
+ },
+ {
+  "id": "R45",
+  "severity": "low",
+  "cluster": "age",
+  "title": "Age-verification return route turns provider fetch failures into a raw JSON 500/422 instead of redirecting to Settings",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/app/api/age-verification/return/route.ts:22",
+   "src/server/age/providers/yoti.ts:183",
+   "src/server/age/providers/yoti.ts:75"
+  ],
+  "scenario": "A user finishes a Yoti check and is sent to /api/age-verification/return?sessionId=... If Yoti's result API returns non-2xx, takes longer than the 15 s timeout, or returns a shape that sessionResult.parse rejects (the adapter is unverified against the real service), fetchResult throws a plain Error or ZodError. The route rethrows anything that is not HttpError. route() then returns a 500 'internal' JSON body, or a 422 'Some fields need attention' with Yoti response field details. The user is left on a JSON page rather than being redirected to /settings#age-verification.",
+  "evidence": "route.ts:22 `if (!(err instanceof HttpError)) throw err;`. yotiRequest throws `new Error(...)` on !res.ok and AbortSignal timeouts propagate. route() maps ZodError to 422 with err.flatten().",
+  "suggestedFix": "Catch all errors in the return route, log the code only, and always redirect to VERIFY_PATH. The status stays pending and the webhook or next visit will settle it."
+ },
+ {
+  "id": "R46",
+  "severity": "low",
+  "cluster": "generation",
+  "title": "Favorite and rating counters drift under concurrency despite the 'can never drift' comment",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/server/social.ts:15-20",
+   "src/server/templates/publish.ts:202-215"
+  ],
+  "scenario": "T1 and T2 favorite the same template at once. Each inserts its row, then runs UPDATE templates SET favorite_count = (SELECT count(*) ...). Under READ COMMITTED, T2's count subquery uses T2's statement snapshot, taken before T1 committed. T2 waits for T1's row lock and then writes count = n+1 although there are n+2 favorites. rateTemplate's rating_sum and rating_count drift the same way. The counts correct themselves on the next change but can stay wrong indefinitely for a template nobody touches again.",
+  "evidence": "There is no lock on the template before counting. The recount subquery is not re-run against the newer snapshot after the row-lock wait.",
+  "suggestedFix": "Lock the template row first (SELECT ... FOR UPDATE) before the insert and recount, or use atomic +1/-1 based on whether the insert or delete affected a row."
+ },
+ {
+  "id": "R47",
+  "severity": "low",
+  "cluster": "generation",
+  "title": "The worker ignores deleted_at, so a job soft-deleted while queued runs and charges",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/server/generation/processor.ts:144-158",
+   "src/server/generation/service.ts:455-471",
+   "src/server/safety/takedowns.ts:168"
+  ],
+  "scenario": "deleteJob reads the job outside a transaction (status awaiting_confirmation), and the same user's confirm in another tab commits 'queued' in between. deleteJob's transaction then sets deleted_at without re-checking status. processJob claims only on status='queued' and never looks at deleted_at, so the job runs and settleJob charges it. The Library hides it, and cancelJob filters deleted_at and returns 404, so the user cannot stop it. resolveTakedown on a job id that is still queued or processing has the same effect: it sets deleted_at without cancelRequested, so the output is created afterwards, unhidden and unheld, and the CSAM branch had no assets to hold.",
+  "evidence": "deleteJob does check-then-act across two statements with no FOR UPDATE. The claim transaction in processJob tests only status and cancelRequested.",
+  "suggestedFix": "In deleteJob, lock the row and re-check status inside the transaction. Have every soft-delete of a job also set cancel_requested=true, and have processJob treat deleted_at IS NOT NULL like cancelRequested (release and cancel)."
+ },
+ {
+  "id": "R48",
+  "severity": "low",
+  "cluster": "age",
+  "title": "startVerification can overwrite a just-verified status with 'pending'",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/server/age/service.ts:104-121"
+  ],
+  "scenario": "A user completes check A at the provider, then clicks Verify again before A's callback arrives. startVerification B reads status 'pending' and awaits provider.start. A's callback commits status 'verified'. B's transaction then runs an unconditional UPDATE users SET age_verification_status='pending'. The user is blocked from explicit content again until B completes, and if B is abandoned and later fails, the status becomes 'failed'. This only harms the user themselves; it is not a bypass.",
+  "evidence": "The status check happens before the provider call. The users update at line 119 has no status condition.",
+  "suggestedFix": "Add WHERE age_verification_status <> 'verified' to the users update at line 119 (as the failure path already does), or skip it if the row is verified."
+ },
+ {
+  "id": "R49",
+  "severity": "low",
+  "cluster": "moderation",
+  "title": "'Remix of' line shows the title and slug of a source template that was later unpublished, removed by moderation or takedown, or deleted with its creator's account",
+  "originalSeverities": [
+   "low"
+  ],
+  "locations": [
+   "src/app/templates/[id]/page.tsx:112-118",
+   "src/server/templates/queries.ts:34-36"
+  ],
+  "scenario": "Creator X publishes template A titled with identifying text, for example a real person's name. Member Y makes something from A and publishes it as template B, so B.remixedFromId = A. Later A is taken down as NCII (status removed, deletedAt set), or X deletes their account, or X unpublishes A. Anyone viewing B, including signed-out and unverified viewers, still sees 'Remix of <A's title>' and a link containing A's slug. The text that the takedown, deletion or unpublish was meant to withdraw stays public on someone else's page.",
+  "evidence": "templateForViewer loads remixedFrom with `select({ slug, title }).from(templates).where(eq(templates.id, row.t.remixedFromId))`. It has no status = 'published' or deletedAt filter. The page renders data.remixedFrom.title and the slug link whenever the row exists.",
+  "suggestedFix": "Add `eq(templates.status, 'published'), isNull(templates.deletedAt)` to the remixedFrom lookup. Otherwise render a neutral 'Remix of a template that is no longer available'."
+ }
+]

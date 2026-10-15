@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getModel } from "@/server/ai/registry";
 import { getDb } from "@/server/db";
-import { savedPresets } from "@/server/db/schema";
+import { savedPresets, type GenerationParams } from "@/server/db/schema";
 import { paramsSchema, getOwnedJob } from "@/server/generation/service";
 import { HttpError, notFound } from "@/server/http";
 
@@ -32,14 +32,15 @@ export async function getPreset(userId: string, presetId: string): Promise<Prese
 
 export async function createPreset(userId: string, input: z.infer<typeof presetSchema>): Promise<Preset> {
   let values: Omit<typeof savedPresets.$inferInsert, "userId">;
+  // The seed is what makes a run reproducible, not a style. Presets leave it out, whichever way they are saved.
+  const withoutSeed = (params: GenerationParams) => Object.fromEntries(Object.entries(params).filter(([k]) => k !== "seed")) as GenerationParams;
   if ("fromJobId" in input) {
     const job = await getOwnedJob(userId, input.fromJobId);
-    // The seed is what makes a run reproducible, not a style. Presets leave it out.
-    const params = Object.fromEntries(Object.entries(job.params).filter(([k]) => k !== "seed"));
-    values = { name: input.name, mode: job.mode, modelKey: job.modelKey, prompt: job.prompt, params };
+    values = { name: input.name, mode: job.mode, modelKey: job.modelKey, prompt: job.prompt, params: withoutSeed(job.params) };
   } else {
+    // Saved while composing (the Create panel's "Save as preset").
     if (!getModel(input.modelKey)) throw new HttpError(422, "unknown_model", "That model does not exist.");
-    values = { name: input.name, mode: input.mode, modelKey: input.modelKey, prompt: input.prompt, params: input.params };
+    values = { name: input.name, mode: input.mode, modelKey: input.modelKey, prompt: input.prompt, params: withoutSeed(input.params) };
   }
   const [count] = await getDb().select({ id: savedPresets.id }).from(savedPresets).where(eq(savedPresets.userId, userId)).offset(99).limit(1);
   if (count) throw new HttpError(422, "limit_reached", "You can keep up to 100 presets. Delete one first.");

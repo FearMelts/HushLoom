@@ -5,7 +5,7 @@ import { CreationThumb } from "@/components/library";
 import { TemplateGrid } from "@/components/template-card";
 import { ButtonLink, EmptyState } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { getCurrentUser } from "@/server/auth/session";
+import { viewerAccess } from "@/server/age/access";
 import { getDb } from "@/server/db";
 import { favorites } from "@/server/db/schema";
 import { cardsByIds } from "@/server/discovery/templates";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Favorites" };
 
 export default async function FavoritesPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
-  const user = await getCurrentUser();
+  const { user, viewer } = await viewerAccess();
   if (!user) redirect("/auth?next=/favorites");
   const tab = (await searchParams).tab === "creations" ? "creations" : "templates";
   const tabs = [
@@ -30,14 +30,14 @@ export default async function FavoritesPage({ searchParams }: { searchParams: Pr
       .where(and(eq(favorites.userId, user.id), eq(favorites.targetType, "template")))
       .orderBy(desc(favorites.createdAt))
       .limit(120);
-    const cards = await cardsByIds(ids.map((r) => r.id), user.id);
+    const cards = await cardsByIds(ids.map((r) => r.id), viewer);
     body = cards.length ? (
       <TemplateGrid cards={cards} signedIn />
     ) : (
       <EmptyState title="No saved templates" body="Tap the heart on any template to keep it here." action={<ButtonLink href="/explore" variant="ember">Explore templates</ButtonLink>} />
     );
   } else {
-    const items = await listCreations(user.id, { favorites: true, limit: 120 });
+    const items = await listCreations(user.id, { favorites: true, limit: 120 }, viewer);
     body = items.length ? (
       <ul className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
         {items.map((i) => (
@@ -62,7 +62,7 @@ export default async function FavoritesPage({ searchParams }: { searchParams: Pr
             key={t.key}
             href={t.key === "templates" ? "/favorites" : "/favorites?tab=creations"}
             aria-current={tab === t.key ? "page" : undefined}
-            className={cn("h-8 rounded-full px-3.5 text-[13px] leading-8", tab === t.key ? "bg-bone-50 font-semibold text-ink-950" : "hairline text-bone-300 hover:bg-ink-800")}
+            className={cn("h-8 rounded-full px-3.5 text-[13px] leading-8 max-sm:h-10 max-sm:leading-10", tab === t.key ? "bg-bone-50 font-semibold text-ink-950" : "hairline text-bone-300 hover:bg-ink-800")}
           >
             {t.label}
           </Link>

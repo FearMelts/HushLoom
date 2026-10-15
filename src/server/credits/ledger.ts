@@ -1,6 +1,6 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb, type Tx } from "@/server/db";
-import { creditAccounts, creditLedger } from "@/server/db/schema";
+import { accountFlags, creditAccounts, creditLedger, paymentEvents } from "@/server/db/schema";
 
 export class InsufficientCreditsError extends Error {
   constructor(
@@ -26,7 +26,8 @@ type Movement = {
 
 export type MovementResult = { applied: boolean; available: number; reserved: number };
 
-async function lockAccount(tx: Tx, userId: string) {
+/** Locks the user's credit account row, creating it if needed: the per-user lock every balance change takes. */
+export async function lockAccount(tx: Tx, userId: string) {
   await tx.insert(creditAccounts).values({ userId }).onConflictDoNothing();
   const [account] = await tx.select().from(creditAccounts).where(eq(creditAccounts.userId, userId)).for("update");
   if (!account) throw new Error("credit account missing after upsert");
@@ -94,8 +95,9 @@ export function settleJob(tx: Tx, userId: string, jobId: string, amount: number)
   });
 }
 
-export function releaseJob(tx: Tx, userId: string, jobId: string, amount: number, note: string) {
-  return applyMovement(tx, {
+export async function releaseJob(tx: Tx, userId: string, jobId: string, amount: number, note: string) {
+  const debts = await heldDebts(tx, userId, jobId);
+  const result = await applyMovement(tx, {
     userId,
     kind: "release",
     availableDelta: amount,
@@ -104,6 +106,67 @@ export function releaseJob(tx: Tx, userId: string, jobId: string, amount: number
     jobId,
     note,
   });
+  if (!result.applied || !debts.length) return result;
+  const collected = await collectHeldDebts(tx, userId, jobId, amount, debts);
+  return { ...result, available: result.available - collected };
+}
+
+/**
+ * A refund or chargeback that found the refunded credits held by creations in progress records
+ * those jobs and the amount on its credit_debt flag (payments/service.ts). Locks the reversed
+ * payments first, in the order the clawback takes them, then the open flags that name this job.
+ */
+async function heldDebts(tx: Tx, userId: string, jobId: string) {
+  const open = and(
+    eq(accountFlags.userId, userId),
+    eq(accountFlags.kind, "credit_debt"),
+    isNull(accountFlags.clearedAt),
+    sql`${accountFlags.details}->'heldJobIds' @> ${JSON.stringify([jobId])}::jsonb`,
+    sql`coalesce((${accountFlags.details}->>'outstanding')::int, 0) > 0`,
+  );
+  const found = await tx.select({ details: accountFlags.details }).from(accountFlags).where(open);
+  const originals = found.map((f) => f.details.originalEventId).filter((id): id is string => typeof id === "string");
+  if (!originals.length) return [];
+  await tx.select({ id: paymentEvents.id }).from(paymentEvents).where(inArray(paymentEvents.id, originals)).orderBy(paymentEvents.id).for("update");
+  return tx.select().from(accountFlags).where(open).orderBy(accountFlags.createdAt).for("update");
+}
+
+/** Takes the released credits back for the reversal, up to what each flag still has outstanding, once per job and flag. */
+async function collectHeldDebts(tx: Tx, userId: string, jobId: string, released: number, debts: (typeof accountFlags.$inferSelect)[]): Promise<number> {
+  let left = released;
+  for (const flag of debts) {
+    const d = flag.details;
+    const take = Math.min(left, Number(d.outstanding));
+    if (take <= 0) break;
+    const reversal = typeof d.paymentEventId === "string" ? d.paymentEventId : undefined;
+    const moved = await applyMovement(tx, {
+      userId,
+      kind: d.reversal === "chargeback" ? "chargeback" : "refund",
+      availableDelta: -take,
+      reservedDelta: 0,
+      idempotencyKey: `debt:${flag.id}:job:${jobId}`,
+      jobId,
+      paymentEventId: reversal,
+      note: "Held by a creation when the payment was reversed; taken back when it was released",
+    });
+    if (!moved.applied) continue;
+    left -= take;
+    await tx
+      .update(accountFlags)
+      .set({ details: sql`${accountFlags.details} || ${JSON.stringify({ outstanding: Number(d.outstanding) - take, collected: Number(d.collected ?? 0) + take })}::jsonb` })
+      .where(eq(accountFlags.id, flag.id));
+    // The reversal's own row counts what it took back, so a later reversal of the same payment owes only the rest.
+    if (reversal) {
+      await tx
+        .update(paymentEvents)
+        .set({
+          credits: sql`${paymentEvents.credits} - ${take}::int`,
+          metadata: sql`${paymentEvents.metadata} || jsonb_build_object('creditsReversed', coalesce((${paymentEvents.metadata}->>'creditsReversed')::int, 0) + ${take}::int, 'shortfall', greatest(coalesce((${paymentEvents.metadata}->>'shortfall')::int, 0) - ${take}::int, 0))`,
+        })
+        .where(eq(paymentEvents.id, reversal));
+    }
+  }
+  return released - left;
 }
 
 export async function getBalance(userId: string): Promise<{ available: number; reserved: number }> {

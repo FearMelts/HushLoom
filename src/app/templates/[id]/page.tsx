@@ -1,21 +1,21 @@
 import { eq } from "drizzle-orm";
-import { GitBranch, Star } from "lucide-react";
+import { ArrowRight, GitBranch, Star } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CreatePanel } from "@/components/create-panel";
 import { Avatar } from "@/components/shell";
-import { FollowButton, RateStars, ReportButton, TemplateMedia } from "@/components/template-detail";
+import { FollowButton, MakeBar, RateStars, ReportButton, TemplateMedia } from "@/components/template-detail";
 import { TemplateRail } from "@/components/template-card";
-import { Badge, SectionHeading } from "@/components/ui";
-import { getCurrentUser } from "@/server/auth/session";
+import { Badge, SectionHeading, SectionLink } from "@/components/ui";
+import { viewerAccess } from "@/server/age/access";
 import { createContext } from "@/server/create-context";
 import { getDb } from "@/server/db";
 import { discoveryEvents, userPreferences } from "@/server/db/schema";
-import { similarTemplates, cardsByIds } from "@/server/discovery/templates";
+import { browseTemplates, cardsByIds, isDemoModelKey, similarTemplates, type TemplateCard } from "@/server/discovery/templates";
 import { compact } from "@/lib/format";
 import { templateForViewer } from "@/server/templates/queries";
 import type { GenerationParams } from "@/server/db/schema";
-import type { GenerationMode } from "@/server/ai/registry";
+import { estimateCost, type GenerationMode } from "@/server/ai/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +25,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 }
 
 export default async function TemplatePage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
+  const { user, viewer } = await viewerAccess();
   const data = await templateForViewer((await params).id, user?.id ?? null);
   if (!data) notFound();
   const { t } = data;
@@ -34,24 +34,49 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
     const [prefs] = await getDb().select().from(userPreferences).where(eq(userPreferences.userId, user.id));
     if (prefs?.historyEnabled !== false) await getDb().insert(discoveryEvents).values({ userId: user.id, templateId: t.id, event: "view" });
   }
-  const [ctx, related, [card]] = await Promise.all([createContext(user), similarTemplates(t.id, user?.id ?? null, 10), cardsByIds([t.id], user?.id ?? null)]);
+  const [ctx, related, [card]] = await Promise.all([createContext(user), similarTemplates(t.id, viewer, 10), cardsByIds([t.id], viewer)]);
   const locked = t.isVip && !ctx.vip && !data.own;
   const rating = t.ratingCount ? (t.ratingSum / t.ratingCount).toFixed(1) : null;
+  const demo = isDemoModelKey(data.version.modelKey);
+
+  // The price on the phone "Make it" bar: the same starting model the Create panel picks.
+  const usable = ctx.models.filter((m) => m.output === t.mediaType);
+  const startModel = usable.find((m) => m.key === data.version.modelKey && m.available) ?? usable.find((m) => m.available) ?? usable[0];
+  const makeCost = startModel?.available ? estimateCost(startModel, data.version.defaults as GenerationParams, startModel.priceMultiplierPct) : null;
+
+  // "More in #tag" for the first two tags; each rail skips what an earlier rail already shows.
+  const seen = new Set([t.id, ...related.map((r) => r.id)]);
+  const tagRails: { tag: string; cards: TemplateCard[] }[] = [];
+  for (const tag of t.tags.slice(0, 2)) {
+    const { items } = await browseTemplates({ tag, excludeIds: [...seen], sort: "trending", limit: 8 }, viewer);
+    if (items.length) tagRails.push({ tag, cards: items });
+    for (const c of items) seen.add(c.id);
+  }
 
   return (
     <div className="space-y-12">
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:gap-10">
         <div className="lg:sticky lg:top-20 lg:self-start">
-          <TemplateMedia posterUrl={card?.posterUrl ?? null} previewUrl={card?.previewUrl ?? null} title={t.title} isVideo={t.mediaType === "video"} />
+          <TemplateMedia
+            posterUrl={card?.posterUrl ?? null}
+            previewUrl={card?.previewUrl ?? null}
+            title={t.title}
+            isVideo={t.mediaType === "video"}
+            withheld={!viewer.explicitAllowed}
+            signedIn={Boolean(user)}
+          />
         </div>
 
         <div className="min-w-0">
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {t.isVip ? <Badge tone="vip">VIP</Badge> : null}
             {t.quality === "4k" ? <Badge>4K</Badge> : null}
+            {demo ? <Badge tone="demo">Demo media</Badge> : null}
             <Badge tone={t.mediaType === "video" ? "video" : "plain"}>{t.mediaType === "video" ? `Video${t.durationS ? ` · ${t.durationS}s` : ""}` : "Image"}</Badge>
             {data.category ? (
-              <Link href={`/explore?category=${data.category.slug}`}>
+              // inline-flex keeps the badge on the row's line (an inline wrapper dropped it to the baseline); the
+              // 40 px box is the tap target, and its negative margins keep the row 20 px tall.
+              <Link href={`/explore?category=${data.category.slug}`} className="-my-2.5 inline-flex min-h-10 items-center">
                 <Badge>{data.category.name}</Badge>
               </Link>
             ) : null}
@@ -59,7 +84,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
           </div>
           <h1 className="mt-3 font-display text-4xl leading-tight sm:text-5xl">{t.title}</h1>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <Link href={`/creators/${data.handle}`} className="flex items-center gap-2.5">
+            <Link href={`/creators/${data.handle}`} className="flex min-h-10 items-center gap-2.5">
               <Avatar name={data.displayName} size={36} />
               <span>
                 <span className="block text-sm">{data.displayName}</span>
@@ -67,14 +92,14 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
               </span>
             </Link>
             {!data.own ? <FollowButton creatorId={t.creatorId} initial={data.following} signedIn={Boolean(user)} /> : (
-              <Link href={`/creators/${data.handle}?tab=manage`} className="text-[13px] text-ember-300 underline">Manage template</Link>
+              <Link href={`/creators/${data.handle}?tab=manage`} className="inline-flex min-h-10 items-center text-[13px] text-ember-300 underline">Manage template</Link>
             )}
           </div>
           {t.description ? <p className="mt-4 text-[15px] leading-relaxed text-bone-300">{t.description}</p> : null}
           <dl className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-bone-400">
             <div>
               <dt className="sr-only">Made</dt>
-              <dd>Made {compact(t.generationCount)} times</dd>
+              <dd>{t.generationCount === 1 ? "Made once" : `Made ${compact(t.generationCount)} times`}</dd>
             </div>
             <div>
               <dt className="sr-only">Favorites</dt>
@@ -99,7 +124,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
             <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Tags">
               {t.tags.map((tag) => (
                 <li key={tag}>
-                  <Link href={`/explore?q=${encodeURIComponent(tag)}`} className="tag rounded-full px-2.5 py-1 text-bone-400 hairline hover:text-bone-50">
+                  <Link href={`/explore?q=${encodeURIComponent(tag)}`} className="tag inline-flex h-6 items-center rounded-full px-2.5 text-bone-400 hairline hover:text-bone-50 max-sm:h-10 max-sm:px-3">
                     #{tag}
                   </Link>
                 </li>
@@ -107,7 +132,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
             </ul>
           ) : null}
 
-          <div className="mt-7 rounded-[24px_8px_24px_8px] bg-ink-900/70 p-4 hairline sm:p-6">
+          <div className="panel mt-7 bg-ink-900/70 p-4 hairline sm:p-6">
             <CreatePanel
               output={t.mediaType}
               models={ctx.models}
@@ -121,10 +146,11 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
                 slug: t.slug,
                 title: t.title,
                 mode: t.mode as GenerationMode,
-                prompt: data.version.prompt,
-                negativePrompt: data.version.negativePrompt,
+                // A VIP template's recipe is what the pass unlocks: without one, none of it is sent to the browser.
+                prompt: locked ? "" : data.version.prompt,
+                negativePrompt: locked ? "" : data.version.negativePrompt,
                 modelKey: data.version.modelKey,
-                defaults: data.version.defaults as GenerationParams,
+                defaults: locked ? {} : (data.version.defaults as GenerationParams),
                 locked,
               }}
             />
@@ -155,6 +181,24 @@ export default async function TemplatePage({ params }: { params: Promise<{ id: s
           <TemplateRail cards={related} signedIn={Boolean(user)} />
         </section>
       ) : null}
+
+      {tagRails.map(({ tag, cards }) => (
+        <section key={tag}>
+          <SectionHeading
+            kicker="Same tag"
+            title={`More in #${tag}`}
+            action={
+              <SectionLink href={`/explore?q=${encodeURIComponent(tag)}`}>
+                See all <ArrowRight size={14} aria-hidden />
+              </SectionLink>
+            }
+          />
+          <TemplateRail cards={cards} signedIn={Boolean(user)} />
+        </section>
+      ))}
+
+      {/* The shell's bottom padding makes room for this bar while it shows (it publishes --dock-h). */}
+      <MakeBar cost={makeCost} locked={locked} demo={demo} />
     </div>
   );
 }

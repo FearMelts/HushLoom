@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { pricing } from "@/config/pricing";
 
 export const metadata = { title: "Policies" };
@@ -10,8 +11,8 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
       <>
         <p>Hushloom is for people who are 18 or older and of legal age where they live. Signing up asks for a date of birth and a confirmation, and both are recorded.</p>
         <p>
-          Some regions require stronger age assurance than a self-declaration. Where the operator lists a region as strict, creating is blocked for self-declared accounts until a verification provider is
-          connected. This build does not include one.
+          Some regions require stronger age assurance than a self-declaration: the UK and a number of US states. If you are in one of them, creating, uploading and previews wait until you pass an age
+          check with our verification provider, from Settings. We keep only the outcome, the provider&apos;s reference and the dates, never your ID images or biometrics, and a check lasts a year by default before it must be redone.
         </p>
       </>
     ),
@@ -46,16 +47,52 @@ const sections: { id: string; title: string; body: React.ReactNode }[] = [
     ),
   },
   {
+    id: "abuse",
+    title: "Abuse scanning and takedowns",
+    body: (
+      <>
+        <p>
+          Every upload and every creation is checked against known child sexual abuse material before it can be shown, used or published. A match is blocked, kept as evidence for the
+          authorities, and the account is suspended while a person reviews it. If the check cannot run, nothing unchecked is kept: an upload asks you to try again in a few minutes, and a
+          creation waits and retries, or fails with your credits returned.
+        </p>
+        <p>
+          To report content that shows you without your consent, uses your likeness, or involves anyone under 18,{" "}
+          <Link href="/policies/takedown" className="text-ember-400 underline-offset-2 hover:underline">
+            request a takedown
+          </Link>
+          . You do not need an account.
+        </p>
+      </>
+    ),
+  },
+  {
     id: "privacy",
     title: "Privacy",
     body: (
       <>
         <p>
-          Everything you make is private unless you publish it. Private media is served only through short-lived signed links tied to your session, and the app asks search engines not to index any page.
+          Everything you make is private unless you publish it. Private media is served only through short-lived signed links, which the server issues to you after checking that it is
+          yours. A link lasts five minutes by default (at most half a minute more), and anyone who has it can open it until then, so share a download rather than a link. The app asks search engines not to index any page.
         </p>
         <p>
           Discovery uses the categories and tags of templates you saved, made or viewed, and the interests you pick. You can turn personalization or history off, and clear history at any time. Deleting your
           account or a creation hides it at once, and its files are removed from storage within 30 days. Withdrawing a consent removes the files right away.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "training",
+    title: "Training",
+    body: (
+      <>
+        <p>
+          Nothing you upload or make is used to train or fine-tune any model in this build. Train stores a consented reference photo and sends it with each Reference guided request you make, to the
+          model you chose, for that request only. A model that can&apos;t take a reference refuses the request, and your credits come back.
+        </p>
+        <p>
+          Using anything you add to train a model would need a separate consent that asks for exactly that. This build never asks for it, so it never happens.
         </p>
       </>
     ),
@@ -94,7 +131,7 @@ export default function PoliciesPage() {
       </p>
       <nav aria-label="On this page" className="mt-6 flex flex-wrap gap-2">
         {sections.map((s) => (
-          <a key={s.id} href={`#${s.id}`} className="hairline rounded-full px-3 py-1 text-[13px] text-bone-300 hover:bg-ink-800">
+          <a key={s.id} href={`#${s.id}`} className="hairline inline-flex h-8 items-center rounded-full px-3 text-[13px] text-bone-300 hover:bg-ink-800 max-sm:h-10 max-sm:px-3.5">
             {s.title}
           </a>
         ))}

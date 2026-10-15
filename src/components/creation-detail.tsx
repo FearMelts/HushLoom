@@ -1,16 +1,19 @@
 "use client";
 
-import { ArrowLeft, Bookmark, Columns2, Copy, Download, FastForward, FolderPlus, Heart, Repeat, Send, Shuffle, Trash2, Wand2, X } from "lucide-react";
+import { Bookmark, Columns2, Copy, Download, FastForward, FolderPlus, Heart, Repeat, Send, Shuffle, Trash2, Wand2, X } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { GenerationParams } from "@/server/db/schema";
 import type { CreationListItem } from "@/server/generation/views";
-import { api, ApiError, newIdempotencyKey } from "@/lib/api";
+import { api, ApiError, apiErrorAction, newIdempotencyKey } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { STATUS_LABEL, elapsed, relativeTime } from "@/lib/format";
+import { useOnline } from "@/lib/use-online";
 import { JOB_STARTED_EVENT } from "./job-tray";
-import { Badge, Button, ButtonLink, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
+import { OFFLINE_MESSAGE, OfflineGuard } from "./offline";
+import { WithheldMedia } from "./template-card";
+import { BackLink, Badge, Button, ButtonLink, Field, Sheet, buttonClass, inputClass, useToast } from "./ui";
 
 type Details = {
   prompt: string;
@@ -29,25 +32,47 @@ type Details = {
 
 type Pending = { id: string; costCredits: number; label: string; isDemo: boolean };
 
+// Below lg the media sits above the details in one column: capped at 60% of the screen height, so the status,
+// prompt and actions start on the first screen. Boxes keep 4:5 by capping their width; media keeps its own ratio.
+const capBox = "max-lg:mx-auto max-lg:w-[min(100%,48dvh)]";
+const capMedia = "max-lg:mx-auto max-lg:max-h-[60dvh] max-lg:w-auto";
+
 function Media({ item, className }: { item: CreationListItem; className?: string }) {
+  if (item.output?.mediaWithheld) {
+    // The server sent no media URL: the age rules here need a verification first.
+    return (
+      <div className={cn("petal relative aspect-[4/5] overflow-hidden hairline", capBox, className)}>
+        <WithheldMedia signedIn label="Verify your age to see this" />
+      </div>
+    );
+  }
   if (!item.output?.url) {
     const running = item.status === "queued" || item.status === "processing";
     return (
-      <div className={cn("petal grid aspect-[4/5] place-items-center bg-ink-850 hairline", running && "skeleton", className)}>
+      <div className={cn("petal grid aspect-[4/5] place-items-center bg-ink-850 hairline", capBox, running && "skeleton", className)}>
         <div className="p-6 text-center">
           <p className="font-display text-2xl">{STATUS_LABEL[item.status]}</p>
-          {running ? <p className="mt-1 font-mono text-[12px] text-bone-400">{elapsed(item.startedAt ?? item.queuedAt ?? item.createdAt)} elapsed</p> : null}
+          {running ? <p className="mt-1 font-mono text-[12px] text-bone-400" suppressHydrationWarning>{elapsed(item.startedAt ?? item.queuedAt ?? item.createdAt)} elapsed</p> : null}
           {item.failureMessage ? <p className="mt-2 max-w-xs text-sm text-bone-300">{item.failureMessage}</p> : null}
         </div>
       </div>
     );
   }
   return item.output.kind === "video" ? (
-    <video src={item.output.url} poster={item.output.posterUrl ?? undefined} controls loop playsInline muted preload="metadata" className={cn("petal w-full bg-ink-850", className)} aria-label="Your video" />
+    <video src={item.output.url} poster={item.output.posterUrl ?? undefined} controls loop playsInline muted preload="metadata" className={cn("petal w-full bg-ink-850", capMedia, className)} aria-label="Your video" />
   ) : (
     // eslint-disable-next-line @next/next/no-img-element -- signed URL
-    <img src={item.output.url} alt="Your creation" className={cn("petal w-full bg-ink-850 object-contain", className)} />
+    <img src={item.output.url} alt="Your creation" className={cn("petal w-full bg-ink-850 object-contain", capMedia, className)} />
   );
+}
+
+/** The Demo badge over a creation's media, when that media came from the demo model. */
+function DemoMark({ item }: { item: CreationListItem }) {
+  return item.isDemo && item.output ? (
+    <span className="pointer-events-none absolute left-2 top-2 flex gap-1">
+      <Badge tone="demo">Demo</Badge>
+    </span>
+  ) : null;
 }
 
 export function CreationDetail({
@@ -67,6 +92,7 @@ export function CreationDetail({
 }) {
   const router = useRouter();
   const toast = useToast();
+  const online = useOnline();
   const [fav, setFav] = useState(item.isFavorited);
   const [pending, setPending] = useState<Pending | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -80,6 +106,7 @@ export function CreationDetail({
   const kind = details.modelOutput;
 
   async function derive(relation: "retry" | "variation" | "continuation" | "extension", label: string) {
+    if (!online) return;
     setBusy(relation);
     try {
       const { job } = await api<{ job: { id: string; costCredits: number; isDemo: boolean } }>(`/api/generations/${item.id}/derive`, {
@@ -87,14 +114,14 @@ export function CreationDetail({
       });
       setPending({ id: job.id, costCredits: job.costCredits, label, isDemo: job.isDemo });
     } catch (e) {
-      toast({ message: e instanceof ApiError ? e.message : "Could not prepare that.", tone: "error" });
+      toast({ message: e instanceof ApiError ? e.message : "Could not prepare that.", tone: "error", action: apiErrorAction(e) });
     } finally {
       setBusy(null);
     }
   }
 
   async function confirmPending() {
-    if (!pending) return;
+    if (!pending || !online) return;
     setBusy("confirm");
     try {
       await api(`/api/generations/${pending.id}/confirm`, { body: { expectedCost: pending.costCredits } });
@@ -103,7 +130,7 @@ export function CreationDetail({
       setPending(null);
       router.refresh();
     } catch (e) {
-      toast({ message: e instanceof ApiError ? e.message : "Could not start.", tone: "error" });
+      toast({ message: e instanceof ApiError ? e.message : "Could not start.", tone: "error", action: apiErrorAction(e) });
     } finally {
       setBusy(null);
     }
@@ -114,8 +141,9 @@ export function CreationDetail({
     setFav(next);
     try {
       await api("/api/favorites", { method: next ? "POST" : "DELETE", body: { targetType: "creation", targetId: item.id } });
-    } catch {
+    } catch (e) {
       setFav(!next);
+      toast({ message: e instanceof ApiError ? e.message : "We couldn't update your favorites. Try again.", tone: "error" });
     }
   }
 
@@ -125,6 +153,8 @@ export function CreationDetail({
       await api(`/api/generations/${item.id}/cancel`, { method: "POST" });
       toast({ message: "Cancelling. Credits come back once it stops." });
       router.refresh();
+    } catch (e) {
+      toast({ message: e instanceof ApiError ? e.message : "We couldn't cancel it. Try again.", tone: "error" });
     } finally {
       setBusy(null);
     }
@@ -160,22 +190,28 @@ export function CreationDetail({
 
   return (
     <div>
-      <Link href="/collection" className="mb-4 inline-flex items-center gap-1.5 text-[13px] text-bone-400 hover:text-bone-50">
-        <ArrowLeft size={15} aria-hidden /> Library
-      </Link>
+      <div className="mb-4">
+        <BackLink href="/collection">Library</BackLink>
+      </div>
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <div className="space-y-3">
           {compareWith ? (
             <div className="grid grid-cols-2 gap-3" aria-label="Comparison">
               <figure>
-                <Media item={item} />
+                <div className="relative">
+                  <Media item={item} />
+                  <DemoMark item={item} />
+                </div>
                 <figcaption className="mt-1.5 text-[12px] text-bone-400">This one</figcaption>
               </figure>
               <figure>
-                <Media item={compareWith} />
-                <figcaption className="mt-1.5 flex items-center justify-between text-[12px] text-bone-400">
+                <div className="relative">
+                  <Media item={compareWith} />
+                  <DemoMark item={compareWith} />
+                </div>
+                <figcaption className="mt-1.5 flex items-center justify-between text-[12px] text-bone-400" suppressHydrationWarning>
                   {compareWith.relation ?? "original"} · {relativeTime(compareWith.createdAt)}
-                  <button type="button" onClick={() => setCompareWith(null)} className="text-bone-300 hover:text-bone-50" aria-label="Close comparison">
+                  <button type="button" onClick={() => setCompareWith(null)} className="-m-3 inline-grid size-10 place-items-center text-bone-300 hover:text-bone-50" aria-label="Close comparison">
                     <X size={14} />
                   </button>
                 </figcaption>
@@ -184,7 +220,7 @@ export function CreationDetail({
           ) : (
             <Media item={item} />
           )}
-          {item.isDemo ? (
+          {item.isDemo || (compareWith?.isDemo && compareWith.output) ? (
             <p className="rounded-xl bg-iris-400/10 px-3.5 py-2.5 text-[13px] text-iris-300">
               Demo output: made locally by the development placeholder model, not by an AI model.
             </p>
@@ -193,11 +229,13 @@ export function CreationDetail({
 
         <div className="min-w-0 space-y-6">
           <div>
+            {/* The page title for heading navigation; the prompt below is what the person reads. */}
+            <h1 className="sr-only">{details.template ? `Creation from ${details.template.title}` : "Creation"}</h1>
             <div className="flex flex-wrap items-center gap-1.5">
               <Badge tone={item.status === "failed" ? "danger" : item.status === "completed" ? "new" : "plain"}>{STATUS_LABEL[item.status]}</Badge>
               {item.isDemo ? <Badge tone="demo">Demo</Badge> : null}
               {details.relation ? <Badge>{details.relation}</Badge> : null}
-              <span className="font-mono text-[11.5px] text-bone-500">{relativeTime(item.createdAt)}</span>
+              <span className="font-mono text-[11.5px] text-bone-500" suppressHydrationWarning>{relativeTime(item.createdAt)}</span>
             </div>
             <p className="mt-3 text-[15px] leading-relaxed">{details.prompt}</p>
             {details.negativePrompt ? <p className="mt-1 text-[13px] text-bone-400">Avoid: {details.negativePrompt}</p> : null}
@@ -232,18 +270,18 @@ export function CreationDetail({
               <ButtonLink href={`/generate/${kind}?from=${item.id}`} variant="ember">
                 <Wand2 size={16} aria-hidden /> Remix
               </ButtonLink>
-              <Button onClick={() => derive("retry", "Retry")} busy={busy === "retry"}>
+              <Button onClick={() => derive("retry", "Retry")} busy={busy === "retry"} disabled={!online}>
                 <Repeat size={16} aria-hidden /> Retry
               </Button>
-              <Button onClick={() => derive("variation", "Variation")} busy={busy === "variation"} disabled={!done}>
+              <Button onClick={() => derive("variation", "Variation")} busy={busy === "variation"} disabled={!done || !online}>
                 <Shuffle size={16} aria-hidden /> Variation
               </Button>
               {kind === "video" ? (
                 <>
-                  <Button onClick={() => derive("continuation", "Continue scene")} busy={busy === "continuation"} disabled={!done}>
+                  <Button onClick={() => derive("continuation", "Continue scene")} busy={busy === "continuation"} disabled={!done || !online}>
                     <FastForward size={16} aria-hidden /> Continue
                   </Button>
-                  <Button onClick={() => derive("extension", "Extend clip")} busy={busy === "extension"} disabled={!done}>
+                  <Button onClick={() => derive("extension", "Extend clip")} busy={busy === "extension"} disabled={!done || !online}>
                     <FastForward size={16} aria-hidden /> Extend
                   </Button>
                 </>
@@ -254,7 +292,7 @@ export function CreationDetail({
               <Button onClick={toggleFav} aria-pressed={fav}>
                 <Heart size={16} className={fav ? "fill-ember-500 text-ember-500" : undefined} aria-hidden /> {fav ? "Saved" : "Save"}
               </Button>
-              {done ? (
+              {done && !item.output?.mediaWithheld ? (
                 <a href={`/api/generations/${item.id}/download`} className={buttonClass("ghost")} download>
                   <Download size={16} aria-hidden /> Download
                 </a>
@@ -277,6 +315,7 @@ export function CreationDetail({
               </Button>
             </div>
           )}
+          {!running && !online ? <p className="-mt-3 text-[12.5px] text-brass-300">{OFFLINE_MESSAGE}</p> : null}
 
           <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5 rounded-2xl bg-ink-900 p-4 text-[13px] hairline sm:grid-cols-3">
             {settings
@@ -294,7 +333,7 @@ export function CreationDetail({
               <h2 className="mb-2 flex items-center gap-2 font-display text-xl">
                 <Columns2 size={17} aria-hidden /> Versions
               </h2>
-              <p className="mb-3 text-[13px] text-bone-400">Retries, variations and continuations of the same idea. Tap one to compare side by side.</p>
+              <p className="mb-3 text-[13px] text-bone-400">Retries, variations, continuations and remixes of the same idea. Tap one to compare side by side.</p>
               <div className="scrollbar-none -mx-1 flex gap-2.5 overflow-x-auto px-1">
                 {versions.map((v) => (
                   <button
@@ -302,9 +341,9 @@ export function CreationDetail({
                     type="button"
                     onClick={() => (v.id === item.id ? setCompareWith(null) : setCompareWith(v))}
                     className={cn("w-24 shrink-0 text-left", v.id === item.id && "opacity-60")}
-                    aria-label={v.id === item.id ? "This version" : `Compare with ${v.relation ?? "original"}`}
+                    aria-label={`${v.id === item.id ? "This version" : `Compare with ${v.relation ?? "original"}`}${v.isDemo && v.output ? ", demo media" : ""}`}
                   >
-                    <div className="petal aspect-[4/5] overflow-hidden bg-ink-850 hairline">
+                    <div className="petal relative aspect-[4/5] overflow-hidden bg-ink-850 hairline">
                       {v.output?.url && v.output.kind === "image" ? (
                         // eslint-disable-next-line @next/next/no-img-element -- signed URL
                         <img src={v.output.url} alt="" className="size-full object-cover" />
@@ -313,6 +352,7 @@ export function CreationDetail({
                       ) : (
                         <div className="grid size-full place-items-center text-[11px] text-bone-500">{STATUS_LABEL[v.status]}</div>
                       )}
+                      <DemoMark item={v} />
                     </div>
                     <p className="mt-1 truncate text-[11px] text-bone-400">{v.id === item.id ? "this" : (v.relation ?? "original")}</p>
                   </button>
@@ -330,14 +370,17 @@ export function CreationDetail({
               This costs <strong className="font-mono text-bone-50">{pending.costCredits}</strong> credits. You have <span className="font-mono">{balance}</span>.
             </p>
             {pending.isDemo ? <p className="rounded-xl bg-iris-400/10 px-3.5 py-2.5 text-[13px] text-iris-300">Demo model: the result is a labeled placeholder, not AI output.</p> : null}
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <Button variant="quiet" onClick={() => setPending(null)}>
                 Not now
               </Button>
-              <Button variant="ember" onClick={confirmPending} busy={busy === "confirm"} disabled={balance < pending.costCredits}>
-                Confirm · {pending.costCredits} credits
-              </Button>
+              <OfflineGuard note={false}>
+                <Button variant="ember" onClick={confirmPending} busy={busy === "confirm"} disabled={balance < pending.costCredits}>
+                  Confirm · {pending.costCredits} credits
+                </Button>
+              </OfflineGuard>
             </div>
+            {online ? null : <p className="text-right text-[12.5px] text-brass-300">{OFFLINE_MESSAGE}</p>}
           </div>
         ) : null}
       </Sheet>
@@ -363,19 +406,27 @@ export function CreationDetail({
 
 function FolderSheet({ open, onClose, folders, jobId }: { open: boolean; onClose: () => void; folders: { id: string; name: string }[]; jobId: string }) {
   const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
   const toast = useToast();
   const router = useRouter();
   async function add(folderId: string) {
-    await api(`/api/folders/${folderId}/items`, { body: { jobIds: [jobId] } });
-    toast({ message: "Added to folder.", tone: "success" });
-    onClose();
-    router.refresh();
+    setBusy(true);
+    try {
+      await api(`/api/folders/${folderId}/items`, { body: { jobIds: [jobId] } });
+      toast({ message: "Added to folder.", tone: "success" });
+      onClose();
+      router.refresh();
+    } catch (e) {
+      toast({ message: e instanceof ApiError ? e.message : "We couldn't add it to that folder. Try again.", tone: "error" });
+    } finally {
+      setBusy(false);
+    }
   }
   return (
     <Sheet open={open} onClose={onClose} title="Add to folder">
       <div className="space-y-2">
         {folders.map((f) => (
-          <button key={f.id} type="button" onClick={() => void add(f.id)} className="w-full rounded-xl px-3.5 py-3 text-left text-sm hairline hover:bg-ink-800">
+          <button key={f.id} type="button" onClick={() => void add(f.id)} disabled={busy} className="w-full rounded-xl px-3.5 py-3 text-left text-sm hairline hover:bg-ink-800">
             {f.name}
           </button>
         ))}
@@ -384,9 +435,15 @@ function FolderSheet({ open, onClose, folders, jobId }: { open: boolean; onClose
         className="mt-4 flex items-end gap-2"
         onSubmit={async (e) => {
           e.preventDefault();
-          const { folder } = await api<{ folder: { id: string } }>("/api/folders", { body: { name } });
+          let folderId: string;
+          try {
+            ({ folder: { id: folderId } } = await api<{ folder: { id: string } }>("/api/folders", { body: { name } }));
+          } catch (err) {
+            toast({ message: err instanceof ApiError ? err.message : "We couldn't create that folder. Try again.", tone: "error" });
+            return;
+          }
           setName("");
-          await add(folder.id);
+          await add(folderId);
         }}
       >
         <div className="flex-1">
@@ -394,7 +451,7 @@ function FolderSheet({ open, onClose, folders, jobId }: { open: boolean; onClose
             <input id="nf" className={inputClass} value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
           </Field>
         </div>
-        <Button type="submit" variant="bone" disabled={!name.trim()}>
+        <Button type="submit" variant="bone" disabled={!name.trim()} busy={busy}>
           Create & add
         </Button>
       </form>
@@ -415,7 +472,7 @@ function PresetSheet({ open, onClose, jobId }: { open: boolean; onClose: () => v
           setBusy(true);
           try {
             await api("/api/presets", { body: { fromJobId: jobId, name } });
-            toast({ message: "Preset saved. Find it in Studio.", tone: "success", action: { label: "Studio", href: "/studio" } });
+            toast({ message: "Preset saved. Start from it in Create or Studio.", tone: "success", action: { label: "Studio", href: "/studio" } });
             onClose();
           } catch (err) {
             toast({ message: err instanceof ApiError ? err.message : "Could not save.", tone: "error" });

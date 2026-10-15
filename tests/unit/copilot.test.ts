@@ -46,6 +46,27 @@ describe("analyze", () => {
   });
 });
 
+describe("analyze: settings that agree with the prompt", () => {
+  const prompt = "an adult couple at golden hour on a balcony, close-up, warm film grain";
+
+  it("offers the lighting and framing the prompt names when they are unset", () => {
+    const s = analyze({ prompt, negativePrompt: "", params: {}, mode: "text_to_image", model: still });
+    expect(s.find((x) => x.id === "lighting-from-prompt")).toMatchObject({ severity: "info", patch: { params: { lighting: "golden hour" } } });
+    expect(s.find((x) => x.id === "framing-from-prompt")).toMatchObject({ severity: "info", patch: { params: { framing: "close-up" } } });
+  });
+
+  it("warns when a setting names a different look than the prompt", () => {
+    const s = analyze({ prompt, negativePrompt: "", params: { lighting: "neon", framing: "close-up" }, mode: "text_to_image", model: still });
+    expect(s.find((x) => x.id === "lighting-disagrees")).toMatchObject({ severity: "warn", patch: { params: { lighting: "golden hour" } } });
+    expect(s.some((x) => x.id.startsWith("framing-"))).toBe(false);
+  });
+
+  it("says nothing when the prompt names no lighting or framing", () => {
+    const s = analyze({ prompt: "an adult couple laughing on a balcony with a city behind them", negativePrompt: "", params: {}, mode: "text_to_image", model: still });
+    expect(s.some((x) => x.id.startsWith("lighting-") || x.id.startsWith("framing-"))).toBe(false);
+  });
+});
+
 describe("interpret", () => {
   it("maps plain words to supported settings", () => {
     const r = interpret("vertical, slow push in, golden hour, 8 seconds, gentle", motion);

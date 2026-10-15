@@ -3,7 +3,7 @@ import { z } from "zod";
 import { getDb } from "@/server/db";
 import { characterReferences, generationJobs, generationOutputs, mediaAssets, projectScenes, projects, sceneVersions, type ContinuityGuide } from "@/server/db/schema";
 import { assetUrl, assetUrlById } from "@/server/media";
-import { listCreations, type CreationListItem } from "@/server/generation/views";
+import { listCreations, type CreationListItem, type MediaAccess } from "@/server/generation/views";
 import { HttpError, notFound } from "@/server/http";
 
 export const continuitySchema = z
@@ -67,7 +67,7 @@ async function checkContinuity(userId: string, c: ContinuityGuide | undefined) {
 
 const touch = (projectId: string) => getDb().update(projects).set({ updatedAt: new Date() }).where(eq(projects.id, projectId));
 
-export async function listProjects(userId: string) {
+export async function listProjects(userId: string, access: MediaAccess) {
   const db = getDb();
   const rows = await db
     .select({
@@ -75,8 +75,10 @@ export async function listProjects(userId: string) {
       title: projects.title,
       description: projects.description,
       updatedAt: projects.updatedAt,
-      scenes: sql<number>`(select count(*)::int from ${projectScenes} s where s.project_id = ${projects.id})`,
-      clips: sql<number>`(select count(*)::int from ${generationJobs} j where j.project_id = ${projects.id} and j.deleted_at is null and j.status = 'completed')`,
+      // The outer column is written out qualified: inside a select field Drizzle renders ${projects.id} as a bare
+      // "id", which Postgres resolves to the subquery's own s.id / j.id, and both counts came out 0.
+      scenes: sql<number>`(select count(*)::int from ${projectScenes} s where s.project_id = ${projects}."id")`,
+      clips: sql<number>`(select count(*)::int from ${generationJobs} j where j.project_id = ${projects}."id" and j.deleted_at is null and j.status = 'completed')`,
     })
     .from(projects)
     .where(and(eq(projects.userId, userId), isNull(projects.deletedAt)))
@@ -84,7 +86,12 @@ export async function listProjects(userId: string) {
   // One cover per project: the newest finished creation in it.
   const covers = rows.length
     ? await db
-        .selectDistinctOn([generationJobs.projectId], { projectId: generationJobs.projectId, asset: mediaAssets, posterAssetId: generationOutputs.posterAssetId })
+        .selectDistinctOn([generationJobs.projectId], {
+          projectId: generationJobs.projectId,
+          asset: mediaAssets,
+          posterAssetId: generationOutputs.posterAssetId,
+          isDemo: generationOutputs.isDemo,
+        })
         .from(generationJobs)
         .innerJoin(generationOutputs, and(eq(generationOutputs.jobId, generationJobs.id), isNull(generationOutputs.deletedAt)))
         .innerJoin(mediaAssets, eq(mediaAssets.id, generationOutputs.assetId))
@@ -104,7 +111,11 @@ export async function listProjects(userId: string) {
       return {
         ...r,
         updatedAt: r.updatedAt.toISOString(),
-        cover: c ? { kind: c.asset.kind, url: await assetUrl(c.asset, userId), posterUrl: await assetUrlById(c.posterAssetId, userId) } : null,
+        cover: c
+          ? access.explicitAllowed
+            ? { kind: c.asset.kind, url: await assetUrl(c.asset, userId), posterUrl: await assetUrlById(c.posterAssetId, userId), mediaWithheld: false, isDemo: c.isDemo }
+            : { kind: c.asset.kind, url: null, posterUrl: null, mediaWithheld: true, isDemo: c.isDemo }
+          : null,
       };
     }),
   );
@@ -134,7 +145,7 @@ export async function deleteProject(userId: string, projectId: string) {
   await getDb().update(projects).set({ deletedAt: new Date() }).where(eq(projects.id, projectId));
 }
 
-export async function getProjectDetail(userId: string, projectId: string) {
+export async function getProjectDetail(userId: string, projectId: string, access: MediaAccess) {
   const project = await ownedProject(userId, projectId);
   const db = getDb();
   const scenes = await db.select().from(projectScenes).where(eq(projectScenes.projectId, projectId)).orderBy(asc(projectScenes.position));
@@ -145,7 +156,7 @@ export async function getProjectDetail(userId: string, projectId: string) {
         .where(inArray(sceneVersions.sceneId, scenes.map((s) => s.id)))
         .orderBy(asc(sceneVersions.createdAt))
     : [];
-  const creations = await listCreations(userId, { projectId, limit: 200, sort: "oldest" });
+  const creations = await listCreations(userId, { projectId, limit: 200, sort: "oldest" }, access);
   const byJob = new Map(creations.map((c) => [c.id, c]));
   const detail: SceneDetail[] = scenes.map((s) => ({
     id: s.id,

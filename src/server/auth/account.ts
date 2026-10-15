@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { and, arrayOverlaps, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, arrayOverlaps, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "@/server/audit";
 import { applyMovement } from "@/server/credits/ledger";
 import { getDb } from "@/server/db";
 import {
+  accountFlags,
   characterReferences,
   consentRecords,
   creditAccounts,
@@ -12,6 +13,7 @@ import {
   generationJobs,
   generationOutputs,
   mediaAssets,
+  subscriptions,
   templates,
   uploads,
   userPreferences,
@@ -21,6 +23,7 @@ import {
 import { env } from "@/server/env";
 import { HttpError } from "@/server/http";
 import { purgeAssetsNow } from "@/server/media";
+import { rateLimit } from "@/server/redis";
 import { ADULT_AGE, ageOn } from "@/server/safety/policy";
 import { destroyAllSessions, hashPassword, verifyPassword } from "./session";
 
@@ -38,12 +41,20 @@ export const signupSchema = z.object({
     .max(24, "Handles are 3 to 24 characters.")
     .regex(/^[a-zA-Z0-9_]+$/, "Letters, numbers and underscores only."),
   displayName: z.string().trim().min(1).max(40),
-  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Enter your date of birth."),
+  dateOfBirth: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "Enter your date of birth.")
+    // A day the calendar has (no 31 April or 13th month), which Postgres would otherwise reject on insert.
+    .refine((s) => {
+      const day = new Date(`${s}T00:00:00Z`);
+      return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === s;
+    }, "Enter a real date of birth."),
   acceptTerms: z.literal(true, { errorMap: () => ({ message: "Accept the terms to continue." }) }),
   confirmAdult: z.literal(true, { errorMap: () => ({ message: "You must confirm you are an adult." }) }),
 });
 
-export async function registerUser(input: z.infer<typeof signupSchema>) {
+/** `jurisdiction` is the "GB" / "US-TX" code from the edge headers at signup, if any; the age-verification rules read it later. */
+export async function registerUser(input: z.infer<typeof signupSchema>, opts: { jurisdiction?: string | null } = {}) {
   const age = ageOn(input.dateOfBirth);
   if (!Number.isFinite(age) || age > 120) throw new HttpError(422, "invalid_input", "Enter a real date of birth.", { fieldErrors: { dateOfBirth: ["Enter a real date of birth."] } });
   if (age < ADULT_AGE) {
@@ -62,6 +73,7 @@ export async function registerUser(input: z.infer<typeof signupSchema>) {
           dateOfBirth: input.dateOfBirth,
           ageAssuranceMethod: "self_declaration",
           ageAssuredAt: new Date(),
+          jurisdiction: opts.jurisdiction ?? null,
         })
         .returning();
       await tx.insert(userProfiles).values({ userId: user!.id, handle: input.handle, displayName: input.displayName });
@@ -95,6 +107,15 @@ export async function registerUser(input: z.infer<typeof signupSchema>) {
 }
 
 let dummyHash: string | undefined;
+
+/**
+ * The password checks one account allows: ten per 15 minutes, whoever sends them. Sign-in and the re-check
+ * before deleting the account spend the same budget, so a stolen session gets no extra guesses and no
+ * account can drive unlimited bcrypt work. Keyed by the email as authenticate() matches it.
+ */
+export function passwordAttemptAllowed(email: string): Promise<boolean> {
+  return rateLimit(`login:email:${email.trim().toLowerCase()}`, 10, 900);
+}
 
 export async function authenticate(email: string, password: string) {
   const [user] = await getDb()
@@ -141,7 +162,8 @@ export async function withdrawConsent(userId: string, consentId: string) {
         await tx.update(generationJobs).set({ deletedAt: now, cancelRequested: true }).where(inArray(generationJobs.id, jobIds));
       }
     }
-    if (assetIds.length) await tx.update(mediaAssets).set({ deletedAt: now }).where(inArray(mediaAssets.id, assetIds));
+    // Assets under legal hold (abuse-scan evidence) are never deleted here; purge skips them too.
+    if (assetIds.length) await tx.update(mediaAssets).set({ deletedAt: now }).where(and(inArray(mediaAssets.id, assetIds), eq(mediaAssets.legalHold, false)));
     await audit(userId, "consent.withdraw", "consent_record", consentId, { removedAssets: assetIds.length }, tx);
     return assetIds;
   });
@@ -155,18 +177,38 @@ export async function deleteAccount(userId: string, password: string) {
   if (!user || !(await verifyPassword(password, user.passwordHash))) throw new HttpError(403, "bad_password", "Password is incorrect.");
   const now = new Date();
   await getDb().transaction(async (tx) => {
+    // The date of birth goes with the account. When and how age was assured (age_assured_at, the
+    // method and any provider verification) is kept as the record that the account was checked.
     await tx
       .update(users)
-      .set({ status: "deleted", deletedAt: now, email: `deleted-${randomUUID()}@invalid`, passwordHash: "!" })
+      .set({ status: "deleted", deletedAt: now, email: `deleted-${randomUUID()}@invalid`, passwordHash: "!", dateOfBirth: null })
       .where(eq(users.id, userId));
-    await tx.update(userProfiles).set({ handle: `deleted_${userId.slice(0, 8)}`, displayName: "Deleted account", bio: "" }).where(eq(userProfiles.userId, userId));
-    await tx.update(mediaAssets).set({ deletedAt: now }).where(and(eq(mediaAssets.ownerId, userId), isNull(mediaAssets.deletedAt)));
+    // The whole id: unique, and no one can take it first (chosen handles are at most 24 characters with no
+    // hyphens). A short prefix of the id, which creator cards show, could be claimed to block deletion.
+    await tx.update(userProfiles).set({ handle: `deleted_${userId}`, displayName: "Deleted account", bio: "" }).where(eq(userProfiles.userId, userId));
+    // Held evidence (abuse-scan matches) survives account deletion; it is never served and never purged.
+    await tx.update(mediaAssets).set({ deletedAt: now }).where(and(eq(mediaAssets.ownerId, userId), isNull(mediaAssets.deletedAt), eq(mediaAssets.legalHold, false)));
     await tx.update(generationOutputs).set({ deletedAt: now }).where(eq(generationOutputs.userId, userId));
     await tx.update(generationJobs).set({ deletedAt: now, cancelRequested: true }).where(eq(generationJobs.userId, userId));
     await tx.update(templates).set({ status: "removed", deletedAt: now }).where(eq(templates.creatorId, userId));
     await tx.delete(discoveryEvents).where(eq(discoveryEvents.userId, userId));
     await tx.update(consentRecords).set({ withdrawnAt: now }).where(and(eq(consentRecords.userId, userId), isNull(consentRecords.withdrawnAt)));
-    await audit(userId, "account.delete", "user", userId, {}, tx);
+    // A pass goes on billing at its processor until it is cancelled there, and this build has no processor
+    // cancel call: the pass ends here, and an operator is asked to cancel each one that would rebill.
+    const passes = await tx.select().from(subscriptions).where(and(eq(subscriptions.userId, userId), ne(subscriptions.status, "canceled"))).for("update");
+    if (passes.length) await tx.update(subscriptions).set({ status: "canceled", updatedAt: now }).where(inArray(subscriptions.id, passes.map((p) => p.id)));
+    const rebilling = passes.filter((p) => p.provider !== "sandbox" && p.status !== "non_renewing");
+    if (rebilling.length) {
+      await tx.insert(accountFlags).values(
+        rebilling.map((p) => ({
+          userId,
+          kind: "manual_review" as const,
+          reason: `Account deleted with a live ${p.provider} pass: cancel subscription ${p.providerSubscriptionId} at ${p.provider} so it is not billed again, and refund any charge after ${now.toISOString().slice(0, 10)}.`,
+          details: { reason: "account_deleted", provider: p.provider, subscriptionRef: p.providerSubscriptionId, planKey: p.planKey, status: p.status },
+        })),
+      );
+    }
+    await audit(userId, "account.delete", "user", userId, { passesEnded: passes.length }, tx);
   });
   await destroyAllSessions(userId);
 }

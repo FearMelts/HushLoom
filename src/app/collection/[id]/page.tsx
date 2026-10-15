@@ -1,8 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 import { CreationDetail } from "@/components/creation-detail";
+import { viewerAccess } from "@/server/age/access";
 import { getModel, MODE_LABELS } from "@/server/ai/registry";
-import { getCurrentUser } from "@/server/auth/session";
 import { getBalance } from "@/server/credits/ledger";
 import { getDb } from "@/server/db";
 import { generationJobs, projects, templates } from "@/server/db/schema";
@@ -14,20 +14,26 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Creation" };
 
 export default async function CreationPage({ params }: { params: Promise<{ id: string }> }) {
-  const user = await getCurrentUser();
+  const { user, viewer } = await viewerAccess();
   const { id } = await params;
   if (!user) redirect(`/auth?next=/collection/${id}`);
   if (!/^[0-9a-f-]{36}$/.test(id)) notFound();
-  const item = await getCreation(user.id, id);
+  const item = await getCreation(user.id, id, viewer);
   if (!item) notFound();
   const [job] = await getDb().select().from(generationJobs).where(and(eq(generationJobs.id, id), eq(generationJobs.userId, user.id)));
   const [versions, folders, categories, balance, template, project] = await Promise.all([
-    lineage(user.id, id),
+    lineage(user.id, id, viewer),
     listFolders(user.id),
     listCategories(),
     getBalance(user.id),
-    job!.templateId ? getDb().select({ slug: templates.slug, title: templates.title }).from(templates).where(eq(templates.id, job!.templateId)) : [],
-    job!.projectId ? getDb().select({ id: projects.id, title: projects.title }).from(projects).where(eq(projects.id, job!.projectId)) : [],
+    job!.templateId ? getDb().select({ slug: templates.slug, title: templates.title }).from(templates).where(and(eq(templates.id, job!.templateId), isNull(templates.deletedAt))) : [],
+    // A deleted project is not linked: its page is gone.
+    job!.projectId
+      ? getDb()
+          .select({ id: projects.id, title: projects.title })
+          .from(projects)
+          .where(and(eq(projects.id, job!.projectId), eq(projects.userId, user.id), isNull(projects.deletedAt)))
+      : [],
   ]);
   const model = getModel(job!.modelKey);
   return (

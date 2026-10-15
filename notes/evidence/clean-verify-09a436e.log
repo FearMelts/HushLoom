@@ -1,0 +1,41 @@
+== node v22.22.0 npm 10.9.4 at 09a436e 2026-10-14T16:27:44Z
+== npm ci
+npm warn deprecated eslint@9.39.1: This version is no longer supported. Please see https://eslint.org/version-support for other options.
+
+added 462 packages in 36s
+exit 0
+== typecheck
+> hushloom@0.1.0 typecheck
+> tsc --noEmit
+
+exit 0
+== lint
+
+✔ No ESLint warnings or errors
+exit 0
+== vitest
+
+ Test Files  45 passed (45)
+      Tests  507 passed (507)
+   Start at  16:28:48
+   Duration  302.23s (transform 2.87s, setup 0ms, collect 29.31s, tests 256.70s, environment 11ms, prepare 3.59s)
+
+exit 0
+== next build
+├ ƒ /settings                                    10 kB         120 kB
+├ ƒ /studio                                    4.12 kB         136 kB
+├ ƒ /templates/[id]                              648 B         141 kB
+├ ƒ /train                                     5.82 kB         119 kB
+└ ƒ /verify/sandbox                            5.82 kB         112 kB
++ First Load JS shared by all                   103 kB
+  ├ chunks/1255-5cd2fe06309409a0.js            46.5 kB
+  ├ chunks/4bd1b696-f785427dddbba9fb.js        54.2 kB
+  └ other shared chunks (total)                1.93 kB
+
+
+ƒ Middleware                                   34.5 kB
+
+ƒ  (Dynamic)  server-rendered on demand
+
+exit 0
+== done 2026-10-14T16:35:21Z

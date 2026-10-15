@@ -4,7 +4,7 @@ import { JobMonitor, PresetList } from "@/components/studio";
 import { ButtonLink } from "@/components/ui";
 import { isUuid } from "@/lib/ids";
 import type { GenerationMode } from "@/server/ai/registry";
-import { getCurrentUser } from "@/server/auth/session";
+import { viewerAccess } from "@/server/age/access";
 import { createContext } from "@/server/create-context";
 import { listCreations } from "@/server/generation/views";
 import { getPreset, listPresets } from "@/server/presets";
@@ -13,14 +13,14 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Studio" };
 
 export default async function StudioPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
-  const user = await getCurrentUser();
+  const { user, viewer } = await viewerAccess();
   if (!user) redirect("/auth?next=/studio");
   const sp = await searchParams;
   const kind = sp.kind === "video" ? "video" : "image";
   const [ctx, presets, recent, preset] = await Promise.all([
     createContext(user),
     listPresets(user.id),
-    listCreations(user.id, { limit: 15 }),
+    listCreations(user.id, { limit: 15 }, viewer),
     isUuid(sp.preset) ? getPreset(user.id, sp.preset) : null,
   ]);
   const prefill: CreatePrefill | undefined = preset
@@ -46,7 +46,8 @@ export default async function StudioPage({ searchParams }: { searchParams: Promi
           </ButtonLink>
         </div>
       </div>
-      <div className="grid gap-8 xl:grid-cols-[1fr_320px]">
+      {/* minmax(0, 1fr): a long nowrap prompt in the Job monitor must truncate, not widen the page. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-8 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="rounded-[24px_8px_24px_8px] bg-ink-900/70 p-4 hairline sm:p-6">
           {preset ? <p className="mb-4 text-[13px] text-bone-300">Started from preset “{preset.name}”.</p> : null}
           <CreatePanel

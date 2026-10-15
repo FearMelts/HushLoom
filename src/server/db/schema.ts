@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   check,
   date,
@@ -53,7 +54,13 @@ export const ledgerKind = pgEnum("ledger_kind", [
   "release",
   "settle",
   "admin_adjust",
+  "refund",
+  "chargeback",
 ]);
+export const ageVerificationStatus = pgEnum("age_verification_status", ["unverified", "pending", "verified", "failed", "expired"]);
+export const scanStatus = pgEnum("scan_status", ["pending", "clean", "matched", "unavailable"]);
+export const accountFlagKind = pgEnum("account_flag_kind", ["chargeback", "csam_match", "manual_review", "credit_debt"]);
+export const takedownStatus = pgEnum("takedown_status", ["open", "actioned", "dismissed"]);
 export const consentKind = pgEnum("consent_kind", [
   "terms",
   "adult_attestation",
@@ -61,7 +68,7 @@ export const consentKind = pgEnum("consent_kind", [
   "likeness",
   "training_data",
 ]);
-export const moderationAction = pgEnum("moderation_action", ["report", "auto_block", "approve", "remove", "dismiss"]);
+export const moderationAction = pgEnum("moderation_action", ["report", "auto_block", "approve", "remove", "dismiss", "hold", "escalate"]);
 export const moderationStatus = pgEnum("moderation_status", ["open", "resolved"]);
 export const uploadPurpose = pgEnum("upload_purpose", ["source", "reference", "avatar", "template_media"]);
 
@@ -75,9 +82,16 @@ export const users = pgTable(
     passwordHash: text("password_hash").notNull(),
     role: userRole("role").notNull().default("member"),
     status: userStatus("status").notNull().default("active"),
-    dateOfBirth: date("date_of_birth").notNull(),
+    /** Nulled when the account is deleted (migration 0003); every live account has one from signup. */
+    dateOfBirth: date("date_of_birth"),
     ageAssuranceMethod: text("age_assurance_method").notNull(),
     ageAssuredAt: timestamp("age_assured_at", { withTimezone: true }).notNull(),
+    /** Provider-backed age verification (addendum §2). `self_declaration` above is only step one. */
+    ageVerificationStatus: ageVerificationStatus("age_verification_status").notNull().default("unverified"),
+    ageVerifiedAt: timestamp("age_verified_at", { withTimezone: true }),
+    ageVerificationProvider: text("age_verification_provider"),
+    /** Jurisdiction captured from the edge headers at signup / last sign-in, e.g. "GB" or "US-TX". */
+    jurisdiction: text("jurisdiction"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
     deletedAt: deletedAt(),
@@ -92,7 +106,7 @@ export const userProfiles = pgTable(
     handle: text("handle").notNull(),
     displayName: text("display_name").notNull(),
     bio: text("bio").notNull().default(""),
-    avatarAssetId: uuid("avatar_asset_id"),
+    avatarAssetId: uuid("avatar_asset_id").references(() => mediaAssets.id, { onDelete: "set null" }),
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex("user_profiles_handle_uq").on(sql`lower(${t.handle})`)],
@@ -125,6 +139,8 @@ export const userPreferences = pgTable("user_preferences", {
   autoplayPreviews: boolean("autoplay_previews").notNull().default(false),
   copilotEnabled: boolean("copilot_enabled").notNull().default(true),
   interests: text("interests").array().notNull().default(sql`'{}'::text[]`),
+  /** Opt-in push notification when a generation finishes or fails (addendum §4). */
+  notifyOnFinish: boolean("notify_on_finish").notNull().default(false),
   updatedAt: updatedAt(),
 });
 
@@ -158,10 +174,23 @@ export const mediaAssets = pgTable(
     durationMs: integer("duration_ms"),
     sha256: text("sha256").notNull(),
     visibility: visibility("visibility").notNull().default("private"),
+    /** Abuse scan (addendum §3). Fail closed: only `clean` assets are ever served or published. */
+    scanStatus: scanStatus("scan_status").notNull().default("pending"),
+    scanProvider: text("scan_provider"),
+    scanRef: text("scan_ref"),
+    scannedAt: timestamp("scanned_at", { withTimezone: true }),
+    /** Evidence preserved for a report; purge and deletion skip held assets. */
+    legalHold: boolean("legal_hold").notNull().default(false),
     createdAt: createdAt(),
     deletedAt: deletedAt(),
   },
-  (t) => [uniqueIndex("media_storage_key_uq").on(t.storageKey), index("media_owner_idx").on(t.ownerId)],
+  (t) => [
+    uniqueIndex("media_storage_key_uq").on(t.storageKey),
+    index("media_owner_idx").on(t.ownerId),
+    index("media_scan_idx").on(t.scanStatus),
+    // Copies of one file (takedowns, the publish check) are found by their bytes.
+    index("media_sha256_idx").on(t.sha256),
+  ],
 );
 
 export const uploads = pgTable(
@@ -205,7 +234,7 @@ export const templates = pgTable(
     posterAssetId: uuid("poster_asset_id").references(() => mediaAssets.id),
     previewAssetId: uuid("preview_asset_id").references(() => mediaAssets.id),
     currentVersion: integer("current_version").notNull().default(1),
-    remixedFromId: uuid("remixed_from_id"),
+    remixedFromId: uuid("remixed_from_id").references((): AnyPgColumn => templates.id, { onDelete: "set null" }),
     favoriteCount: integer("favorite_count").notNull().default(0),
     generationCount: integer("generation_count").notNull().default(0),
     ratingSum: integer("rating_sum").notNull().default(0),
@@ -386,7 +415,7 @@ export const generationJobs = pgTable(
     templateVersion: integer("template_version"),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     sceneId: uuid("scene_id").references(() => projectScenes.id, { onDelete: "set null" }),
-    parentJobId: uuid("parent_job_id"),
+    parentJobId: uuid("parent_job_id").references((): AnyPgColumn => generationJobs.id, { onDelete: "set null" }),
     relation: text("relation").$type<"retry" | "variation" | "remix" | "continuation" | "extension">(),
     prompt: text("prompt").notNull(),
     negativePrompt: text("negative_prompt").notNull().default(""),
@@ -439,7 +468,7 @@ export const sceneVersions = pgTable(
     id: id(),
     sceneId: uuid("scene_id").notNull().references(() => projectScenes.id, { onDelete: "cascade" }),
     jobId: uuid("job_id").notNull().references(() => generationJobs.id, { onDelete: "cascade" }),
-    parentVersionId: uuid("parent_version_id"),
+    parentVersionId: uuid("parent_version_id").references((): AnyPgColumn => sceneVersions.id, { onDelete: "set null" }),
     branchLabel: text("branch_label").notNull().default("main"),
     isSelected: boolean("is_selected").notNull().default(false),
     createdAt: createdAt(),
@@ -514,7 +543,7 @@ export const creditLedger = pgTable(
     availableAfter: integer("available_after").notNull(),
     reservedAfter: integer("reserved_after").notNull(),
     jobId: uuid("job_id").references(() => generationJobs.id, { onDelete: "set null" }),
-    paymentEventId: uuid("payment_event_id"),
+    paymentEventId: uuid("payment_event_id").references(() => paymentEvents.id, { onDelete: "set null" }),
     idempotencyKey: text("idempotency_key").notNull(),
     note: text("note").notNull().default(""),
     createdAt: createdAt(),
@@ -529,6 +558,8 @@ export const subscriptions = pgTable(
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     planKey: text("plan_key").notNull(),
     status: text("status").notNull(),
+    provider: text("provider").notNull().default("stripe"),
+    providerCustomerId: text("provider_customer_id"),
     providerSubscriptionId: text("provider_subscription_id").notNull(),
     currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
     createdAt: createdAt(),
@@ -548,10 +579,13 @@ export const paymentEvents = pgTable(
     amountCents: integer("amount_cents"),
     currency: text("currency"),
     credits: integer("credits"),
+    /** The processor's transaction id, so a refund or chargeback can find the purchase it reverses. */
+    transactionRef: text("transaction_ref"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().notNull().default({}),
     processedAt: timestamp("processed_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("payment_events_provider_uq").on(t.provider, t.providerEventId)],
+  (t) => [uniqueIndex("payment_events_provider_uq").on(t.provider, t.providerEventId), index("payment_events_txn_idx").on(t.provider, t.transactionRef)],
 );
 
 // ── Trust & audit ───────────────────────────────────────────────────────────
@@ -586,4 +620,94 @@ export const auditLogs = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("audit_target_idx").on(t.targetType, t.targetId), index("audit_time_idx").on(t.createdAt)],
+);
+
+// ── Launch-readiness additions (2026-10-12 addendum) ────────────────────────
+
+/** One row per verification attempt with an age-verification provider. Never stores ID images or biometrics. */
+export const ageVerifications = pgTable(
+  "age_verifications",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    status: ageVerificationStatus("status").notNull().default("pending"),
+    /** The provider's own reference for this check; the only thing we keep from their side. */
+    providerRef: text("provider_ref"),
+    /** The method the provider reports (e.g. "document", "facial_age_estimation", "sandbox"). */
+    method: text("method"),
+    jurisdiction: text("jurisdiction"),
+    failureReason: text("failure_reason"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("age_verifications_user_idx").on(t.userId, t.createdAt), uniqueIndex("age_verifications_provider_ref_uq").on(t.provider, t.providerRef)],
+);
+
+/** Flags that restrict an account (chargeback, abuse match, manual review) until cleared by an admin. */
+export const accountFlags = pgTable(
+  "account_flags",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    kind: accountFlagKind("kind").notNull(),
+    reason: text("reason").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    clearedAt: timestamp("cleared_at", { withTimezone: true }),
+    clearedBy: uuid("cleared_by").references(() => users.id, { onDelete: "set null" }),
+  },
+  (t) => [index("account_flags_user_idx").on(t.userId, t.clearedAt)],
+);
+
+/** Requests to remove content (nonconsensual intimate imagery, abuse, other), from members or outsiders. */
+export const takedownRequests = pgTable(
+  "takedown_requests",
+  {
+    id: id(),
+    requesterId: uuid("requester_id").references(() => users.id, { onDelete: "set null" }),
+    requesterEmail: text("requester_email"),
+    targetType: text("target_type").$type<"output" | "template" | "asset" | "url">().notNull(),
+    targetRef: text("target_ref").notNull(),
+    category: text("category").$type<"ncii" | "csam" | "likeness" | "copyright" | "other">().notNull(),
+    details: text("details").notNull().default(""),
+    status: takedownStatus("status").notNull().default("open"),
+    resolutionNote: text("resolution_note").notNull().default(""),
+    resolvedBy: uuid("resolved_by").references(() => users.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [index("takedown_status_idx").on(t.status, t.createdAt)],
+);
+
+/**
+ * The SHA-256 of every file an actioned takedown removed (addendum §3). A byte-identical file is
+ * the same image whoever makes it and however (the same prompt and seed again, a retry, another
+ * account), so publishing one is refused. Kept after the files are purged.
+ */
+export const takenDownHashes = pgTable("taken_down_hashes", {
+  sha256: text("sha256").primaryKey(),
+  takedownId: uuid("takedown_id").references(() => takedownRequests.id, { onDelete: "set null" }),
+  createdAt: createdAt(),
+});
+
+/** Web Push subscriptions, one per browser/device; removed when that session signs out. */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: id(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    sessionId: uuid("session_id").references(() => sessions.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userAgent: text("user_agent"),
+    createdAt: createdAt(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("push_subscriptions_endpoint_uq").on(t.endpoint), index("push_subscriptions_user_idx").on(t.userId)],
 );

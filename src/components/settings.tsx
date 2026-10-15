@@ -1,11 +1,14 @@
 "use client";
 
+import { AgeVerificationCard } from "./age-verification-card";
 import { LogOut, ShieldCheck, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 import { Badge, Button, Chip, Field, Sheet, Toggle, inputClass, useToast } from "./ui";
+import { InstallCard } from "./install-card";
+import { NotificationsCard } from "./notifications-card";
 
 type Settings = {
   profile: { displayName: string; handle: string; bio: string };
@@ -72,7 +75,8 @@ export function SettingsView({ data, email }: { data: Settings; email: string })
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <p className="tag text-ember-400">{email}</p>
+        {/* Not the uppercase .tag eyebrow: an address reads as it is written. */}
+        <p className="font-mono text-[12px] text-ember-400">{email}</p>
         <h1 className="font-display text-4xl">Settings</h1>
       </div>
 
@@ -172,7 +176,7 @@ export function SettingsView({ data, email }: { data: Settings; email: string })
                   {c.subjectLabel ? <span className="text-bone-400"> · {c.subjectLabel}</span> : null}
                 </p>
                 <p className="mt-0.5 text-[12.5px] text-bone-400">{c.statement}</p>
-                <p className="mt-1 font-mono text-[11px] text-bone-500">granted {relativeTime(c.grantedAt)}</p>
+                <p className="mt-1 font-mono text-[11px] text-bone-500" suppressHydrationWarning>granted {relativeTime(c.grantedAt)}</p>
               </div>
               {c.kind === "terms" || c.kind === "adult_attestation" ? null : (
                 <Button size="sm" variant="quiet" onClick={() => setWithdrawing(c)}>
@@ -187,7 +191,7 @@ export function SettingsView({ data, email }: { data: Settings; email: string })
             <summary className="cursor-pointer text-[13px] text-bone-400">{past.length} withdrawn</summary>
             <ul className="mt-2 space-y-1 text-[12.5px] text-bone-500">
               {past.map((c) => (
-                <li key={c.id}>
+                <li key={c.id} suppressHydrationWarning>
                   {CONSENT_LABEL[c.kind] ?? c.kind}
                   {c.subjectLabel ? ` · ${c.subjectLabel}` : ""} · withdrawn {relativeTime(c.withdrawnAt!)}
                 </li>
@@ -196,6 +200,10 @@ export function SettingsView({ data, email }: { data: Settings; email: string })
           </details>
         ) : null}
       </Section>
+
+      <AgeVerificationCard data={data} />
+
+      <InstallCard><NotificationsCard data={data} /></InstallCard>
 
       <Section title="Account">
         <div className="flex flex-wrap items-center justify-between gap-3">

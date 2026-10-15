@@ -1,9 +1,13 @@
 import { and, desc, eq, isNull, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { ageVerificationStatus } from "@/server/age";
+import { requirementFor, verificationHistory, VERIFY_PATH } from "@/server/age/service";
+import type { AgeContext } from "@/server/age/rules";
 import { audit } from "@/server/audit";
 import { getDb } from "@/server/db";
 import { consentRecords, discoveryEvents, sessions, templates, userPreferences, userProfiles } from "@/server/db/schema";
 import { HttpError } from "@/server/http";
+import { pushStatus } from "@/server/push";
 
 export const profileSchema = z.object({
   displayName: z.string().trim().min(1).max(40),
@@ -23,12 +27,42 @@ export const preferencesSchema = z
     autoplayPreviews: z.boolean(),
     copilotEnabled: z.boolean(),
     interests: z.array(z.string().trim().toLowerCase().min(1).max(24)).max(12),
+    /** Opt-in push when a creation finishes (addendum §4); devices subscribe separately via /api/push/subscriptions. */
+    notifyOnFinish: z.boolean(),
   })
   .partial();
 
-export async function settingsFor(userId: string) {
+/** The age-verification block of Settings: status, the jurisdiction in play, what is required, and the provider (with its sandbox label). */
+export async function ageVerificationFor(userId: string, ctx: AgeContext) {
+  const [req, history] = await Promise.all([requirementFor({ id: userId }, ctx), verificationHistory(userId)]);
+  const provider = ageVerificationStatus();
+  return {
+    status: req.status,
+    jurisdiction: req.jurisdiction,
+    required: req.required,
+    verifiedAt: req.verifiedAt?.toISOString() ?? null,
+    expiresAt: req.expiresAt?.toISOString() ?? null,
+    verifyPath: VERIFY_PATH,
+    provider: { key: provider.provider, label: provider.label, sandbox: provider.sandbox, configured: provider.configured, methods: provider.methods, validDays: provider.validDays, enforce: provider.enforce },
+    history: history.map((h) => ({
+      id: h.id,
+      provider: h.provider,
+      status: h.status,
+      method: h.method,
+      jurisdiction: h.jurisdiction,
+      failureReason: h.failureReason,
+      startedAt: h.startedAt.toISOString(),
+      completedAt: h.completedAt?.toISOString() ?? null,
+      expiresAt: h.expiresAt?.toISOString() ?? null,
+    })),
+  };
+}
+
+export type AgeVerificationSettings = Awaited<ReturnType<typeof ageVerificationFor>>;
+
+export async function settingsFor(userId: string, ctx: AgeContext = { country: null }) {
   const db = getDb();
-  const [[profile], [prefs], consents, [sessionCount], tags] = await Promise.all([
+  const [[profile], [prefs], consents, [sessionCount], tags, ageVerification] = await Promise.all([
     db.select().from(userProfiles).where(eq(userProfiles.userId, userId)),
     db.select().from(userPreferences).where(eq(userPreferences.userId, userId)),
     db.select().from(consentRecords).where(eq(consentRecords.userId, userId)).orderBy(desc(consentRecords.grantedAt)).limit(100),
@@ -36,8 +70,10 @@ export async function settingsFor(userId: string) {
     db.execute<{ tag: string }>(
       sql`select tag from ${templates}, unnest(${templates.tags}) tag where ${templates.status} = 'published' and ${templates.deletedAt} is null group by tag order by count(*) desc, tag limit 30`,
     ),
+    ageVerificationFor(userId, ctx),
   ]);
   return {
+    ageVerification,
     profile: { displayName: profile?.displayName ?? "", handle: profile?.handle ?? "", bio: profile?.bio ?? "" },
     preferences: {
       personalizationEnabled: prefs?.personalizationEnabled ?? true,
@@ -45,7 +81,9 @@ export async function settingsFor(userId: string) {
       autoplayPreviews: prefs?.autoplayPreviews ?? false,
       copilotEnabled: prefs?.copilotEnabled ?? true,
       interests: prefs?.interests ?? [],
+      notifyOnFinish: prefs?.notifyOnFinish ?? false,
     },
+    pushEnabled: pushStatus().enabled,
     consents: consents.map((c) => ({
       id: c.id,
       kind: c.kind,
@@ -59,13 +97,21 @@ export async function settingsFor(userId: string) {
   };
 }
 
+const handleTaken = () => new HttpError(409, "handle_taken", "That handle is taken.", { fieldErrors: { handle: ["That handle is taken."] } });
+
 export async function updateProfile(userId: string, input: z.infer<typeof profileSchema>) {
   const [taken] = await getDb()
     .select({ id: userProfiles.userId })
     .from(userProfiles)
     .where(and(sql`lower(${userProfiles.handle}) = ${input.handle.toLowerCase()}`, ne(userProfiles.userId, userId)));
-  if (taken) throw new HttpError(409, "handle_taken", "That handle is taken.", { fieldErrors: { handle: ["That handle is taken."] } });
-  await getDb().update(userProfiles).set({ ...input, updatedAt: new Date() }).where(eq(userProfiles.userId, userId));
+  if (taken) throw handleTaken();
+  try {
+    await getDb().update(userProfiles).set({ ...input, updatedAt: new Date() }).where(eq(userProfiles.userId, userId));
+  } catch (e) {
+    // Two claims of one handle at once both pass the check above; the unique index turns the later one away.
+    if (/user_profiles_handle_uq/.test(String((e as { cause?: { message?: string } }).cause?.message ?? ""))) throw handleTaken();
+    throw e;
+  }
   await audit(userId, "profile.update", "user", userId, { handle: input.handle });
 }
 

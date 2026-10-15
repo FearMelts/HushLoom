@@ -1,4 +1,4 @@
-import { and, desc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { MODELS } from "@/server/ai/registry";
 import { listModelAvailability } from "@/server/ai/providers";
@@ -7,6 +7,7 @@ import { destroyAllSessions } from "@/server/auth/session";
 import { applyMovement } from "@/server/credits/ledger";
 import { getDb } from "@/server/db";
 import {
+  accountFlags,
   auditLogs,
   creditLedger,
   generationJobs,
@@ -20,6 +21,7 @@ import {
   users,
 } from "@/server/db/schema";
 import { HttpError, notFound } from "@/server/http";
+import { ADMIN_SUSPENSION, suspensionCauses } from "@/server/safety/suspend";
 
 const SEVERE = ["minor", "non_consent", "real_person", "illegal"];
 
@@ -50,7 +52,8 @@ export async function adminStats() {
       .select({ cents: sql<number>`coalesce(sum(${paymentEvents.amountCents}), 0)::int`, credits: sql<number>`coalesce(sum(${paymentEvents.credits}), 0)::int` })
       .from(paymentEvents)
       .where(gt(paymentEvents.createdAt, sql`${month}`)),
-    db.select({ n: sql<number>`count(*)::int` }).from(moderationEvents).where(eq(moderationEvents.status, "open")),
+    // Abuse-scan escalations have their own queue at /admin/review.
+    db.select({ n: sql<number>`count(*)::int` }).from(moderationEvents).where(and(eq(moderationEvents.status, "open"), ne(moderationEvents.action, "escalate"))),
   ]);
   const byStatus = (s: string) => jobs.filter((j) => j.status === s).reduce((a, j) => a + j.n, 0);
   const finished = byStatus("completed") + byStatus("failed");
@@ -78,7 +81,7 @@ export async function moderationQueue() {
     .select({ e: moderationEvents, reporter: userProfiles.handle })
     .from(moderationEvents)
     .leftJoin(userProfiles, eq(userProfiles.userId, moderationEvents.reporterId))
-    .where(eq(moderationEvents.status, "open"))
+    .where(and(eq(moderationEvents.status, "open"), ne(moderationEvents.action, "escalate")))
     .orderBy(desc(moderationEvents.createdAt))
     .limit(100);
   const templateIds = rows.filter((r) => r.e.subjectType === "template").map((r) => r.e.subjectId);
@@ -105,16 +108,37 @@ export async function moderationQueue() {
 
 export const resolveSchema = z.object({ action: z.enum(["remove", "dismiss"]), note: z.string().max(500).default("") });
 
-/** Resolves a report. "remove" takes the template down (status removed) and closes every open report on it. */
+/**
+ * Resolves a report. "remove" takes the template down (status removed), removes its public media
+ * like a takedown does, and closes every open report on it. A report of a minor keeps the media as
+ * evidence (legal hold, never purged) and opens a review-queue entry, as a csam takedown does.
+ */
 export async function resolveReport(adminId: string, eventId: string, input: z.infer<typeof resolveSchema>) {
   await getDb().transaction(async (tx) => {
     const [e] = await tx.select().from(moderationEvents).where(eq(moderationEvents.id, eventId)).for("update");
     if (!e) throw notFound();
     if (e.status !== "open") throw new HttpError(409, "already_resolved", "Someone already resolved this.");
+    if (e.action === "escalate") throw new HttpError(409, "use_review_queue", "Abuse-scan matches are resolved in Admin › Abuse review.");
     const now = new Date();
     if (input.action === "remove") {
       if (e.subjectType === "template") {
-        await tx.update(templates).set({ status: "removed", updatedAt: now }).where(eq(templates.id, e.subjectId));
+        const [t] = await tx.update(templates).set({ status: "removed", updatedAt: now }).where(eq(templates.id, e.subjectId)).returning();
+        const assetIds = t ? [t.posterAssetId, t.previewAssetId].filter((x): x is string => Boolean(x)) : [];
+        if (assetIds.length && e.reason === "minor") {
+          await tx.update(mediaAssets).set({ deletedAt: now, legalHold: true }).where(inArray(mediaAssets.id, assetIds));
+          for (const a of await tx.select().from(mediaAssets).where(inArray(mediaAssets.id, assetIds))) {
+            await tx.insert(moderationEvents).values({
+              subjectType: "output",
+              subjectId: a.id,
+              action: "escalate",
+              status: "open",
+              reason: "csam_report",
+              details: { assetId: a.id, sha256: a.sha256, provider: "report", ref: e.id, origin: "report", ownerId: a.ownerId, storageKey: a.storageKey },
+            });
+          }
+        } else if (assetIds.length) {
+          await tx.update(mediaAssets).set({ deletedAt: now }).where(and(inArray(mediaAssets.id, assetIds), eq(mediaAssets.legalHold, false), isNull(mediaAssets.deletedAt)));
+        }
       } else if (e.subjectType === "output") {
         const [o] = await tx.update(generationOutputs).set({ deletedAt: now }).where(eq(generationOutputs.id, e.subjectId)).returning();
         if (o) await tx.update(mediaAssets).set({ deletedAt: now }).where(eq(mediaAssets.id, o.assetId));
@@ -200,11 +224,35 @@ export async function adjustCredits(adminId: string, input: z.infer<typeof adjus
   return { handle: target.handle, ...result };
 }
 
+/**
+ * Suspends an account and, in the same transaction, unpublishes every template it has live, so
+ * discovery never lists work whose creator page now 404s. The creator can publish them again from
+ * their manage page once reinstated; templates already unpublished or removed are left as they are.
+ * The suspension is recorded as an open flag, so clearing an abuse case later (the only way an
+ * account is reinstated) never lifts it. An account already suspended for an abuse case still
+ * takes the admin's reason; one an admin already suspended is a 404, as a missing account is.
+ */
 export async function suspendUser(adminId: string, userId: string, reason: string) {
-  const [u] = await getDb().update(users).set({ status: "suspended", updatedAt: new Date() }).where(and(eq(users.id, userId), eq(users.status, "active"))).returning({ id: users.id });
-  if (!u) throw notFound();
+  const unpublished = await getDb().transaction(async (tx) => {
+    const now = new Date();
+    const [u] = await tx.select({ status: users.status }).from(users).where(and(eq(users.id, userId), isNull(users.deletedAt))).for("update");
+    if (!u || u.status === "deleted") throw notFound();
+    if (u.status === "suspended") {
+      if ((await suspensionCauses(tx, userId)).some((c) => c.kind !== "csam_match")) throw notFound();
+    } else {
+      await tx.update(users).set({ status: "suspended", updatedAt: now }).where(eq(users.id, userId));
+    }
+    await tx.insert(accountFlags).values({ userId, kind: "manual_review", reason: `Suspended by an admin: ${reason}`, details: { source: ADMIN_SUSPENSION }, createdBy: adminId });
+    const ts = await tx
+      .update(templates)
+      .set({ status: "unpublished", updatedAt: now })
+      .where(and(eq(templates.creatorId, userId), eq(templates.status, "published")))
+      .returning({ id: templates.id });
+    await audit(adminId, "user.suspend", "user", userId, { reason, unpublishedTemplates: ts.length }, tx);
+    return ts.length;
+  });
   await destroyAllSessions(userId);
-  await audit(adminId, "user.suspend", "user", userId, { reason });
+  return { unpublishedTemplates: unpublished };
 }
 
 export async function recentAudit(limit = 60) {

@@ -1,6 +1,8 @@
 /**
  * Seeds a development database with categories, creators and templates.
- * All cover art is original abstract artwork generated here; no third-party media.
+ * All cover art is original abstract artwork generated here; no third-party media. Every seeded
+ * template is tagged "sample" and says its cover is an illustration, and starts with zero
+ * generations: counts only ever come from real runs.
  * Refuses to run against a database that already has templates.
  */
 import { spawnSync } from "node:child_process";
@@ -12,6 +14,7 @@ import sharp from "sharp";
 import { sql } from "drizzle-orm";
 import { applyMovement } from "@/server/credits/ledger";
 import { closeDb, getDb } from "@/server/db";
+import { isLiveDeployment } from "@/server/env";
 import { ADULT_STATEMENT, TERMS_STATEMENT } from "@/server/auth/account";
 import {
   consentRecords,
@@ -31,7 +34,15 @@ import {
   users,
 } from "@/server/db/schema";
 import { hashPassword } from "@/server/auth/session";
+import { scanAsset } from "@/server/safety/scan";
 import { newStorageKey, sha256, storage } from "@/server/storage";
+
+// The seeded accounts, an admin among them, share one password (printed below when generated). However
+// the seed is started (compose's own check covers only `docker compose run seed`), never on a live site.
+if (isLiveDeployment()) {
+  console.error("The seed creates sample accounts that share one password: it runs in development or on a private preview (APP_ENV=staging), never on a live site.");
+  process.exit(1);
+}
 
 const db = getDb();
 
@@ -160,6 +171,9 @@ async function storeAsset(ownerId: string, kind: "image" | "video", mime: string
     .insert(mediaAssets)
     .values({ ownerId, kind, storageKey: key, mime, bytes: bytes.length, width: w, height: h, durationMs, sha256: sha256(bytes), visibility: "public" })
     .returning({ id: mediaAssets.id });
+  // Seed media goes through the same abuse scan as everything else, so a fresh seed is fully cleared.
+  const verdict = await scanAsset({ assetId: a!.id, bytes, mime, kind, sha256: sha256(bytes), ownerId, origin: "seed" });
+  if (verdict !== "clean") throw new Error(`seed asset ${a!.id} was not cleared by the scanner (${verdict}); check SCAN_PROVIDER`);
   return a!.id;
 }
 
@@ -234,10 +248,11 @@ for (const [i, s] of T.entries()) {
       creatorId: creator.id,
       categoryId: cats.find((c) => c.slug === s.cat)!.id,
       title: s.title,
-      description: s.prompt.charAt(0).toUpperCase() + s.prompt.slice(1) + ".",
+      // Seeded templates are samples: the cover is generated abstract art, not an output of the recipe.
+      description: s.prompt.charAt(0).toUpperCase() + s.prompt.slice(1) + ". Sample template: the cover is an illustration, not a result of this recipe.",
       mediaType: s.media,
       mode: s.mode,
-      tags: s.tags,
+      tags: [...s.tags, "sample"],
       status: "published",
       isVip: s.vip ?? false,
       quality: s.q ?? "hd",
@@ -270,8 +285,7 @@ await db.execute(sql`
   update templates t set
     favorite_count = (select count(*) from favorites f where f.target_type = 'template' and f.target_id = t.id),
     rating_sum = coalesce((select sum(score) from template_ratings r where r.template_id = t.id), 0),
-    rating_count = (select count(*) from template_ratings r where r.template_id = t.id),
-    generation_count = (abs(hashtext(t.slug)) % 400)
+    rating_count = (select count(*) from template_ratings r where r.template_id = t.id)
 `);
 await db.insert(follows).values({ followerId: member.id, creatorId: creators[0]!.id });
 const [coll] = await db.insert(templateCollections).values({ creatorId: creators[0]!.id, title: "After-dark essentials" }).returning();

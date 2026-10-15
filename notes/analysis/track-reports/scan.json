@@ -1,0 +1,98 @@
+{
+  "track": "scan",
+  "branch": "worktree-wf_a044751c-de7-1",
+  "worktree": "/home/claude/hushloom/.claude/worktrees/wf_a044751c-de7-1",
+  "commits": [
+    "c63e72a Abuse scanning: dev, PhotoDNA and Cloudflare adapters; fail-closed verdicts on uploads, outputs, media and publishing",
+    "1821c5a Seed scans its media; scan-backfill script for existing databases; e2e-prepare checks nothing is left pending",
+    "fe8e6bc WIP: abuse review queue, takedown requests and their admin and public pages",
+    "ca1309e Tests: matched uploads and outputs never reach anyone, outages hold content, review and takedowns",
+    "0fd6820 Abuse response runbook; review page copy and takedown actions laid out under the note"
+  ],
+  "summary": "Addendum \u00a73 is built. Uploads, generation outputs (videos via up to 30 ffmpeg keyframes at 1 fps), seed media and backfilled media all go through scanAsset(). There are three adapters: dev (labeled demo, matches only test hashes and a drill fixture, refused in production), PhotoDNA (JPEG, throttled, fails closed on any unexpected reply) and Cloudflare (edge-only, so it returns unavailable when fail-closed is on). Only assets marked clean are served, signed, used as inputs, downloaded or published. Pending assets get the same 404 as deleted ones. On a match the file goes on legal hold and is never purged. The owner is suspended and signed out, and the system adds a csam_match flag, opens an escalation and writes audit rows. The upload reply is a generic 403. A matched output fails with content_blocked and the credits are returned. If the scanner is down with fail-closed on, an upload is deleted and gets a 503; an output is requeued with its credits still reserved, and after a limited number of tries it fails and the credits are refunded. Admins work from /admin/review, where they can confirm a match and record the report reference, or clear a false positive and reinstate the owner. There is a public takedown form at /policies/takedown that works without an account, with an admin queue for action or dismissal. docs/abuse-response.md is the runbook. 19 new integration tests; 140/140 tests pass overall.",
+  "filesTouched": [
+    "docs/abuse-response.md",
+    "scripts/e2e-prepare.ts",
+    "scripts/scan-backfill.ts",
+    "scripts/seed.ts",
+    "src/app/admin/page.tsx",
+    "src/app/admin/review/page.tsx",
+    "src/app/api/admin/review/[id]/route.ts",
+    "src/app/api/admin/review/route.ts",
+    "src/app/api/admin/takedowns/[id]/route.ts",
+    "src/app/api/admin/takedowns/route.ts",
+    "src/app/api/media/route.ts",
+    "src/app/api/takedowns/route.ts",
+    "src/app/policies/page.tsx",
+    "src/app/policies/takedown/page.tsx",
+    "src/components/admin-flags.tsx",
+    "src/components/admin-review.tsx",
+    "src/components/admin.tsx",
+    "src/components/age-gate.tsx",
+    "src/components/takedown-form.tsx",
+    "src/components/template-detail.tsx",
+    "src/server/admin.ts",
+    "src/server/ai/providers/types.ts",
+    "src/server/auth/account.ts",
+    "src/server/env.ts",
+    "src/server/generation/processor.ts",
+    "src/server/generation/service.ts",
+    "src/server/media.ts",
+    "src/server/payments/service.ts",
+    "src/server/safety/review.ts",
+    "src/server/safety/scan/index.ts",
+    "src/server/safety/scan/providers/cloudflare.ts",
+    "src/server/safety/scan/providers/dev.ts",
+    "src/server/safety/scan/providers/photodna.ts",
+    "src/server/safety/scan/types.ts",
+    "src/server/safety/takedowns.ts",
+    "src/server/templates/publish.ts",
+    "tests/fixtures/scan-drill-match.png",
+    "tests/integration/scan.test.ts"
+  ],
+  "testsAdded": [
+    "tests/integration/scan.test.ts (19 tests): dev scanner fixture and settings; pending assets never served; matched upload through the route (generic 403, not served, owner suspended, sessions removed, flag, escalation, audits, generic report/flag tools refuse it, survives consent withdrawal, account deletion and both purges); repeat scan opens no second case; matched output (content_blocked, credits returned, no output row, held); match found in a video keyframe; outage upload 503 with bytes deleted; outage output requeued, then retries exhausted and refunded; recovery; fail-open keeps 'unavailable' but never serves, downloads, uses or publishes it; clean flow (upload, image-to-image, download 302, publish inherits clean); clip keyframes plus derived poster; publish refused for pending/unavailable/matched output or poster; admin clears a false positive through the routes (non-admin 404, 422 without a note, 409 on a second try); confirm records the report reference; takedowns signed out and signed in plus 429 rate limit; admin action and dismiss; csam takedown puts the file on hold and escalates; PhotoDNA JPEG conversion; unconfigured PhotoDNA and the Cloudflare adapter both return unavailable",
+    "tests/fixtures/scan-drill-match.png (harmless 640x640 striped PNG; its sha256 74e83d5d64abef0cf31d79891bcf2000ded57690e2e320bbdee37d21a9f7a184 is the dev scanner's built-in drill match)"
+  ],
+  "verified": [
+    "npm run typecheck: clean (tsc --noEmit, no output)",
+    "npm run lint: 'No ESLint warnings or errors'",
+    "TEST_DATABASE_URL=postgres://playbox@localhost:5432/playbox_test_scan TEST_REDIS_URL=redis://localhost:6379/5 npm test: 10 files, 140/140 passed (baseline at e0ae32c was 121/121); scan.test.ts 19/19",
+    "Mutation check: turning off the clean-only check in the media route made 4 scan tests fail; restored with git checkout",
+    "Seed against playbox_test_scan: 24 images + 10 videos all clean (videos 'keyframes:3;dev:no-match')",
+    "npx tsx scripts/scan-backfill.ts on the test DB: 34 rescanned clean, exit 0; with SCAN_DEV_SIMULATE_OUTAGE=true it exits 1; with SCAN_DEV_MATCH_HASHES set to a seeded hash, the asset was held, its template removed, escalation/flag/audits written and the creator suspended",
+    "Dev server (next dev on port 3105 against playbox_test_scan, STORAGE_LOCAL_DIR=.storage-test-scan): uploading the drill fixture gives a generic 403 and /api/me then returns 401 (suspended, signed out); signed-out POST /api/takedowns returns 201; /policies/takedown returns 200 signed out; /admin/review, /admin and /policies render as expected",
+    "Playwright screenshots of /admin/review and /policies/takedown at 390px and 1440px: no horizontal scroll (scrollWidth 390/1440); demo badge 'Development scanner \u00b7 not live' shown",
+    "Dev server stopped, .storage-test-scan deleted; git status shows only the untracked node_modules symlink"
+  ],
+  "unverified": [
+    "PhotoDNA live API: request shape (POST image/jpeg, Ocp-Apim-Subscription-Key header, JPEG <=4MB and <=2048px, 5 req/s throttle) and reply parsing (Status.Code 3000 = OK, IsMatch, TrackingId) come from the Microsoft Learn Content Moderator ProcessImage/Match reference and the Wikimedia MediaModeration extension / Phabricator T336205. Status.Code 3000 is from memory. Never called a real endpoint: no account or key exists.",
+    "Cloudflare CSAM Scanning Tool: behavior (dashboard-only, scans only cached images, email notice, tries to block, no API or webhook) is from developers.cloudflare.com/cache/reference/csam-scanning/. Not exercised. App media is sent with Cache-Control: private, so as shipped Cloudflare would scan nothing.",
+    "Legal statements in docs/abuse-response.md \u00a74/\u00a76 (18 U.S.C. \u00a7 2258A NCMEC reporting, \u00a7 2258A(h) preservation period of 1 year after the 2024 REPORT Act as I understand it, UK OSA 2023 NCA reporting, IWF/INHOPE, US TAKE IT DOWN Act 48h NCII removal) are marked 'for legal review' and have not been checked by counsel",
+    "No real report is filed anywhere: 'Confirm and record report' only records a reference an operator types in after filing by hand",
+    "npm run build, next build and npm run test:e2e not run, per the task rules. e2e-prepare.ts now runs scan-backfill, but that was run only on its own, not through the e2e pipeline",
+    "S3 storage driver not exercised (local driver only); purge and hold logic does not depend on the driver"
+  ],
+  "envVarsAdded": [
+    "SCAN_TIMEOUT_S (default 30; seconds before one scanner call counts as unavailable)",
+    "SCAN_DEV_SIMULATE_OUTAGE (\"true\"|\"false\", default false; dev scanner only, makes every scan unavailable for outage drills)"
+  ],
+  "accountsNeeded": [
+    "Microsoft PhotoDNA Cloud Service: apply for approval, which gives PHOTODNA_API_KEY and the exact PHOTODNA_ENDPOINT Match URL; set SCAN_PROVIDER=photodna",
+    "Cloudflare account with the CSAM Scanning Tool turned on and a notification email (optional second layer; only scans cached responses)",
+    "NCMEC CyberTipline electronic service provider registration (US reporting); IWF membership or reporting route (UK) and the relevant INHOPE hotline elsewhere",
+    "Counsel to review docs/abuse-response.md \u00a74 and \u00a76 (reporting duties, preservation period, NCII removal timelines)"
+  ],
+  "docsNotes": "PIPELINE: every asset gets media_assets.scan_status (pending|clean|matched|unavailable; default pending) plus scan_provider, scan_ref, scanned_at and legal_hold (migration 0002). scanAsset(subject) runs at: upload (after WebP re-encode; the hash of the received bytes is passed as sourceSha256 so known-hash lists match the original), each generation output before it is attached (videos: ffmpeg fps=1, at most 30 keyframes, each scanned; a poster inherits its clip's verdict as 'derived:<clipId>'), seed (origin 'seed'; seeding stops unless clean), and scripts/scan-backfill.ts (pending, plus unavailable with --include-unavailable; exits 1 if anything is left pending or unavailable). e2e-prepare runs the backfill after seeding. Existing databases MUST run `npx tsx scripts/scan-backfill.ts` once, because pending assets are no longer served.\n\nSERVING RULE: only 'clean' is signed (assetUrl), served (/api/media gives the same 404 as a deleted asset, even with a link signed earlier), downloaded, accepted as a generation input, or published (409 not_cleared 'This creation hasn't cleared our safety checks, so it can't be published.'; the output and the poster are both checked).\n\nVERDICT TABLE: clean -> normal. matched/upload -> asset kept on legal hold (never purged, skipped by consent withdrawal, account deletion and both purge paths); owner suspended and their sessions deleted; account_flags csam_match; moderation escalate event (reason csam_match); audits scan.block and user.suspend; reply is a generic 403 upload_rejected 'This upload was rejected.' matched/output -> same hold, flag and escalation; job fails with content_blocked 'This creation was blocked by our safety checks. Your credits were returned.'; no output row; earlier outputs from the same job are deleted. A repeat scan of an already matched asset opens no second case. unavailable -> see fail-closed. The generic tools refuse escalations: resolveReport and clearFlag on csam_match return 409 use_review_queue; the admin flags list links to /admin/review instead; escalations are kept out of the open-reports count and the moderation queue.\n\nFAIL-CLOSED (SCAN_FAIL_CLOSED=true, default): a scanner error, timeout (SCAN_TIMEOUT_S), missing configuration or unexpected reply means unavailable. Upload: uploads row and consent record deleted, asset soft-deleted, bytes purged; 503 scan_unavailable 'We couldn't check this file right now. Try again in a few minutes.' Output: stored files deleted, job requeued with its reservation kept, BullMQ backoff, and after maxAttempts (3) it fails with scan_unavailable and the credits are refunded. Seed: throws. Fail-open (false): kept as 'unavailable', never served or used, rescanned with backfill --include-unavailable. env() refuses SCAN_PROVIDER=dev in production when fail-closed is on, and the dev provider also returns unavailable in production.\n\nPROVIDERS: dev = demo scanner; matches SCAN_DEV_MATCH_HASHES plus the built-in fixture hash 74e83d5d...a184 (tests/fixtures/scan-drill-match.png); SCAN_DEV_SIMULATE_OUTAGE=true for drills; setDevScanOverride() hook for tests. photodna = PHOTODNA_API_KEY + PHOTODNA_ENDPOINT (no default endpoint guessed). cloudflare = edge-only: returns unavailable when fail-closed, otherwise clean with ref 'edge-only:not-pre-scanned'. CLOUDFLARE_SCAN_WEBHOOK_SECRET is unused (the tool has no webhook). The admin page shows a 'Development scanner \u00b7 not live' demo badge, plus badges for no pre-storage scan, not configured and the fail-closed state.\n\nREVIEW: /admin/review (admin only, otherwise 404); GET /api/admin/review; POST /api/admin/review/[id] {action:'confirm', reportRef, reportedTo: ncmec_cybertipline|iwf|other_authority, note?} keeps the hold, writes a 'hold' event and audit scan.match_confirmed; {action:'clear', note>=3} marks the asset clean ('review-cleared:<id>'), lifts the hold, clears the matching flags, reinstates the owner if no other csam_match flag is open, and audits scan.false_positive_cleared and user.reinstate. Resolving twice gives 409. Templates removed by a match are NOT restored on clear.\n\nTAKEDOWNS: public form at /policies/takedown (no account needed; ?target= prefill; linked from /policies#abuse, the template report sheet and the age gate). POST /api/takedowns: categories ncii, likeness, csam, copyright, other; a good-faith checkbox is required; signed-out requests need an email (422 email_required); 10 per hour per user or IP (429). Admin: GET /api/admin/takedowns?status=open|closed (urgent first); POST /api/admin/takedowns/[id] {action:'action'|'dismiss', note} (dismiss needs a note, 422 note_required; an unresolvable target gives 422 target_not_found). 'Take it down' soft-deletes the target; ncii and likeness purge the files immediately; csam instead holds the files and opens a csam_report escalation. Audits: takedown.create (ids and category only), takedown.action, takedown.dismiss.\n\nNothing logs media bytes or prompts. Scanner logs carry only asset ids, hashes and the provider.",
+  "openQuestions": [
+    "Should the original upload bytes, before the WebP re-encode, be kept as evidence on a match? Today only the re-encoded file and the source sha256 are kept.",
+    "Should reviewers ever see held media in the app? Today it is never displayed; a reviewer works from hashes and storage keys.",
+    "Do we file through NCMEC's CyberTipline API, or keep filing by hand and recording the reference?",
+    "Do we want a classifier slot for new material alongside hash matching? Today it is hash-only.",
+    "After a false positive is cleared, should templates that the match removed be restored or republished?",
+    "Reinstate rule: the owner is reinstated only if no other csam_match flag is open. Confirm that is the intended policy.",
+    "With fail-open, should rescans run on a schedule (cron) rather than only through manual backfill?",
+    "Should public media become edge-cacheable so Cloudflare's tool can actually see it?",
+    "PhotoDNA: confirm the success Status.Code (3000 assumed) and the exact Match endpoint once an account is approved."
+  ]
+}

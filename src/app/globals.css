@@ -4,8 +4,9 @@
 @import "@fontsource-variable/jetbrains-mono";
 
 /*
- * Hushloom design tokens. Every color, radius, duration and font in the UI comes
- * from here; components never hardcode hex values.
+ * Hushloom design tokens. Every color, radius, shadow, duration and font family in the UI
+ * comes from here; components never hardcode hex values. Text colors are checked against
+ * the ink surfaces by tests/unit/contrast.test.ts (WCAG AA, 4.5:1 for normal text).
  */
 @theme {
   --color-ink-950: #0f0a0d;
@@ -15,10 +16,13 @@
   --color-ink-700: #33252d;
   --color-ink-600: #47353f;
   --color-bone-50: #f7efe7;
+  --color-bone-100: #efe5de;
   --color-bone-200: #e3d6cf;
   --color-bone-300: #c8b7b1;
   --color-bone-400: #a8958f;
-  --color-bone-500: #85736f;
+  /* Quietest text (hints, timestamps, placeholders): 4.5:1 or better on ink-950 through ink-800. */
+  --color-bone-500: #958480;
+  --color-ember-200: #ffc4ad;
   --color-ember-300: #ffa98c;
   --color-ember-400: #ff8a66;
   --color-ember-500: #ff6a4d;
@@ -26,6 +30,7 @@
   --color-ember-700: #b83a29;
   --color-brass-300: #f0cf96;
   --color-brass-400: #e2b46d;
+  --color-sage-300: #bcdcbf;
   --color-sage-400: #9cc5a1;
   --color-iris-300: #cdbfff;
   --color-iris-400: #b39dff;
@@ -37,17 +42,23 @@
 
   --radius-petal: 20px;
   --radius-pin: 5px;
+  /* The larger panel shape (create panel, settings sections, guides): 24px and 8px corners. */
+  --radius-panel: 24px;
+  --radius-panel-pin: 8px;
+
+  /* Elevation: floating status (toasts, job tray) and the ember glow under the Create tab. */
+  --shadow-float: 0 25px 50px -12px rgb(0 0 0 / 0.55);
+  --shadow-glow: 0 10px 15px -3px color-mix(in oklab, var(--color-ember-700) 30%, transparent), 0 4px 6px -4px color-mix(in oklab, var(--color-ember-700) 30%, transparent);
 
   --ease-weave: cubic-bezier(0.2, 0.8, 0.2, 1);
   --duration-quick: 140ms;
   --duration-base: 220ms;
   --duration-slow: 360ms;
 
-  --breakpoint-xs: 420px;
-
   --animate-thread: thread 1.8s var(--ease-weave) infinite;
   --animate-rise: rise var(--duration-slow) var(--ease-weave) both;
   --animate-pop: pop 320ms var(--ease-weave);
+  --animate-sink: sink var(--duration-quick) var(--ease-weave) both;
 
   @keyframes thread {
     0% { transform: translateX(-100%); }
@@ -56,6 +67,10 @@
   @keyframes rise {
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes sink {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(12px); }
   }
   @keyframes pop {
     0% { transform: scale(1); }
@@ -98,6 +113,38 @@ body {
   border-radius: var(--radius-petal) var(--radius-pin) var(--radius-petal) var(--radius-pin);
 }
 
+/* The panel: the petal's larger sibling for forms and grouped settings. */
+.panel {
+  border-radius: var(--radius-panel) var(--radius-panel-pin) var(--radius-panel) var(--radius-panel-pin);
+}
+
+/*
+ * Sheets (<dialog>): rise in, sink out. Exit runs while the dialog is still in the top layer
+ * (data-closing is set before close()), so it works in every browser without overlay support.
+ */
+.sheet[open] {
+  animation: var(--animate-rise);
+}
+.sheet[open][data-closing] {
+  animation: var(--animate-sink);
+}
+.sheet::backdrop {
+  background: color-mix(in oklab, var(--color-ink-950) 75%, transparent);
+  backdrop-filter: blur(4px);
+}
+.sheet[open]::backdrop {
+  animation: veil-in var(--duration-base) var(--ease-weave) both;
+}
+.sheet[open][data-closing]::backdrop {
+  animation: veil-out var(--duration-quick) var(--ease-weave) both;
+}
+@keyframes veil-in {
+  from { opacity: 0; }
+}
+@keyframes veil-out {
+  to { opacity: 0; }
+}
+
 .hairline {
   box-shadow: inset 0 0 0 1px var(--line);
 }
@@ -124,6 +171,37 @@ body {
 
 .scrollbar-none {
   scrollbar-width: none;
+}
+
+/*
+ * A right-edge fade on a horizontal scroller (put it on the element that scrolls) while more content waits past
+ * the edge, so a row or table with a hidden scrollbar still shows that it scrolls. It follows the scroll position
+ * (a scroll-driven animation): gone at the end of the scroll, and never shown on a row that fits, where the
+ * timeline is inactive and --edge-fade keeps its initial 0px. Without scroll-driven animations there is no fade.
+ */
+@property --edge-fade {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+.edge-fade {
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 var(--edge-fade));
+  mask-image: linear-gradient(to left, transparent, #000 var(--edge-fade));
+}
+@supports (animation-timeline: scroll()) {
+  .edge-fade {
+    animation: edge-fade linear both;
+    animation-timeline: scroll(self inline);
+  }
+}
+@keyframes edge-fade {
+  0%,
+  90% {
+    --edge-fade: 40px;
+  }
+  100% {
+    --edge-fade: 0px;
+  }
 }
 .scrollbar-none::-webkit-scrollbar {
   display: none;

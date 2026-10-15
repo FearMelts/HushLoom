@@ -1,0 +1,26 @@
+const { chromium } = require('playwright');
+(async () => {
+  const B = process.argv[2], OUT = process.argv[3];
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(B + '/', { waitUntil: 'load' });
+  const hit = (x, y) => page.evaluate(([x, y]) => { const e = document.elementFromPoint(x, y); return e ? `${e.tagName}#${e.id}.${e.className} inDialog=${!!e.closest('dialog')}` : null; }, [x, y]);
+  const res = {};
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: OUT + '/load-bottom-viewport.png' });
+  res.docHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+  res.dialogRectAtBottom = await page.$eval('#template-dialog', d => JSON.stringify(d.getBoundingClientRect()));
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.click('[data-open="slow-bloom"].title-link', { force: true });
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: OUT + '/open-viewport.png' });
+  await page.click('.dialog-close');
+  await page.waitForTimeout(400);
+  res.openAfterClose = await page.$eval('#template-dialog', d => d.open);
+  res.hitCenterAfterClose = await hit(640, 450);
+  res.hitMoonTitle = await page.evaluate(() => { const b = document.querySelector('[data-open="moon-motel"].title-link').getBoundingClientRect(); const e = document.elementFromPoint(b.x + 5, b.y + 5); return `${e.tagName}#${e.id}.${e.className} inDialog=${!!e.closest('dialog')} btnRect=${JSON.stringify(b)}`; });
+  await page.screenshot({ path: OUT + '/after-close-viewport.png' });
+  console.log(JSON.stringify(res, null, 2));
+  await browser.close();
+})().catch(e => { console.error(e); process.exit(1); });

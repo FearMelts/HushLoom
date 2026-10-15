@@ -5,9 +5,10 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
+import { WithheldMedia } from "./template-card";
 import { Button, ButtonLink, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
 
-type Character = { id: string; name: string; createdAt: string; consentGrantedAt: string; imageUrl: string | null };
+type Character = { id: string; name: string; createdAt: string; consentGrantedAt: string; imageUrl: string | null; mediaWithheld: boolean };
 
 export function TrainView({ characters, statement }: { characters: Character[]; statement: string }) {
   const router = useRouter();
@@ -63,8 +64,12 @@ export function TrainView({ characters, statement }: { characters: Character[]; 
           <p className="tag text-ember-400">Consistent characters</p>
           <h1 className="font-display text-4xl">Train</h1>
           <p className="mt-1 max-w-2xl text-sm text-bone-400">
-            Add a consented reference photo and pick it when you make a still, or attach it to a project scene. Honest note: this build does not fine-tune a model.
-            The photo is sent to a model that accepts a reference image at generation time, and nothing else is learned from it.
+            Add a consented reference photo and pick it when you make a Reference guided still, or attach it to a project scene. Each of those requests sends the
+            photo to the model you chose, for that request only. Nothing is trained or fine-tuned on it. A model that can&apos;t take a reference refuses the request
+            instead of ignoring the photo, and clips can&apos;t use a character in this build.
+          </p>
+          <p className="mt-1.5 max-w-2xl text-[12.5px] text-iris-300">
+            On the demo model, the photo is blended under the watermark of a labeled placeholder. It isn&apos;t a likeness match.
           </p>
         </div>
         <Button variant="ember" onClick={() => setOpen(true)}>
@@ -80,12 +85,15 @@ export function TrainView({ characters, statement }: { characters: Character[]; 
                 {c.imageUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element -- signed URL
                   <img src={c.imageUrl} alt={`Reference photo for ${c.name}`} className="absolute inset-0 size-full object-cover" />
+                ) : c.mediaWithheld ? (
+                  // The server sent no photo URL: the age rules here need a verification first.
+                  <WithheldMedia signedIn compact label="Verify your age to see this photo" />
                 ) : null}
               </div>
               <div className="mt-2 flex items-start justify-between gap-2 px-0.5">
                 <div className="min-w-0">
                   <p className="truncate text-sm text-bone-100">{c.name}</p>
-                  <p className="flex items-center gap-1 font-mono text-[11px] text-bone-500">
+                  <p className="flex items-center gap-1 font-mono text-[11px] text-bone-500" suppressHydrationWarning>
                     <ShieldCheck size={11} aria-hidden /> consent {relativeTime(c.consentGrantedAt)}
                   </p>
                 </div>

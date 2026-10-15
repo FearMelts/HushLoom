@@ -1,3 +1,4 @@
+import { and, eq } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { CreatorManage } from "@/components/creator-manage";
 import { Avatar } from "@/components/shell";
@@ -5,10 +6,22 @@ import { TemplateGrid, TemplateRail } from "@/components/template-card";
 import { FollowButton } from "@/components/template-detail";
 import { EmptyState, SectionHeading } from "@/components/ui";
 import { compact } from "@/lib/format";
-import { getCurrentUser } from "@/server/auth/session";
+import { viewerAccess } from "@/server/age/access";
 import { creatorAnalytics, creatorPage } from "@/server/creators";
+import { getDb } from "@/server/db";
+import { templates, templateVersions } from "@/server/db/schema";
 
 export const dynamic = "force-dynamic";
+
+/** The owner's current prompt per template, for editing in place (a change publishes the next version). */
+async function currentPrompts(creatorId: string) {
+  const rows = await getDb()
+    .select({ id: templates.id, prompt: templateVersions.prompt })
+    .from(templates)
+    .innerJoin(templateVersions, and(eq(templateVersions.templateId, templates.id), eq(templateVersions.version, templates.currentVersion)))
+    .where(eq(templates.creatorId, creatorId));
+  return new Map(rows.map((r) => [r.id, r.prompt]));
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   return { title: `@${decodeURIComponent((await params).id)}` };
@@ -16,10 +29,12 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 
 export default async function CreatorPage({ params }: { params: Promise<{ id: string }> }) {
   const handle = decodeURIComponent((await params).id);
-  const user = await getCurrentUser();
-  const data = await creatorPage(handle, user?.id ?? null);
+  const { user, viewer } = await viewerAccess();
+  const data = await creatorPage(handle, viewer);
   if (!data) notFound();
-  const analytics = data.isOwner ? await creatorAnalytics(data.profile.userId) : null;
+  const [analytics, prompts] = data.isOwner
+    ? await Promise.all([creatorAnalytics(data.profile.userId, viewer.explicitAllowed), currentPrompts(data.profile.userId)])
+    : [null, null];
   const p = data.profile;
   return (
     <div>
@@ -39,9 +54,10 @@ export default async function CreatorPage({ params }: { params: Promise<{ id: st
               ["Templates", data.templates.length],
               ["Uses", data.totals.generations],
             ].map(([k, v]) => (
-              <div key={k}>
-                <dd className="font-display text-2xl">{compact(Number(v))}</dd>
+              // Term first in the markup (valid dl order), number first on screen.
+              <div key={k} className="flex flex-col-reverse">
                 <dt className="tag text-bone-500">{k}</dt>
+                <dd className="font-display text-2xl">{compact(Number(v))}</dd>
               </div>
             ))}
           </dl>
@@ -52,7 +68,7 @@ export default async function CreatorPage({ params }: { params: Promise<{ id: st
       {analytics ? (
         <section className="mb-12" aria-label="Manage your templates">
           <SectionHeading kicker="Only you see this" title="Your templates" />
-          <CreatorManage rows={analytics} />
+          <CreatorManage rows={analytics.map((r) => ({ ...r, prompt: prompts?.get(r.id) ?? "" }))} />
         </section>
       ) : null}
 

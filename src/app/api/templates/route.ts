@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getCurrentUser } from "@/server/auth/session";
+import { viewerAccess } from "@/server/age/access";
+import { assertAgeVerified } from "@/server/age/gate";
 import { browseTemplates } from "@/server/discovery/templates";
 import { route } from "@/server/http";
+import { requestCountry, requestRegion } from "@/server/request";
 import { publishTemplate, publishSchema } from "@/server/templates/publish";
 import { requireUser, parseJson } from "@/server/http";
 
@@ -12,18 +14,26 @@ const query = z.object({
   media: z.enum(["image", "video"]).optional(),
   sort: z.enum(["trending", "new", "top_rated", "most_favorited"]).optional(),
   creatorId: z.string().uuid().optional(),
+  // VIP templates only (pass holders can make them; everyone can browse them).
+  vipOnly: z
+    .enum(["1", "true", "0", "false"])
+    .optional()
+    .transform((v) => v === "1" || v === "true" || undefined),
   offset: z.coerce.number().int().min(0).max(10_000).optional(),
   limit: z.coerce.number().int().min(1).max(60).optional(),
 });
 
 export const GET = route(async (req) => {
   const params = query.parse(Object.fromEntries(req.nextUrl.searchParams));
-  const user = await getCurrentUser();
-  return NextResponse.json(await browseTemplates(params, user?.id ?? null));
+  // One age-rule decision per request; media URLs are withheld server-side for viewers who still need a check.
+  const access = await viewerAccess();
+  return NextResponse.json(await browseTemplates(params, access.viewer));
 });
 
 export const POST = route(async (req) => {
   const user = await requireUser();
+  // Publishing shares explicit media, so it sits behind the same age-verification gate as creating and uploading.
+  await assertAgeVerified(user, { country: requestCountry(req), region: requestRegion(req) });
   const input = await parseJson(req, publishSchema);
   const template = await publishTemplate(user, input);
   return NextResponse.json({ template }, { status: 201 });

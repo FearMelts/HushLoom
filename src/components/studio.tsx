@@ -8,6 +8,7 @@ import type { CreationListItem } from "@/server/generation/views";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { STATUS_LABEL, elapsed, relativeTime } from "@/lib/format";
+import { useJobEvents } from "./job-tray";
 import { Badge, Button, useToast } from "./ui";
 
 export function PresetList({ presets, kind }: { presets: { id: string; name: string; mode: string; modelKey: string; prompt: string }[]; kind: "image" | "video" }) {
@@ -32,7 +33,7 @@ export function PresetList({ presets, kind }: { presets: { id: string; name: str
             {(video ? "video" : "image") !== kind ? <Badge>switches</Badge> : null}
             <button
               type="button"
-              className="grid size-7 place-items-center rounded-full text-bone-500 hover:bg-ink-800 hover:text-danger-400"
+              className="grid size-9 shrink-0 place-items-center max-sm:size-10 rounded-full text-bone-500 hover:bg-ink-800 hover:text-danger-400"
               aria-label={`Delete preset ${p.name}`}
               onClick={async () => {
                 try {
@@ -52,20 +53,22 @@ export function PresetList({ presets, kind }: { presets: { id: string; name: str
   );
 }
 
-/** Recent and running jobs with real timestamps from the server. Refreshes while anything is in flight. */
+/**
+ * Recent and running jobs with real timestamps from the server. The job tray is the only poller:
+ * this list refreshes when the tray reports a job started, finished or changed state.
+ */
 export function JobMonitor({ items }: { items: CreationListItem[] }) {
   const router = useRouter();
   const toast = useToast();
   const [, tick] = useState(0);
   const running = items.some((i) => i.status === "queued" || i.status === "processing");
+  useJobEvents(() => router.refresh());
   useEffect(() => {
+    // Elapsed time only; no network.
     if (!running) return;
-    const t = setInterval(() => {
-      tick((n) => n + 1);
-      router.refresh();
-    }, 3000);
+    const t = setInterval(() => tick((n) => n + 1), 1000);
     return () => clearInterval(t);
-  }, [running, router]);
+  }, [running]);
 
   if (!items.length) return <p className="text-[13px] text-bone-500">Nothing made yet.</p>;
   return (
@@ -73,7 +76,7 @@ export function JobMonitor({ items }: { items: CreationListItem[] }) {
       {items.map((i) => {
         const active = i.status === "queued" || i.status === "processing";
         return (
-          <li key={i.id} className="flex items-center gap-3 py-2">
+          <li key={i.id} className="flex items-center gap-3">
             <span
               className={cn(
                 "size-2 shrink-0 rounded-full",
@@ -81,9 +84,10 @@ export function JobMonitor({ items }: { items: CreationListItem[] }) {
               )}
               aria-hidden
             />
-            <Link href={`/collection/${i.id}`} className="min-w-0 flex-1">
+            {/* The row's padding is the link's, so the whole row height (over 40 px) is the tap target. */}
+            <Link href={`/collection/${i.id}`} className="block min-w-0 flex-1 py-2">
               <span className="block truncate text-[13px] text-bone-100">{i.prompt}</span>
-              <span className="block font-mono text-[11px] text-bone-500">
+              <span className="block font-mono text-[11px] text-bone-500" suppressHydrationWarning>
                 {STATUS_LABEL[i.status]} · {active ? elapsed(i.startedAt ?? i.queuedAt ?? i.createdAt) : relativeTime(i.finishedAt ?? i.createdAt)} · {i.costCredits} cr
                 {i.isDemo ? " · demo" : ""}
               </span>

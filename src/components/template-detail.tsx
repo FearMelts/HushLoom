@@ -1,18 +1,39 @@
 "use client";
 
-import { Flag, Pause, Play, Star } from "lucide-react";
+import { Flag, Pause, Play, Star, Wand2 } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/cn";
+import { WithheldMedia } from "./template-card";
 import { Button, Field, Sheet, inputClass, useToast } from "./ui";
 
-export function TemplateMedia({ posterUrl, previewUrl, title, isVideo }: { posterUrl: string | null; previewUrl: string | null; title: string; isVideo: boolean }) {
+export function TemplateMedia({
+  posterUrl,
+  previewUrl,
+  title,
+  isVideo,
+  withheld,
+  signedIn,
+}: {
+  posterUrl: string | null;
+  previewUrl: string | null;
+  title: string;
+  isVideo: boolean;
+  /** The server issued no media because the viewer still needs an age check. */
+  withheld?: boolean;
+  signedIn?: boolean;
+}) {
   const ref = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);
   return (
     <div className="petal relative overflow-hidden bg-ink-850 hairline">
-      {isVideo && previewUrl ? (
+      {withheld ? (
+        <div className="relative aspect-[4/5] w-full" aria-label={`${title} preview withheld until age verification`}>
+          <WithheldMedia signedIn={Boolean(signedIn)} />
+        </div>
+      ) : isVideo && previewUrl ? (
         <video
           ref={ref}
           src={previewUrl}
@@ -32,7 +53,7 @@ export function TemplateMedia({ posterUrl, previewUrl, title, isVideo }: { poste
       ) : (
         <div className="skeleton aspect-[4/5]" />
       )}
-      {isVideo && previewUrl ? (
+      {isVideo && previewUrl && !withheld ? (
         <button
           type="button"
           onClick={() => (playing ? ref.current?.pause() : void ref.current?.play())}
@@ -46,10 +67,70 @@ export function TemplateMedia({ posterUrl, previewUrl, title, isVideo }: { poste
   );
 }
 
+/**
+ * Phones and tablets: the Create panel sits below the media and the description, so a slim bar
+ * keeps "Make it" one tap away until the panel itself scrolls into view. It is a link to #make,
+ * not a second Make button; the panel's own button is the only thing that starts a creation.
+ */
+export function MakeBar({ cost, locked, demo }: { cost: number | null; locked: boolean; demo: boolean }) {
+  const [shown, setShown] = useState(false);
+  const bar = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const target = document.getElementById("make");
+    if (!target) return;
+    const io = new IntersectionObserver(([entry]) => setShown(!entry?.isIntersecting), { rootMargin: "0px 0px -15% 0px" });
+    io.observe(target);
+    return () => io.disconnect();
+  }, []);
+
+  // Toasts and the job tray read --dock-h so they stack above the bar instead of under it.
+  useEffect(() => {
+    const el = bar.current;
+    const root = document.documentElement;
+    if (!shown || !el) {
+      root.style.removeProperty("--dock-h");
+      return;
+    }
+    const ro = new ResizeObserver(() => root.style.setProperty("--dock-h", `${el.offsetHeight ? el.offsetHeight + 8 : 0}px`));
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty("--dock-h");
+    };
+  }, [shown]);
+
+  if (!shown) return null;
+  return (
+    <div ref={bar} className="fixed inset-x-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-30 animate-rise lg:hidden">
+      <a
+        href="#make"
+        onClick={(e) => {
+          const target = document.getElementById("make");
+          if (!target) return;
+          e.preventDefault();
+          const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          target.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
+          history.replaceState(null, "", "#make");
+          // Move the focus start point like a native anchor would, without raising a phone keyboard.
+          if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+          target.focus({ preventScroll: true });
+        }}
+        className="mx-auto flex h-12 max-w-md items-center justify-center gap-2 rounded-full bg-ember-500 px-5 text-[15px] font-semibold text-ink-950 shadow-glow"
+      >
+        <Wand2 size={18} aria-hidden />
+        {locked ? "VIP template · see options" : cost !== null ? `Make it · ${cost} credit${cost === 1 ? "" : "s"}` : "Make your own"}
+        {demo && !locked ? <span className="tag rounded-[4px] bg-ink-950/20 px-1.5 py-0.5 text-[10px]">Demo</span> : null}
+      </a>
+    </div>
+  );
+}
+
 export function FollowButton({ creatorId, initial, signedIn }: { creatorId: string; initial: boolean; signedIn: boolean }) {
   const [on, setOn] = useState(initial);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
+  const toast = useToast();
   return (
     <Button
       size="sm"
@@ -63,6 +144,8 @@ export function FollowButton({ creatorId, initial, signedIn }: { creatorId: stri
           await api("/api/follows", { method: on ? "DELETE" : "POST", body: { creatorId } });
           setOn(!on);
           router.refresh();
+        } catch (e) {
+          toast({ message: e instanceof ApiError ? e.message : "Couldn't update that. Try again.", tone: "error" });
         } finally {
           setBusy(false);
         }
@@ -102,7 +185,7 @@ export function RateStars({ templateId, initial }: { templateId: string; initial
                 toast({ message: e instanceof ApiError ? e.message : "Could not save rating.", tone: "error" });
               }
             }}
-            className="p-0.5"
+            className="grid size-8 place-items-center max-sm:size-10"
           >
             <Star size={18} className={cn((hover || score) >= n ? "fill-brass-400 text-brass-400" : "text-bone-500")} aria-hidden />
           </button>
@@ -129,7 +212,7 @@ export function ReportButton({ templateId }: { templateId: string }) {
   const toast = useToast();
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className="inline-flex items-center gap-1.5 text-[13px] text-bone-500 hover:text-danger-400">
+      <button type="button" onClick={() => setOpen(true)} className="inline-flex h-9 items-center gap-1.5 px-1 text-[13px] text-bone-500 hover:text-danger-400 max-sm:h-10">
         <Flag size={14} aria-hidden /> Report
       </button>
       <Sheet open={open} onClose={() => setOpen(false)} title="Report this template">
@@ -161,6 +244,13 @@ export function ReportButton({ templateId }: { templateId: string }) {
           <Field label="Details (optional)" htmlFor="report-note">
             <textarea id="report-note" rows={3} className={inputClass} value={note} onChange={(e) => setNote(e.target.value)} maxLength={1000} />
           </Field>
+          <p className="text-[12.5px] text-bone-400">
+            Is it you, without your consent?{" "}
+            <Link href={`/policies/takedown?target=${encodeURIComponent(`/templates/${templateId}`)}`} className="text-ember-400 underline-offset-2 hover:underline">
+              Request a takedown
+            </Link>
+            .
+          </p>
           <div className="flex justify-end">
             <Button type="submit" variant="ember" busy={busy}>
               Send report

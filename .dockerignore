@@ -1,0 +1,31 @@
+# Keep the build context small and free of secrets and local state.
+.git
+.github
+.claude
+node_modules
+.next
+out
+coverage
+playwright-report
+test-results
+*.tsbuildinfo
+next-env.d.ts
+
+# Local media and test storage (any .storage* folder)
+.storage*
+
+# Secrets: environment files never enter an image (configure containers at run time), at any depth:
+# the worker image copies the whole context.
+**/.env
+**/.env.*
+
+# Not needed to build or run either image
+notes
+docs
+tests
+Dockerfile
+Dockerfile.*
+docker-compose*.yml
+.dockerignore
+README.md
+dump.rdb

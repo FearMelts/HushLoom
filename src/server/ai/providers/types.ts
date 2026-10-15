@@ -1,7 +1,13 @@
 import type { GenerationParams } from "@/server/db/schema";
 import type { GenerationMode, ModelSpec } from "@/server/ai/registry";
 
-export type ProviderInput = { kind: "image" | "video"; mime: string; bytes: Buffer; width?: number | null; height?: number | null };
+/**
+ * One media input for a request. `source` (the default) is media the result is made from: an upload,
+ * or the clip being continued. `reference` is a consented character reference photo from Train,
+ * sent only for modes that take one; an adapter that cannot use it must fail with "unsupported"
+ * rather than ignore it.
+ */
+export type ProviderInput = { kind: "image" | "video"; mime: string; bytes: Buffer; width?: number | null; height?: number | null; role?: "source" | "reference" };
 
 export type ProviderRequest = {
   jobId: string;
@@ -23,7 +29,11 @@ export type ProviderErrorCode =
   | "content_rejected"
   | "unsupported"
   | "cancelled"
-  | "internal";
+  | "internal"
+  /** Our own abuse scanner blocked the output (addendum §3); nothing was kept for display. */
+  | "content_blocked"
+  /** Our abuse scanner could not check the output, so it was not kept (fail closed). */
+  | "scan_unavailable";
 
 /** Every provider failure is normalized to this shape before it reaches the job record. */
 export class ProviderError extends Error {
@@ -59,4 +69,6 @@ export const USER_FACING_ERRORS: Record<ProviderErrorCode, string> = {
   unsupported: "This model does not support that operation. Your credits were returned.",
   cancelled: "Cancelled. Your credits were returned.",
   internal: "Something failed on our side. Your credits were returned.",
+  content_blocked: "This creation was blocked by our safety checks. Your credits were returned.",
+  scan_unavailable: "Our safety check couldn't run, so nothing was saved. Try again in a few minutes; your credits were returned.",
 };

@@ -1,37 +1,61 @@
 "use client";
 
-import { AlertTriangle, CheckSquare, FolderPlus, Heart, Play, RotateCw, Square, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckSquare, FolderPlus, Heart, Info, Play, RotateCw, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import type { CreationListItem } from "@/server/generation/views";
-import { api, ApiError, newIdempotencyKey } from "@/lib/api";
+import { api, ApiError, apiErrorAction, newIdempotencyKey } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { STATUS_LABEL, elapsed, relativeTime } from "@/lib/format";
+import { useOnline } from "@/lib/use-online";
 import { JOB_STARTED_EVENT } from "./job-tray";
+import { OFFLINE_MESSAGE, OfflineGuard } from "./offline";
+import { WithheldMedia } from "./template-card";
 import { Badge, Button, ButtonLink, Chip, EmptyState, Field, Sheet, inputClass, useToast } from "./ui";
 
 type Query = { media: string; status: string; favorites: string; folder: string; model: string; sort: string };
+/** A retry draft waiting for the person to confirm its cost. */
+type PendingRetry = { id: string; costCredits: number; isDemo: boolean };
 
 export function CreationThumb({ item, selectable, selected, onSelect }: { item: CreationListItem; selectable?: boolean; selected?: boolean; onSelect?: () => void }) {
   const router = useRouter();
   const toast = useToast();
+  const online = useOnline();
   const [retrying, setRetrying] = useState(false);
+  const [pending, setPending] = useState<PendingRetry | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const running = item.status === "queued" || item.status === "processing";
   const ratio = item.output?.width && item.output.height ? `${item.output.width} / ${item.output.height}` : "4 / 5";
 
+  // Retry makes a draft first and charges only after the person confirms the cost, like every other run.
   async function retry() {
+    if (!online) return;
     setRetrying(true);
     try {
-      const { job } = await api<{ job: { id: string; costCredits: number } }>(`/api/generations/${item.id}/derive`, { body: { relation: "retry", idempotencyKey: newIdempotencyKey() } });
-      await api(`/api/generations/${job.id}/confirm`, { body: { expectedCost: job.costCredits } });
-      window.dispatchEvent(new Event(JOB_STARTED_EVENT));
-      toast({ message: `Retrying for ${job.costCredits} credits.` });
-      router.refresh();
+      const { job } = await api<{ job: PendingRetry }>(`/api/generations/${item.id}/derive`, { body: { relation: "retry", idempotencyKey: newIdempotencyKey() } });
+      setPending({ id: job.id, costCredits: job.costCredits, isDemo: job.isDemo });
     } catch (e) {
-      toast({ message: e instanceof ApiError ? e.message : "Retry failed.", tone: "error" });
+      toast({ message: e instanceof ApiError ? e.message : "We couldn't set up the retry. Try again.", tone: "error", action: apiErrorAction(e) });
     } finally {
       setRetrying(false);
+    }
+  }
+
+  async function confirmRetry() {
+    if (!pending || !online) return;
+    setConfirming(true);
+    try {
+      await api(`/api/generations/${pending.id}/confirm`, { body: { expectedCost: pending.costCredits } });
+      window.dispatchEvent(new Event(JOB_STARTED_EVENT));
+      toast({ message: pending.isDemo ? "Retrying with a demo placeholder." : "Retrying now.", action: { label: "Open", href: `/collection/${pending.id}` } });
+      setPending(null);
+      router.refresh();
+    } catch (e) {
+      toast({ message: e instanceof ApiError ? e.message : "Retry failed.", tone: "error", action: apiErrorAction(e) });
+      setPending(null);
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -66,6 +90,9 @@ export function CreationThumb({ item, selectable, selected, onSelect }: { item: 
             // eslint-disable-next-line @next/next/no-img-element -- signed URL
             <img src={item.output.url} alt="" loading="lazy" className="absolute inset-0 size-full object-cover" />
           )
+        ) : item.output?.mediaWithheld ? (
+          // The server sent no media URL: the age rules here need a verification first. The tile is a link, so no nested link.
+          <WithheldMedia signedIn compact link={false} label="Verify your age to see this" />
         ) : running ? (
           <div className="skeleton absolute inset-0 grid place-items-center">
             <div className="text-center">
@@ -73,7 +100,7 @@ export function CreationThumb({ item, selectable, selected, onSelect }: { item: 
                 <span className="absolute inset-y-0 w-1/2 rounded-full bg-ember-500 animate-thread" />
               </div>
               <p className="mt-3 text-[13px] text-bone-200">{STATUS_LABEL[item.status]}…</p>
-              <p className="font-mono text-[11px] text-bone-500">{elapsed(item.startedAt ?? item.queuedAt ?? item.createdAt)}</p>
+              <p className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>{elapsed(item.startedAt ?? item.queuedAt ?? item.createdAt)}</p>
             </div>
           </div>
         ) : (
@@ -103,14 +130,53 @@ export function CreationThumb({ item, selectable, selected, onSelect }: { item: 
       <div className="mt-2 flex items-start justify-between gap-2 px-0.5">
         <div className="min-w-0">
           <p className="truncate text-[13px] text-bone-200">{item.templateTitle ?? item.prompt}</p>
-          <p className="font-mono text-[11px] text-bone-500">{relativeTime(item.createdAt)}</p>
+          <p className="font-mono text-[11px] text-bone-500" suppressHydrationWarning>{relativeTime(item.createdAt)}</p>
         </div>
         {item.status === "failed" ? (
-          <button type="button" onClick={retry} disabled={retrying} className="inline-flex shrink-0 items-center gap-1 text-[12px] font-semibold text-ember-400 hover:text-ember-300">
-            <RotateCw size={12} className={retrying ? "animate-spin" : undefined} aria-hidden /> Retry
-          </button>
+          <OfflineGuard note={false} className="shrink-0">
+            <button
+              type="button"
+              onClick={retry}
+              disabled={retrying}
+              className="inline-flex items-center gap-1 text-[12px] font-semibold text-ember-400 hover:text-ember-300 disabled:text-bone-500"
+              title={online ? undefined : OFFLINE_MESSAGE}
+            >
+              <RotateCw size={12} className={retrying ? "animate-spin" : undefined} aria-hidden /> Retry
+            </button>
+          </OfflineGuard>
         ) : null}
       </div>
+
+      <Sheet open={Boolean(pending)} onClose={() => setPending(null)} title="Try it again?">
+        {pending ? (
+          <div className="space-y-4 text-[14px]">
+            <dl className="rounded-2xl bg-ink-850 hairline">
+              <div className="flex justify-between px-4 py-3">
+                <dt className="text-bone-300">Cost</dt>
+                <dd className="font-mono">{pending.costCredits} credits</dd>
+              </div>
+            </dl>
+            {pending.isDemo ? (
+              <p className="flex gap-2 rounded-2xl bg-iris-400/10 p-3.5 text-[13px] text-iris-300">
+                <Info size={16} className="mt-0.5 shrink-0" aria-hidden />
+                This server runs the demo model. You will get a labeled placeholder made locally, not an AI-generated result.
+              </p>
+            ) : null}
+            <p className="text-[12.5px] text-bone-400">Same prompt and settings. If it fails, your credits come back automatically.</p>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button variant="quiet" onClick={() => setPending(null)}>
+                Not now
+              </Button>
+              <OfflineGuard note={false}>
+                <Button variant="ember" onClick={confirmRetry} busy={confirming}>
+                  Confirm · {pending.costCredits} credits
+                </Button>
+              </OfflineGuard>
+            </div>
+            {online ? null : <p className="text-right text-[12.5px] text-brass-300">{OFFLINE_MESSAGE}</p>}
+          </div>
+        ) : null}
+      </Sheet>
     </article>
   );
 }
@@ -120,11 +186,14 @@ export function LibraryView({
   folders,
   models,
   query,
+  moreFilters,
 }: {
   items: CreationListItem[];
   folders: { id: string; name: string }[];
   models: { key: string; name: string }[];
   query: Query;
+  /** The finer filters (LibraryFilters): its button and pills sit in this filter row, after the chips. */
+  moreFilters?: ReactNode;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -213,7 +282,7 @@ export function LibraryView({
         </div>
       </div>
 
-      <div className="mb-3 scrollbar-none -mx-1 flex gap-2 overflow-x-auto px-1" aria-label="Filters">
+      <div className="edge-fade mb-3 scrollbar-none -mx-1 flex gap-2 overflow-x-auto px-1" aria-label="Filters">
         <Chip active={!query.media && !query.favorites} onClick={() => go({ media: "", favorites: "" })}>
           All
         </Chip>
@@ -226,8 +295,9 @@ export function LibraryView({
         <Chip active={query.favorites === "1"} onClick={() => go({ favorites: query.favorites ? "" : "1" })}>
           ♥ Favorites
         </Chip>
+        {moreFilters}
         <span className="mx-1 w-px shrink-0 bg-[var(--line)]" aria-hidden />
-        <select aria-label="Status" value={query.status} onChange={(e) => go({ status: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline">
+        <select aria-label="Status" value={query.status} onChange={(e) => go({ status: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline max-sm:h-10">
           <option value="">Any status</option>
           <option value="completed">Ready</option>
           <option value="processing">Weaving</option>
@@ -235,7 +305,7 @@ export function LibraryView({
           <option value="failed">Failed</option>
           <option value="cancelled">Cancelled</option>
         </select>
-        <select aria-label="Model" value={query.model} onChange={(e) => go({ model: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline">
+        <select aria-label="Model" value={query.model} onChange={(e) => go({ model: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline max-sm:h-10">
           <option value="">Any model</option>
           {models.map((m) => (
             <option key={m.key} value={m.key}>
@@ -243,7 +313,7 @@ export function LibraryView({
             </option>
           ))}
         </select>
-        <select aria-label="Folder" value={query.folder} onChange={(e) => go({ folder: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline">
+        <select aria-label="Folder" value={query.folder} onChange={(e) => go({ folder: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline max-sm:h-10">
           <option value="">All folders</option>
           {folders.map((f) => (
             <option key={f.id} value={f.id}>
@@ -251,7 +321,7 @@ export function LibraryView({
             </option>
           ))}
         </select>
-        <select aria-label="Sort" value={query.sort} onChange={(e) => go({ sort: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline">
+        <select aria-label="Sort" value={query.sort} onChange={(e) => go({ sort: e.target.value })} className="h-8 shrink-0 rounded-full bg-ink-900 px-3 text-[13px] text-bone-300 hairline max-sm:h-10">
           <option value="">Newest first</option>
           <option value="oldest">Oldest first</option>
         </select>
@@ -296,9 +366,15 @@ export function LibraryView({
           onSubmit={async (e) => {
             e.preventDefault();
             if (!newFolder.trim()) return;
-            const { folder } = await api<{ folder: { id: string } }>("/api/folders", { body: { name: newFolder.trim() } });
+            let folderId: string;
+            try {
+              ({ folder: { id: folderId } } = await api<{ folder: { id: string } }>("/api/folders", { body: { name: newFolder.trim() } }));
+            } catch (err) {
+              toast({ message: err instanceof ApiError ? err.message : "We couldn't create that folder. Try again.", tone: "error" });
+              return;
+            }
             setNewFolder("");
-            await addToFolder(folder.id);
+            await addToFolder(folderId);
           }}
         >
           <div className="flex-1">

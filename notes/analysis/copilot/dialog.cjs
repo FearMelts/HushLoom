@@ -1,0 +1,24 @@
+const { chromium } = require('playwright');
+(async () => {
+  const B = process.argv[2], OUT = process.argv[3];
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(B + '/', { waitUntil: 'load' });
+  const st = () => page.$eval('#template-dialog', d => { const cs = getComputedStyle(d); const r = d.getBoundingClientRect(); return { open: d.open, display: cs.display, visibility: cs.visibility, position: cs.position, rect: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)], title: d.querySelector('#dialog-title').textContent }; });
+  const res = {};
+  res.onLoad = await st();
+  await page.screenshot({ path: OUT + '/load-1280.png', fullPage: true });
+  res.elementAtCenterOnLoad = await page.evaluate(() => { const e = document.elementFromPoint(640, 450); return e && (e.id || e.className); });
+  await page.click('[data-open="slow-bloom"].title-link', { force: true });
+  res.afterOpen = await st();
+  await page.keyboard.press('Escape');
+  res.afterEscape = await st();
+  await page.screenshot({ path: OUT + '/after-close-1280.png', fullPage: true });
+  res.elementAtCenterAfterClose = await page.evaluate(() => { const e = document.elementFromPoint(640, 450); return e && (e.id || e.className); });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(B + '/');
+  res.mobileOnLoad = await st();
+  await page.screenshot({ path: OUT + '/load-390.png', fullPage: true });
+  console.log(JSON.stringify(res, null, 2));
+  await browser.close();
+})().catch(e => { console.error(e); process.exit(1); });

@@ -1,0 +1,83 @@
+{
+  "track": "fixes-ui",
+  "branch": "worktree-wf_44ccc76c-0c7-2",
+  "worktree": "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2",
+  "commits": [
+    "b0e0e0a Tokens: bone-500 to AA, define bone-100/sage-300/ember-200, panel radius, float and glow shadows, sheet exit keyframes",
+    "cc7a31e Primitives: animated sheet close, phone-size small controls, safe-area toasts above the tray; one poller for job state; You sheet and single-device sign-out",
+    "64e1a48 Route loading skeletons and error pages",
+    "9f9a416 Discovery: demo badge from the current version's model, VIP filter, saved and tag rails, phone make bar",
+    "5aea235 Projects confirm in sheets and remember ?scene=; offline guards on Branch, Continue and Buy; admin models fit a phone; prompt versioning in Manage",
+    "995335a Library: filter by project, template, template creator, quality and date range",
+    "7f7afb0 Tests: browseTemplates (q, category, media, VIP, tag, sort, paging, demo label, withheld media), saved templates, library filters"
+  ],
+  "summary": "I covered all 14 items in the UI fixes list.\n- Tokens: bone-500 now meets AA contrast, and a unit test enforces contrast.\n- Every route group has a loading skeleton, plus error and global-error pages.\n- Sheets animate closed. The confirm and prompt dialogs in projects.tsx are now Sheets.\n- Explore sort and the auth mode switch are radio groups. Grid cards respond to arrow keys.\n- Small controls are 40 px on phones. Toasts clear the safe area, the tray and a new phone \"Make it\" bar (below lg) on template pages.\n- The job tray is the only poller. It slows down in a background tab and signals finished jobs; Studio and projects refresh on that signal.\n- Phones get a \"You\" sheet, and sign-out on one device is in the rail and in that sheet.\n- Cards and template pages show a Demo badge when the current version runs on a demo model.\n- Explore has a VIP filter, the home page a \"Your favorites\" rail, and template pages \"More in #tag\" rails.\n- Projects keep the open scene in ?scene=. Branch, Continue and Buy are disabled while offline.\n- The admin model table fits 390 px. Creators can edit the prompt, which publishes the next version.\n- The Library filters by project, template, template creator, quality and a UTC date range.\n- Full suite: 202/202 passing. Typecheck and lint are clean.",
+  "filesTouched": [
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/globals.css",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/ui.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/shell.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/job-tray.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/studio.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/route-loading.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/loading.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/explore/loading.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/collection/loading.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/collection/[id]/loading.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/favorites/loading.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/projects/loading.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/projects/[id]/loading.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/templates/[id]/loading.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/creators/[id]/loading.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/error.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/global-error.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/server/discovery/templates.ts",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/api/templates/route.ts",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/explore-feed.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/explore/page.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/auth-forms.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/template-card.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/page.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/templates/[id]/page.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/template-detail.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/favorites/page.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/projects.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/pricing.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/admin.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/creator-manage.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/creators/[id]/page.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/server/generation/views.ts",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/components/library-filters.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/src/app/collection/page.tsx",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/tests/unit/contrast.test.ts",
+    "/home/claude/hushloom/.claude/worktrees/wf_44ccc76c-0c7-2/tests/integration/platform.test.ts"
+  ],
+  "testsAdded": [
+    "tests/unit/contrast.test.ts: WCAG reference values; bone-500 >= 4.5:1 on ink-950/900/850/800; every text token (bone-50..500, ember-200/300/400, brass-300/400, sage-300/400, iris-300/400, danger-400) >= 4.5:1 on ink-950 and ink-900; ink-950 text >= 4.5:1 on the ember-500/400, brass-400, sage-400, iris-400, bone-50 and bone-200 fills; every (text|bg|border|...)-<palette>-NNN class used in src/**/*.tsx names a defined token (5 tests)",
+    "tests/integration/platform.test.ts > browse templates > searches, filters by category, media, VIP and tag, and sorts (q over title/description/handle/tags, literal %, drafts hidden, category, media, vipOnly, new/most_favorited/top_rated/trending, tag + excludeIds, case-insensitive tag, offset/hasMore)",
+    "tests/integration/platform.test.ts > browse templates > labels demo media from the current version's model, and withholds media until the age check",
+    "tests/integration/platform.test.ts > browse templates > Saved inspirations lists only your own favorited templates, newest save first",
+    "tests/integration/platform.test.ts > library filters > narrows by quality, UTC day range, project, template and the template's creator (plus libraryFacets and cross-user isolation)"
+  ],
+  "verified": [
+    "npm run typecheck (tsc --noEmit): exit 0, no errors",
+    "npm run lint (next lint --max-warnings 0): No ESLint warnings or errors",
+    "TEST_DATABASE_URL=postgres://playbox@localhost:5432/playbox_test_fixes-ui TEST_REDIS_URL=redis://localhost:6379/8 STORAGE_LOCAL_DIR=.storage-test-fixes-ui npm test: 16 files, 202/202 tests passed (baseline was 193; 5 contrast + 4 integration added)",
+    "Same env, npx vitest run tests/integration/platform.test.ts: 23/23 passed",
+    "git status after the final commit: clean apart from the untracked node_modules symlink, which is meant to stay",
+    "All touched files are on the owned list; admin.tsx diff is limited to the ModelTable row classes"
+  ],
+  "unverified": [
+    "No browser was run (e2e is not allowed and there was no dev smoke), so none of the visual or interactive behavior has been seen running:\n- layout at 390/820/1440 px: no horizontal scroll on /, /templates/[id], /collection, /admin; the admin model rows wrapping at 390 px; MakeBar height and the template-page spacer clearing the tab bar;\n- the Sheet exit animation and focus return after close; the dialog keeps its last content while it closes;\n- MakeBar's IntersectionObserver and the --dock-h/--tray-h toast offsets;\n- grid arrow-key navigation (Up/Down nearest-card scoring), the radiogroup keyboard handling, and the You sheet;\n- the projects ?scene= replaceState staying in sync with useSearchParams.\nAll of this rests on reading the code plus a clean typecheck and lint.",
+    "WCAG contrast is computed from token hex values only. Alpha surfaces (for example bg-ink-900/70 over imagery, bg-ink-950/60 pills on posters) and the browser's own rendering were not measured.",
+    "Sign-out (POST /api/auth/logout then '/') was not exercised end to end; it relies on the existing logout route.",
+    "OfflineGuard on Branch/Continue/Buy: not tested offline in a browser; it relies on the existing useOnline hook and the disabled fieldset."
+  ],
+  "envVarsAdded": [],
+  "accountsNeeded": [],
+  "docsNotes": "TOKENS (src/app/globals.css @theme):\n- ADDED --color-bone-100 #efe5de: hover text such as `hover:text-bone-100`; it was used in the code but never defined, so no CSS was generated for it.\n- CHANGED --color-bone-500 from #85736f to #958480: the quietest text (hints, timestamps, placeholders). New contrast 5.51:1 on ink-950, 5.30 on ink-900, 5.06 on ink-850, 4.74 on ink-800. The old value measured 4.37 / 4.21 / 4.02 / 3.76.\n- ADDED --color-ember-200 #ffc4ad: ember hover text; it was used but undefined.\n- ADDED --color-sage-300 #bcdcbf: success text; it was used but undefined.\n- ADDED --radius-panel 24px and --radius-panel-pin 8px: the larger petal shape. `.panel` sets the radius to 24/8/24/8; `rounded-panel` is also generated.\n- ADDED --shadow-float `0 25px 50px -12px rgb(0 0 0 / 0.55)`: toasts and the job tray (`shadow-float`).\n- ADDED --shadow-glow: two ember-700 layers at 30% (color-mix), under the Create tab button (`shadow-glow`).\n- ADDED --animate-sink with @keyframes sink (opacity 1 to 0, translateY 0 to 12px, duration-quick, ease-weave): the sheet exit.\n- REMOVED --breakpoint-xs (420px): nothing used it.\n- New CSS:\n  - `.sheet[open]` rises in; `.sheet[open][data-closing]` sinks out.\n  - `.sheet::backdrop` is ink-950 at 75% with blur(4px), animated with the veil-in/veil-out keyframes.\n- tests/unit/contrast.test.ts fails if a text token drops below 4.5:1 or a class names an undefined shade.\n\nRUNTIME CSS VARS: --tray-h is set by JobTray; --dock-h is set by MakeBar. Toasts offset by `calc(6rem + env(safe-area-inset-bottom) + --dock-h + --tray-h)` below lg.\n\nEVENTS:\n- `hl:job-updated` and `hl:job-finished` (both cancelable, exported from job-tray.tsx) plus `useJobEvents(cb)`.\n- A listener that calls preventDefault stops the tray's own router.refresh.\n- The tray polls every 3 s when visible and every 15 s when hidden, and catches up when the tab becomes visible again.\n\nROUTES/PARAMS:\n- /explore?vipOnly=1; GET /api/templates?vipOnly=1|true.\n- /projects/[id]?scene=<sceneId>.\n- /collection gains project, template, creator (template creator's user id), quality=hd|4k, from and to (YYYY-MM-DD, whole UTC days, inclusive). Invalid values are ignored.\n- listCreations: a creation without a quality value counts as HD.\n\nNEW SERVER EXPORTS:\n- discovery: isDemoModelKey, savedTemplates, TemplateCard.isDemo, BrowseQuery.tag/excludeIds.\n- views: utcDay, libraryFacets, and CreationFilters.quality/from/to/templateCreatorId.\n\nFOR library.tsx's OWNER: LibraryFilters currently renders above LibraryView, which puts it above the \"Library\" heading. Consider an `extraFilters?: ReactNode` slot in the filter bar. LibraryView's go() keeps the extra query keys because the page passes them in `query`.\n\nSEEDED TEMPLATES all use demo-still or demo-motion, so they will all show \"Demo\" / \"Demo media\". This is correct, not a bug.\n\nE2E LAYOUT LOOP: add these routes to the 390/820/1440 loop:\n- /favorites\n- /favorites?tab=creations\n- /projects\n- /projects/<seeded id>\n- /projects/<id>?scene=<id>\n- /collection\n- /collection?quality=4k\n- /studio\n- /settings\n- /admin (as admin)\n- /creators/<seeded handle>, as the owner and as a visitor\n- /explore?vipOnly=1\n- signed-in / at 390, to check the Your favorites rail and the phone category nav\n\nThe sticky bar on /templates/velvet-hour is a link \"Make it \u00b7 N credits\", not a button, so getByRole(\"button\",{name:\"Make it\"}) still finds only the panel button.\n\nSKIPPED, outside this track's files:\n- window.prompt remains in admin.tsx's suspend flow (only the narrow-table fix was allowed in that file) and in admin-flags.tsx.\n- creation-detail.tsx could link to /projects/<id>?scene=<sceneId>.\n- The /api/generations list route does not take the new library filters.\n- RateStars keeps every star tabbable without arrow keys, so that arrowing does not post one rating per key press.",
+  "openQuestions": [
+    "Should the Library's extra filters move into library.tsx's own filter bar (an extraFilters slot)? Today they render as a compact row above the Library heading.",
+    "Should every seeded template showing Demo stay as it is until real-model templates exist, or should the seeds get a mix of models?",
+    "Should the admin suspend-reason window.prompt (admin.tsx) and the flag-clear prompt (admin-flags.tsx) become Sheets in the tracks that own those flows?"
+  ]
+}

@@ -1,6 +1,6 @@
 "use client";
 
-import { X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import Link from "next/link";
 import {
   createContext,
@@ -12,6 +12,7 @@ import {
   useState,
   type ButtonHTMLAttributes,
   type ComponentProps,
+  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { cn } from "@/lib/cn";
@@ -27,7 +28,8 @@ const variants: Record<Variant, string> = {
   danger: "hairline text-danger-400 hover:bg-danger-400/10",
 };
 const sizes: Record<Size, string> = {
-  sm: "h-8 px-3 text-[13px] gap-1.5 rounded-full",
+  // Compact on desktop; at least 40x40 on phones so every small control, icon-only ones too, is an easy tap.
+  sm: "h-8 min-w-8 max-sm:h-10 max-sm:min-w-10 px-3 text-[13px] gap-1.5 rounded-full",
   md: "h-10 px-4 text-sm gap-2 rounded-full",
   lg: "h-12 px-6 text-[15px] gap-2 rounded-full",
 };
@@ -68,13 +70,17 @@ export function Badge({ tone = "plain", children, className }: { tone?: "plain" 
   return <span className={cn("tag inline-flex h-5 items-center gap-1 rounded-[4px] px-1.5 backdrop-blur", tones[tone], className)}>{children}</span>;
 }
 
+/**
+ * A toggle chip. It reports its state with aria-pressed, unless the caller gives it a role
+ * (for example role="radio" with aria-checked), in which case that role's own state applies.
+ */
 export function Chip({ active, className, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
   return (
     <button
       type="button"
-      aria-pressed={active}
+      aria-pressed={rest.role ? undefined : active}
       className={cn(
-        "h-8 shrink-0 rounded-full px-3.5 text-[13px] transition-colors duration-[var(--duration-quick)]",
+        "h-8 max-sm:h-10 shrink-0 rounded-full px-3.5 text-[13px] transition-colors duration-[var(--duration-quick)]",
         active ? "bg-bone-50 text-ink-950 font-semibold" : "hairline text-bone-300 hover:text-bone-50 hover:bg-ink-800",
         className,
       )}
@@ -126,39 +132,92 @@ export function Toggle({ checked, onChange, label, description, disabled }: { ch
   );
 }
 
-/** Accessible modal built on <dialog>: focus trap, Escape and backdrop close come from the platform. */
+/**
+ * Accessible modal built on <dialog>: focus trap and focus return come from the platform.
+ * Escape, the backdrop and the Close button all ask the owner to close (onClose); the sheet then
+ * sinks out before the dialog leaves the top layer. Reduced motion shortens that to 1 ms.
+ */
 export function Sheet({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const openRef = useRef(open);
+  openRef.current = open;
+  // While it animates out, keep showing what was there (owners often clear their state on close).
+  const last = useRef<{ title: string; children: ReactNode }>({ title, children });
+  if (open) last.current = { title, children };
+  const view = open ? { title, children } : last.current;
+
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
+    if (open) {
+      d.removeAttribute("data-closing");
+      if (!d.open) d.showModal();
+      return;
+    }
+    if (!d.open) return;
+    d.setAttribute("data-closing", "");
+    const ms = (parseFloat(getComputedStyle(d).animationDuration) || 0) * 1000;
+    const t = window.setTimeout(() => {
+      if (!d.hasAttribute("data-closing")) return;
+      d.removeAttribute("data-closing");
+      d.close();
+    }, ms + 20);
+    return () => window.clearTimeout(t);
   }, [open]);
+
   return (
     <dialog
       ref={ref}
-      onClose={onClose}
+      onCancel={(e) => {
+        // Escape or a back gesture: animate out through the owner instead of vanishing.
+        e.preventDefault();
+        onClose();
+      }}
+      onClose={() => {
+        // Only when the platform closed it without asking first (some close requests skip "cancel").
+        if (openRef.current) onClose();
+      }}
       onClick={(e) => {
         if (e.target === ref.current) onClose();
       }}
-      aria-label={title}
+      aria-label={view.title}
       className={cn(
-        "m-auto max-h-[92dvh] w-[min(100vw-24px,var(--w))] overflow-auto rounded-[24px] bg-ink-900 p-0 text-bone-50 hairline backdrop:bg-ink-950/75 backdrop:backdrop-blur-sm",
-        "max-sm:mb-0 max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none",
-        "open:animate-rise",
+        // A real border, not the inset .hairline shadow: the sticky header paints over an inset shadow.
+        "sheet m-auto max-h-[92dvh] w-[min(100vw-24px,var(--w))] overflow-auto rounded-panel border border-[var(--line)] bg-ink-900 p-0 text-bone-50 data-[closing]:pointer-events-none",
+        "max-sm:mb-0 max-sm:w-full max-sm:max-w-none max-sm:rounded-b-none max-sm:border-b-0 max-sm:pb-[env(safe-area-inset-bottom)]",
       )}
       style={{ ["--w" as string]: wide ? "880px" : "480px" }}
     >
       <div className="sticky top-0 z-10 flex items-center justify-between bg-ink-900/95 px-5 pt-4 pb-3 backdrop-blur">
-        <h2 className="font-display text-xl">{title}</h2>
-        <button type="button" onClick={onClose} className="grid size-9 place-items-center rounded-full text-bone-300 hover:bg-ink-800 hover:text-bone-50" aria-label="Close">
+        <h2 className="font-display text-xl">{view.title}</h2>
+        <button type="button" onClick={onClose} className="-mr-1.5 grid size-10 place-items-center rounded-full text-bone-300 hover:bg-ink-800 hover:text-bone-50" aria-label="Close">
           <X size={18} />
         </button>
       </div>
-      <div className="px-5 pb-5">{children}</div>
+      <div className="px-5 pb-5">{view.children}</div>
     </dialog>
   );
+}
+
+/**
+ * Keyboard support for a role="radiogroup" whose radios use a roving tabindex (only the checked
+ * radio is in the Tab order: tabIndex={checked ? 0 : -1}). Arrow keys, Home and End move focus and
+ * select, as the ARIA radio group pattern expects. Put it on the group's onKeyDown.
+ */
+export function radioGroupKeys<T>(values: readonly T[], current: T, select: (value: T) => void) {
+  return (e: KeyboardEvent<HTMLElement>) => {
+    const i = Math.max(0, values.indexOf(current));
+    const last = values.length - 1;
+    let next = -1;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") next = i === last ? 0 : i + 1;
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") next = i === 0 ? last : i - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = last;
+    if (next < 0) return;
+    e.preventDefault();
+    e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]')[next]?.focus();
+    select(values[next]!);
+  };
 }
 
 // ── Toasts ──
@@ -176,19 +235,28 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="pointer-events-none fixed inset-x-0 bottom-24 z-[60] flex flex-col items-center gap-2 px-4 lg:bottom-6" role="status" aria-live="polite">
+      {/*
+        Above the tab bar and the home indicator (the viewport uses viewport-fit=cover), and above the
+        job tray and any docked page bar while they are on screen: those publish --tray-h and --dock-h.
+      */}
+      <div
+        className="pointer-events-none fixed inset-x-0 bottom-[calc(6rem+env(safe-area-inset-bottom)+var(--dock-h,0px)+var(--tray-h,0px))] z-[60] flex flex-col items-center gap-2 px-4 lg:bottom-[calc(2rem+var(--tray-h,0px))] xl:bottom-6"
+        role="status"
+        aria-live="polite"
+      >
         {toasts.map((t) => (
           <div
             key={t.id}
             className={cn(
-              "pointer-events-auto flex max-w-md items-center gap-3 rounded-2xl bg-ink-800/95 px-4 py-3 text-sm shadow-2xl shadow-black/50 hairline backdrop-blur animate-rise",
+              "pointer-events-auto flex max-w-md items-center gap-3 rounded-2xl bg-ink-800/95 px-4 py-3 text-sm shadow-float hairline backdrop-blur animate-rise",
               t.tone === "error" && "text-danger-400",
             )}
           >
             {t.tone === "success" ? <span className="size-2 rounded-full bg-sage-400" aria-hidden /> : null}
             <span className="flex-1">{t.message}</span>
             {t.action ? (
-              <Link href={t.action.href} className="font-semibold text-ember-400 hover:text-ember-300">
+              // A 40 px tap target; the negative margins keep the toast its compact height.
+              <Link href={t.action.href} className="-my-2.5 -mr-2 inline-flex min-h-10 shrink-0 items-center px-2 font-semibold text-ember-400 hover:text-ember-300">
                 {t.action.label}
               </Link>
             ) : null}
@@ -212,6 +280,28 @@ export function EmptyState({ title, body, action }: { title: string; body: strin
       <p className="mt-2 text-sm text-bone-400">{body}</p>
       {action ? <div className="mt-5 flex justify-center">{action}</div> : null}
     </div>
+  );
+}
+
+/** A page's back link ("← Library"): 13 px text on a 40 px tap target; the negative margins keep its line height. */
+export function BackLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <Link href={href} className="-my-2.5 inline-flex min-h-10 items-center gap-1.5 text-[13px] text-bone-400 hover:text-bone-50">
+      <ArrowLeft size={14} aria-hidden /> {children}
+    </Link>
+  );
+}
+
+/**
+ * A section heading's action link ("See all", "Tune"): a 40 px tap target. The negative margins keep its text
+ * where a bare link would sit, aligned with the heading's bottom and the content's right edge.
+ */
+export function SectionLink({ className, ...rest }: ComponentProps<typeof Link>) {
+  return (
+    <Link
+      className={cn("-mr-2 -mb-2.5 inline-flex min-h-10 shrink-0 items-center gap-1 px-2 text-[13px] text-bone-300 hover:text-bone-50", className)}
+      {...rest}
+    />
   );
 }
 

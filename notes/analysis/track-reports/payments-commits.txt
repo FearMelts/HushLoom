@@ -1,0 +1,52 @@
+Tests: payments across sandbox, Stripe, CCBill and Segpay
+
+21 integration tests: duplicate webhooks grant once; refunds claw
+credits back through the ledger (full, partial pro rata, per renewal);
+chargebacks flag the account and block checkout until an admin clears
+the flag; unsigned, badly signed, stale and malformed events are
+rejected and touch nothing; the spent-credits shortfall records
+credit_debt; passes start, renew once per event and end. CCBill and
+Segpay digests are computed locally from the documented formulas with
+fake values in vitest.config.ts; nothing reaches any processor.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BSE2farBCYZaqmEuz9DVcb
+
+Pricing page: processor label, sandbox page, payments history, flags
+
+The pricing page names the active processor (and the sandbox with the
+demo tone), shows a payments table from payment_events, and a notice
+plus disabled buying when the account carries a chargeback flag.
+/pricing/sandbox is the sandbox's "payment page": large no-money-moves
+label, complete/fail buttons, and refund, chargeback, renewal and
+cancellation simulation for the signed-in person's own sandbox
+payments. Admin gets a self-contained Account flags panel.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BSE2farBCYZaqmEuz9DVcb
+
+Payments behind a provider adapter: sandbox, CCBill, Segpay, Stripe
+
+Adds src/server/payments/index.ts (paymentProvider, paymentsStatus,
+startCheckout), service.ts (processPaymentEvent: exactly-once by
+provider+event id, credit grants, subscriptions, refund and chargeback
+clawback with credit_debt and chargeback flags, flag listing/clearing,
+payment history) and webhook.ts (one handler for every processor).
+
+Providers: a clearly labeled sandbox that refuses production and signs
+its own events with a dev-only constant; CCBill FlexForms dynamic
+pricing (formDigest) and Webhooks (validation digest, optional URL
+token); Segpay eticket pay page and postbacks (postback key, signed
+pass-through); Stripe moved behind the adapter, off unless chosen,
+with charge.refunded and charge.dispute.created mapped to the shared
+clawback. CCBill and Segpay are written from public docs and unverified.
+
+Routes: POST /api/checkout uses the active provider and refuses
+chargeback-flagged accounts (403 account_flagged); POST
+/api/webhooks/payments/[provider]; /api/webhooks/stripe delegates;
+GET/POST /api/admin/flags; POST /api/pricing/sandbox plays the
+sandbox processor. Adds CCBILL_WEBHOOK_TOKEN to env.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01BSE2farBCYZaqmEuz9DVcb
+

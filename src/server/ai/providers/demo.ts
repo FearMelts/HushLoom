@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { env } from "@/server/env";
+import { untrustedImage } from "@/server/images";
 import { ProviderError, type ExecuteContext, type ProviderAdapter, type ProviderOutput, type ProviderRequest } from "./types";
 
 /**
@@ -40,11 +41,57 @@ function seededPalette(seedText: string) {
   };
 }
 
-export function demoSvg(prompt: string, seed: number, width: number, height: number): string {
+/**
+ * Splits the prompt into at most `maxLines` lines of at most `perLine` characters, breaking at
+ * spaces where it can, and ends the last line with an ellipsis when the prompt is longer.
+ */
+export function captionLines(prompt: string, perLine: number, maxLines = 2): string[] {
+  const words = prompt.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  let i = 0;
+  while (i < words.length && lines.length < maxLines) {
+    const word = words[i]!;
+    const next = line ? `${line} ${word}` : word;
+    if (next.length <= perLine) {
+      line = next;
+      i++;
+    } else if (!line) {
+      // One word longer than a line: cut it.
+      lines.push(word.slice(0, perLine));
+      words[i] = word.slice(perLine);
+    } else {
+      lines.push(line);
+      line = "";
+    }
+  }
+  if (line && lines.length < maxLines) lines.push(line);
+  if (i < words.length) {
+    const last = lines[lines.length - 1] ?? "";
+    lines[lines.length - 1] = `${last.length + 2 > perLine ? last.slice(0, perLine - 1).trimEnd() : last}…`;
+  }
+  return lines;
+}
+
+/** Height of the watermark band along the bottom of every demo frame. */
+export const demoBandHeight = (height: number) => Math.round(height * 0.09);
+
+/** The demo art. `band: false` leaves out the watermark band, for the moving layer of a clip (see execute). */
+export function demoSvg(prompt: string, seed: number, width: number, height: number, { band: withBand = true }: { band?: boolean } = {}): string {
   const p = seededPalette(`${prompt}|${seed}`);
-  const caption = escapeXml(prompt.length > 70 ? `${prompt.slice(0, 67)}…` : prompt);
-  const band = Math.round(height * 0.09);
+  const band = demoBandHeight(height);
+  // The watermark fits the width too: on a 9:16 frame the band-sized type ran off both edges.
+  const markFs = Math.min(Math.round(band * 0.36), Math.floor((width * 0.9 - 2 * DEMO_WATERMARK.length) / (DEMO_WATERMARK.length * 0.72)));
   const fs = Math.max(14, Math.round(width / 26));
+  // The caption fits the width (DejaVu Sans runs about 0.6 em per character) in two lines, and
+  // starts below the top 16%, where the app draws its Demo badge and the favorite heart.
+  const left = Math.round(width * 0.06);
+  const perLine = Math.max(8, Math.floor((width - 2 * left) / (fs * 0.6)));
+  const lineHeight = Math.round(fs * 1.3);
+  const top = Math.round(height * 0.16 + fs);
+  const caption = captionLines(prompt, perLine)
+    .map((l, i) => `<tspan x="${left}" ${i === 0 ? `y="${top}"` : `dy="${lineHeight}"`}>${escapeXml(l)}</tspan>`)
+    .join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
   <defs>
     <radialGradient id="g1" cx="${p.x[0]}" cy="${p.y[0]}" r="0.8"><stop offset="0" stop-color="${p.c}"/><stop offset="1" stop-color="${p.c}" stop-opacity="0"/></radialGradient>
@@ -55,22 +102,23 @@ export function demoSvg(prompt: string, seed: number, width: number, height: num
   <rect width="100%" height="100%" fill="url(#g2)"/>
   <rect width="100%" height="100%" fill="url(#g1)"/>
   <circle cx="${Math.round(width * p.x[2]!)}" cy="${Math.round(height * p.y[2]!)}" r="${Math.round(Math.min(width, height) * 0.22)}" fill="#fff" fill-opacity="0.08"/>
-  <rect y="${height - band}" width="100%" height="${band}" fill="url(#stripe)"/>
+  ${withBand ? `<rect y="${height - band}" width="100%" height="${band}" fill="url(#stripe)"/>
   <rect y="${height - band}" width="100%" height="${band}" fill="#000" fill-opacity="0.55"/>
-  <text x="50%" y="${height - band / 2}" dominant-baseline="middle" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" font-size="${Math.round(band * 0.36)}" fill="#fff" letter-spacing="2">${DEMO_WATERMARK}</text>
-  <text x="${Math.round(width * 0.06)}" y="${Math.round(height * 0.1)}" font-family="DejaVu Sans, Arial, sans-serif" font-size="${fs}" fill="#fff" fill-opacity="0.85">${caption}</text>
+  <text x="50%" y="${height - band / 2}" dominant-baseline="middle" text-anchor="middle" font-family="DejaVu Sans, Arial, sans-serif" font-weight="700" font-size="${markFs}" fill="#fff" letter-spacing="2">${DEMO_WATERMARK}</text>` : ""}
+  <text font-family="DejaVu Sans, Arial, sans-serif" font-size="${fs}" fill="#fff" fill-opacity="0.85">${caption}</text>
 </svg>`;
 }
 
-async function renderStill(req: ProviderRequest, longSide: number): Promise<{ png: Buffer; width: number; height: number }> {
+async function renderStill(req: ProviderRequest, longSide: number, { band = true }: { band?: boolean } = {}): Promise<{ png: Buffer; width: number; height: number }> {
   const { width, height } = dims(req.params.aspectRatio, longSide);
   const seed = req.params.seed ?? 0;
-  const art = Buffer.from(demoSvg(req.prompt, seed, width, height));
-  const source = req.inputs.find((i) => i.kind === "image");
+  const art = Buffer.from(demoSvg(req.prompt, seed, width, height, { band }));
+  // Image-to-image uses the upload; reference-guided uses the character reference. The demo treats
+  // both the same way: the photo, recolored, under the same watermark band. It is not a likeness match.
+  const source = req.inputs.find((i) => i.kind === "image" && i.role !== "reference") ?? req.inputs.find((i) => i.kind === "image" && i.role === "reference");
   let img = sharp(art);
   if (source) {
-    // Image-to-image demo: the upload, recolored, under the same watermark band.
-    const base = await sharp(source.bytes).resize(width, height, { fit: "cover" }).modulate({ saturation: 0.6 }).toBuffer();
+    const base = await sharp(source.bytes, untrustedImage).resize(width, height, { fit: "cover" }).modulate({ saturation: 0.6 }).toBuffer();
     const overlay = await sharp(art).ensureAlpha(0.55).toBuffer();
     img = sharp(base).composite([{ input: overlay, blend: "over" }]);
   }
@@ -122,18 +170,27 @@ export const demoProvider: ProviderAdapter = {
     const durationS = req.params.durationS ?? 5;
     const fps = 24;
     const frames = durationS * fps;
+    // The camera moves the picture, never the watermark: zoompan runs over the art without its band, and the
+    // band, cut from the finished still, is laid over every frame where it sits on a demo image. Zooming or
+    // panning the whole still cropped the band away for most of a clip. The overlay works in RGB: in its default
+    // yuv420 it rounds the position to an even row, and the band (an odd row on every size offered) sat one row high.
     const { png, width, height } = await renderStill(req, 1280);
+    const { png: moving } = await renderStill(req, 1280, { band: false });
+    const band = demoBandHeight(height);
+    const strip = await sharp(png).extract({ left: 0, top: height - band, width, height: band }).png().toBuffer();
     const dir = await mkdtemp(path.join(os.tmpdir(), "hl-demo-"));
     try {
       const inPath = path.join(dir, "still.png");
+      const bandPath = path.join(dir, "band.png");
       const outPath = path.join(dir, "out.mp4");
-      await writeFile(inPath, png);
+      await writeFile(inPath, moving);
+      await writeFile(bandPath, strip);
       const zp = zoompanFor(req.params.cameraMovement, req.params.motionIntensity ?? 5, frames);
       await run(
         "ffmpeg",
         [
-          "-v", "error", "-y", "-loop", "1", "-i", inPath,
-          "-vf", `scale=${width * 2}:${height * 2},zoompan=${zp}:d=${frames}:s=${width}x${height}:fps=${fps},format=yuv420p`,
+          "-v", "error", "-y", "-loop", "1", "-i", inPath, "-i", bandPath,
+          "-filter_complex", `[0:v]scale=${width * 2}:${height * 2},zoompan=${zp}:d=${frames}:s=${width}x${height}:fps=${fps}[moving];[moving][1:v]overlay=0:${height - band}:format=rgb,format=yuv420p`,
           "-t", String(durationS), "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-movflags", "+faststart", "-an", outPath,
         ],
         ctx.signal,
