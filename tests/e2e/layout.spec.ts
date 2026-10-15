@@ -95,6 +95,8 @@ for (const width of [390, 820]) {
         await settle(page);
         expect(await overflowOf(page, width), `${name} (${route}, landed on ${new URL(page.url()).pathname}) scrolls sideways at ${width} px`).toBeNull();
         if (width === 390) expect(await smallPrimaryTargets(page), `${name}: primary controls under 40x40 at 390 px`).toEqual([]);
+        // Below 1024 px the tab bar holds Create; the top bar's own Create button is for the desktop rail layout.
+        if (role === "member") await expect(page.locator("header").getByRole("link", { name: "Create", exact: true }), `${name}: top-bar Create at ${width} px`).toHaveCount(0);
       }
     });
   }
