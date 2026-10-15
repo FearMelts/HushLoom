@@ -30,8 +30,9 @@ type ProjectSummary = {
 function Media({ output, className }: { output: { kind: "image" | "video"; url: string | null; posterUrl?: string | null; mediaWithheld?: boolean } | null; className?: string }) {
   if (output?.mediaWithheld) {
     // The server sent no media URL: the age rules here need a verification first, as on a Library thumbnail.
-    // Every use sits in a link or a button (or a pane too small for one), so no link of its own. The inner box
-    // fills the grid and holds the cover, so the caller's rounded corners clip it.
+    // No link of its own: covers and scene tiles sit inside a link or a button, and the compare panes, like a
+    // Library thumbnail, offer none. The inner box fills the grid and holds the cover, so the caller's rounded
+    // corners clip it.
     return (
       <div className={cn("grid overflow-hidden", className)}>
         <div className="relative">

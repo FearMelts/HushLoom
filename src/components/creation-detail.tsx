@@ -211,7 +211,7 @@ export function CreationDetail({
                 </div>
                 <figcaption className="mt-1.5 flex items-center justify-between text-[12px] text-bone-400" suppressHydrationWarning>
                   {compareWith.relation ?? "original"} · {relativeTime(compareWith.createdAt)}
-                  <button type="button" onClick={() => setCompareWith(null)} className="text-bone-300 hover:text-bone-50" aria-label="Close comparison">
+                  <button type="button" onClick={() => setCompareWith(null)} className="-m-3 inline-grid size-10 place-items-center text-bone-300 hover:text-bone-50" aria-label="Close comparison">
                     <X size={14} />
                   </button>
                 </figcaption>
@@ -220,7 +220,7 @@ export function CreationDetail({
           ) : (
             <Media item={item} />
           )}
-          {item.isDemo || compareWith?.isDemo ? (
+          {item.isDemo || (compareWith?.isDemo && compareWith.output) ? (
             <p className="rounded-xl bg-iris-400/10 px-3.5 py-2.5 text-[13px] text-iris-300">
               Demo output: made locally by the development placeholder model, not by an AI model.
             </p>
