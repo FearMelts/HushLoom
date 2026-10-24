@@ -1,0 +1,2912 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="ember">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#12110e">
+<title>NOIR — AI Creator Studio</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
+
+:root{
+  --bg:#12110e;
+  --sidebar:#161510;
+  --surface:#1b1a15;
+  --surface-2:#23211b;
+  --surface-3:#2e2c25;
+  --border:#38352d;
+  --text:#f3eee4;
+  --muted:#a59f90;
+  --danger:#ff9b86;
+  --radius:14px;
+  --ac:255 106 47;
+  --purple:#ff6a2f;
+  --accent-soft:#ffb08a;
+  --btn-1:#ff6a2f;
+  --on-accent:#17110b;
+}
+[data-theme="moss"]{--ac:163 196 107;--purple:#a3c46b;--accent-soft:#cbe0a0;--btn-1:#a3c46b}
+[data-theme="saffron"]{--ac:242 177 52;--purple:#f2b134;--accent-soft:#fad48a;--btn-1:#f2b134}
+[data-theme="cobalt"]{--ac:111 155 255;--purple:#6f9bff;--accent-soft:#b2c9ff;--btn-1:#6f9bff}
+
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--text);
+  font-family:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;
+}
+button,input,textarea,select{font:inherit}
+button{cursor:pointer;color:inherit}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,
+[tabindex]:focus-visible,summary:focus-visible{outline:2px solid var(--purple);outline-offset:2px}
+a{color:inherit}
+h1,h2,h3,p{margin-top:0}
+h1{font-family:'Instrument Serif',Georgia,serif;font-weight:400;font-size:46px;line-height:1.05;letter-spacing:-.01em;margin-bottom:10px}
+h2,h3{font-weight:600}
+h2{font-size:18px;letter-spacing:-.2px}
+h3{font-size:15px}
+p{line-height:1.65}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.hidden{display:none!important}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.gradient-text{color:var(--accent-soft);font-style:italic}
+kbd{
+  font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--surface-3);
+  border:1px solid #4a463b;border-bottom-width:2px;border-radius:6px;padding:2px 7px;
+}
+
+.app{min-height:100vh;display:flex}
+.sidebar{
+  width:244px;flex-shrink:0;background:var(--sidebar);
+  border-right:1px solid var(--border);padding:26px 15px;
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;z-index:30;
+  overflow-y:auto;
+}
+.sidebar-backdrop{display:none}
+.brand{
+  display:flex;align-items:center;gap:11px;padding:0 12px 32px;
+  font-family:'Instrument Serif',Georgia,serif;font-size:28px;font-weight:400;letter-spacing:.04em;
+}
+.brand small{font:600 10px 'Instrument Sans',sans-serif;color:var(--muted);letter-spacing:.12em}
+.brand-symbol{
+  width:34px;height:34px;border-radius:9px;
+  background:var(--btn-1);
+  display:grid;place-items:center;color:var(--on-accent);font-size:20px;
+}
+.nav-label{
+  font-size:10px;text-transform:uppercase;letter-spacing:1.5px;
+  color:#7d776a;margin:18px 13px 11px;font-weight:700;
+}
+.nav-item{
+  width:100%;display:flex;align-items:center;gap:12px;text-align:left;
+  padding:13px 14px;margin:3px 0;color:var(--muted);background:transparent;
+  border:1px solid transparent;border-radius:11px;font-weight:600;transition:.18s;
+}
+.nav-item:hover{background:#ffffff09;color:#fff}
+.nav-item.active{
+  background:rgb(var(--ac) / .1);
+  color:var(--accent-soft);border-color:rgb(var(--ac) / .22);
+}
+.nav-icon{width:20px;font-size:18px;text-align:center}
+.nav-count{
+  margin-left:auto;font-size:11px;color:var(--accent-soft);
+  background:rgb(var(--ac) / .13);padding:3px 7px;border-radius:6px;
+}
+.sidebar-bottom{margin-top:auto}
+.plan-card{
+  background:var(--surface-2);
+  border:1px solid var(--border);padding:16px;border-radius:12px;margin:16px 2px;
+}
+.plan-card h3{margin-bottom:5px}
+.plan-card p{margin-bottom:13px;font-size:12px}
+.progress{height:6px;background:#ffffff15;border-radius:10px;overflow:hidden;margin:13px 0 8px}
+.progress span{
+  display:block;height:100%;width:0%;border-radius:10px;transition:width .3s;
+  background:var(--btn-1);
+}
+.profile{display:flex;align-items:center;gap:10px;padding:13px 8px 0;border-top:1px solid var(--border)}
+.avatar{
+  width:37px;height:37px;border-radius:12px;
+  background:var(--surface-3);color:var(--accent-soft);
+  display:grid;place-items:center;font-weight:700;
+}
+.profile strong{font-size:13px}
+.profile span{display:block;font-size:11px;color:var(--muted)}
+.workspace{flex:1;min-width:0}
+.topbar{
+  height:77px;padding:0 36px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;justify-content:space-between;gap:15px;
+}
+.breadcrumb{font-weight:700;font-size:15px}
+.top-actions{display:flex;align-items:center;gap:13px}
+.status-dot{width:7px;height:7px;border-radius:50%;background:#65dab0;display:inline-block}
+.status-dot.warn{background:#f5b96b}
+.status{font-size:12px;color:var(--muted)}
+.icon-button{
+  width:38px;height:38px;display:grid;place-items:center;background:var(--surface);
+  border:1px solid var(--border);border-radius:11px;color:var(--text);font-size:17px;
+}
+.menu-button{display:none}
+.main{padding:35px 38px 60px;max-width:1600px;margin:auto}
+.view{display:none}
+.view.active{display:block}
+.heading-row{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:29px}
+.heading-row p{margin:0;color:var(--muted)}
+.eyebrow{
+  text-transform:uppercase;letter-spacing:2px;font-size:10px;font-weight:800;
+  color:var(--purple);margin-bottom:11px;
+}
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;
+  border:1px solid var(--border);border-radius:11px;background:var(--surface-2);
+  color:var(--text);padding:11px 16px;font-weight:700;
+  transition:transform .15s,border-color .15s,background .15s;
+}
+.btn:hover:not(:disabled){transform:translateY(-1px);border-color:rgb(var(--ac) / .6)}
+.btn.primary{
+  background:var(--btn-1);
+  border-color:transparent;color:var(--on-accent);
+}
+.btn.primary:hover:not(:disabled){filter:brightness(1.08)}
+.btn.ghost{background:transparent}
+.btn.danger{border-color:#a74862;color:var(--danger)}
+.btn.small-btn{font-size:12px;padding:8px 12px}
+.btn.full{width:100%}
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.panel-heading{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:19px 21px;border-bottom:1px solid var(--border);
+}
+.panel-heading h2{margin:0;font-size:16px}
+.panel-body{padding:21px}
+.studio-grid{
+  display:grid;grid-template-columns:minmax(345px,.83fr) minmax(380px,1.17fr);
+  gap:20px;align-items:stretch;
+}
+.segment{display:flex;gap:5px;padding:5px;background:#0e0d0a;border:1px solid var(--border);border-radius:11px}
+.segment button{
+  flex:1;border:0;background:transparent;padding:11px;color:var(--muted);
+  font-weight:700;border-radius:8px;
+}
+.segment button.active{color:#fff;background:var(--surface-3);box-shadow:0 2px 8px #0005}
+.segment.compact button{padding:8px}
+.field-label{
+  display:flex;justify-content:space-between;align-items:center;
+  font-size:12px;font-weight:800;margin:23px 0 10px;
+}
+.field-label span{font-weight:500;color:var(--muted)}
+textarea,input[type=text],input[type=search],input:not([type]),select{
+  width:100%;background:#13120e;color:var(--text);
+  border:1px solid #3d3a31;border-radius:11px;
+}
+textarea{min-height:142px;padding:14px;resize:vertical;line-height:1.65}
+textarea::placeholder,input::placeholder{color:#716b5d}
+input[type=text],input[type=search],input:not([type]),select{padding:12px;outline:none}
+select{color-scheme:dark}
+textarea:focus,input:focus,select:focus{border-color:var(--purple);box-shadow:0 0 0 3px rgb(var(--ac) / .1)}
+input[type=range]{accent-color:var(--purple);padding:0;width:100%;margin:8px 0 0}
+input[type=checkbox]{width:auto;accent-color:var(--purple)}
+.prompt-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:11px;flex-wrap:wrap}
+.prompt-buttons{display:flex;gap:7px;flex-wrap:wrap}
+.char-count{font-size:11px;color:var(--muted)}
+.chip-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:13px}
+.chip{
+  border:1px solid #4a463b;background:#ffffff06;color:#cdc6b6;
+  border-radius:7px;padding:7px 10px;font-size:11px;font-weight:600;
+}
+.chip:hover{border-color:var(--purple);color:white}
+.history{margin-top:14px}
+.history summary{cursor:pointer;color:var(--muted);font-size:12px}
+.history-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.history-item{
+  text-align:left;background:#13120e;border:1px solid var(--border);border-radius:9px;
+  padding:8px 11px;font-size:12px;color:#d2ccbd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.history-item:hover{border-color:var(--purple)}
+.controls{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.controls label{font-size:12px;font-weight:700}
+.controls select{margin-top:9px}
+.ratio-list{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-top:12px}
+.ratio-option{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+  background:#13120e;border:1px solid var(--border);border-radius:10px;
+  color:var(--muted);padding:12px 5px;font-size:11px;
+}
+.ratio-option.active{border-color:var(--purple);background:rgb(var(--ac) / .07);color:var(--accent-soft)}
+.ratio-shape{border:2px solid currentColor;border-radius:3px;display:block}
+.advanced{margin-top:18px}
+.advanced summary{cursor:pointer;color:var(--muted);font-size:12px}
+.advanced textarea{min-height:65px}
+.seed-row{display:flex;gap:8px}
+.seed-row input{flex:1}
+.inline-check{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);margin-top:10px}
+.slider-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:6px}
+.slider-grid label{font-size:12px;font-weight:700;display:block}
+.slider-grid label span{float:right;font-weight:500;color:var(--muted)}
+.generate-button{margin-top:23px;padding:15px;font-size:14px}
+.caption{font-size:11px;color:var(--muted);line-height:1.6}
+.output-panel{display:flex;flex-direction:column}
+.output-stage{
+  position:relative;min-height:420px;flex:1;display:grid;place-items:center;
+  overflow:hidden;background:#0e0d0a;
+}
+.output-stage:before{
+  content:"";position:absolute;inset:0;pointer-events:none;
+  background-image:linear-gradient(#ffffff05 1px,transparent 1px),linear-gradient(90deg,#ffffff05 1px,transparent 1px);
+  background-size:32px 32px;mask-image:linear-gradient(to bottom,#000,transparent);
+}
+.output-placeholder{position:relative;text-align:center;max-width:320px;padding:25px;z-index:1}
+.orb{
+  width:112px;height:112px;border-radius:32px;margin:0 auto 28px;
+  background:var(--btn-1);box-shadow:10px 10px 0 var(--surface-3);transform:rotate(-8deg);
+}
+.output-placeholder h2{font:400 28px/1.1 'Instrument Serif',Georgia,serif;margin-bottom:8px}
+.output-placeholder p{color:var(--muted)}
+.output-image,.output-video{position:relative;z-index:1;width:100%;height:100%;max-height:570px;object-fit:contain;cursor:zoom-in}
+.output-video{cursor:auto}
+.variants{display:flex;gap:9px;padding:12px 19px;border-top:1px solid var(--border);overflow-x:auto}
+.variant{
+  width:64px;height:64px;flex-shrink:0;padding:0;border:2px solid var(--border);
+  border-radius:10px;overflow:hidden;background:#13120e;
+}
+.variant img{width:100%;height:100%;object-fit:cover;display:block}
+.variant.active{border-color:var(--purple)}
+.output-toolbar{
+  display:flex;gap:9px;justify-content:space-between;align-items:center;flex-wrap:wrap;
+  padding:15px 19px;border-top:1px solid var(--border);
+}
+.output-tools{display:flex;gap:7px;flex-wrap:wrap}
+.tag{
+  display:inline-flex;align-items:center;gap:7px;background:rgb(var(--ac) / .09);
+  border:1px solid rgb(var(--ac) / .21);color:var(--accent-soft);
+  border-radius:7px;padding:7px 10px;font-size:11px;font-weight:700;
+}
+.section-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:37px 0 18px}
+.section-heading h2{margin:0}
+.template-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:15px}
+.template{
+  background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  overflow:hidden;cursor:pointer;transition:.2s;
+}
+.template:hover{transform:translateY(-4px);border-color:var(--purple);box-shadow:0 15px 35px #0004}
+.template-art{position:relative;aspect-ratio:4/3;background:#221b15;overflow:hidden}
+.template-art img{width:100%;height:100%;object-fit:cover;transition:transform .35s;display:block}
+.template:hover img{transform:scale(1.06)}
+.template-category{
+  position:absolute;top:11px;left:11px;padding:6px 9px;border:1px solid #ffffff25;
+  border-radius:6px;background:#09090ec9;font-size:10px;font-weight:700;
+}
+.template-info{padding:13px}
+.template-info strong{font-size:13px}
+.template-info p{font-size:11px;color:var(--muted);margin:5px 0 0}
+.filter-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:24px}
+.filter{
+  background:var(--surface);border:1px solid var(--border);
+  color:var(--muted);border-radius:9px;padding:10px 14px;
+}
+.filter.active{background:rgb(var(--ac) / .11);color:var(--accent-soft);border-color:rgb(var(--ac) / .44)}
+.search-field{max-width:280px;padding:11px 14px;background:var(--surface)}
+.filter-row select{width:auto;background:var(--surface);padding:10px 12px}
+.bulk-bar{
+  display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:-8px 0 20px;padding:12px 15px;
+  background:rgb(var(--ac) / .07);border:1px solid rgb(var(--ac) / .3);border-radius:12px;
+}
+.bulk-bar strong{margin-right:auto}
+.library-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.asset-card{overflow:hidden;background:var(--surface);border:1px solid var(--border);border-radius:14px}
+.asset-card.selected{border-color:var(--purple);box-shadow:0 0 0 2px rgb(var(--ac) / .3)}
+.asset-preview{position:relative;background:#13120e;aspect-ratio:4/3;display:grid;place-items:center;overflow:hidden}
+.asset-preview img,.asset-preview video{width:100%;height:100%;object-fit:cover;display:block}
+.preview-hit{position:absolute;inset:0;background:transparent;border:0;padding:0}
+.asset-preview .fav,.asset-preview .sel{
+  position:absolute;top:10px;width:31px;height:31px;border:1px solid #ffffff40;
+  border-radius:9px;background:#12110ebb;color:white;z-index:1;
+}
+.asset-preview .fav{right:10px}
+.asset-preview .sel{left:10px}
+.asset-preview .fav.active{color:var(--accent-soft)}
+.asset-preview .sel.active{color:var(--on-accent)}
+.asset-preview .sel.active{background:var(--btn-1);border-color:transparent}
+.badge{
+  position:absolute;left:10px;bottom:10px;padding:4px 8px;border-radius:6px;font-size:10px;
+  font-weight:700;background:#12110ecc;border:1px solid #ffffff25;pointer-events:none;
+}
+.asset-body{padding:14px}
+.asset-body strong{display:block;font-size:13px;margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.asset-body p{
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-size:11px;color:var(--muted);margin:0 0 12px;
+}
+.asset-actions{display:flex;gap:7px}
+.asset-actions button{flex:1;font-size:11px;padding:8px 6px}
+.empty-state{
+  text-align:center;padding:80px 25px;border:1px dashed #4a463b;
+  border-radius:16px;color:var(--muted);
+}
+.empty-symbol{font-size:48px;margin-bottom:14px}
+.empty-state h2{color:white}
+.setting-card{max-width:770px;padding:25px;margin-bottom:18px}
+.setting-card h2{margin-bottom:9px}
+.setting-card p{color:var(--muted)}
+.setting-card code{background:#0e0d0a;padding:3px 6px;border-radius:5px;color:var(--accent-soft)}
+.endpoint-field{display:flex;gap:10px;margin:17px 0}
+.endpoint-field input{flex:1}
+.button-row{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
+.swatches{display:flex;gap:12px;margin-top:14px;flex-wrap:wrap}
+.swatch{
+  display:flex;align-items:center;gap:9px;padding:9px 13px;border-radius:11px;
+  background:var(--surface-2);border:1px solid var(--border);font-weight:600;font-size:12px;
+}
+.swatch i{width:16px;height:16px;border-radius:50%;display:block}
+.swatch[aria-pressed="true"]{border-color:var(--purple)}
+.code-sample{
+  background:#0e0d0a;border:1px solid var(--border);border-radius:12px;padding:17px;
+  overflow-x:auto;white-space:pre-wrap;word-break:break-word;line-height:1.65;color:#cdc3ae;font-size:12px;
+}
+.footer{
+  display:flex;justify-content:space-between;gap:10px;margin-top:46px;padding-top:20px;
+  border-top:1px solid var(--border);color:#837d6e;font-size:11px;
+}
+.toast{
+  position:fixed;right:25px;bottom:24px;z-index:200;background:var(--surface-3);
+  border:1px solid var(--purple);box-shadow:0 15px 50px #0008;border-radius:12px;
+  color:white;padding:15px 20px;max-width:380px;display:none;align-items:center;gap:16px;
+}
+.toast.show{display:flex;animation:pop .2s ease}
+.toast-action{
+  background:transparent;border:1px solid var(--purple);color:var(--accent-soft);
+  border-radius:8px;padding:6px 12px;font-weight:700;flex-shrink:0;
+}
+@keyframes pop{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}
+.loading-ring{
+  width:49px;height:49px;border:3px solid #ffffff20;border-top-color:var(--purple);
+  border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 20px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+dialog{
+  color:var(--text);background:var(--surface);border:1px solid var(--border);
+  border-radius:18px;padding:0;box-shadow:0 30px 90px #000a;
+}
+dialog::backdrop{background:#0a0906cc;backdrop-filter:blur(3px)}
+.lightbox{width:min(1100px,94vw);max-height:92vh;overflow:hidden}
+.lightbox[open]{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(280px,.8fr)}
+.lb-media{background:#0b0a08;display:grid;place-items:center;min-height:320px;max-height:92vh}
+.lb-media img,.lb-media video{max-width:100%;max-height:92vh;object-fit:contain;display:block}
+.lb-side{padding:22px;overflow-y:auto;max-height:92vh;display:flex;flex-direction:column;gap:14px}
+.lb-head{display:flex;gap:10px;align-items:center}
+.lb-head input{font-weight:700}
+.lb-prompt{
+  margin:0;font-size:13px;color:#d6d0c1;background:#13120e;border:1px solid var(--border);
+  border-radius:11px;padding:13px;max-height:170px;overflow-y:auto;white-space:pre-wrap;
+}
+.lb-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:0;font-size:12px}
+.lb-meta dt{color:var(--muted)}
+.lb-meta dd{margin:0;word-break:break-word}
+.lb-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.lb-nav{display:flex;align-items:center;justify-content:space-between;margin-top:auto;color:var(--muted);font-size:12px}
+.shortcuts{width:min(460px,92vw);padding:26px}
+.shortcuts table{width:100%;border-collapse:collapse;margin:16px 0 22px}
+.shortcuts td{padding:9px 0;border-bottom:1px solid var(--border);font-size:13px}
+.shortcuts td:first-child{width:46%}
+
+@media(max-width:1200px){
+  .template-grid,.library-grid{grid-template-columns:repeat(2,1fr)}
+  .studio-grid{grid-template-columns:1fr}
+  .output-stage{min-height:440px}
+}
+@media(max-width:800px){
+  .sidebar{
+    position:fixed;left:0;top:0;transform:translateX(-100%);transition:.2s;
+    box-shadow:20px 0 50px #0006;
+  }
+  .sidebar.open{transform:translateX(0)}
+  .sidebar-backdrop.show{display:block;position:fixed;inset:0;background:#000a;z-index:25}
+  .menu-button{display:grid}
+  .topbar{padding:0 18px;height:65px}
+  .main{padding:25px 16px}
+  .heading-row{flex-direction:column}
+  h1{font-size:29px}
+  .topbar .status{display:none}
+  .lightbox[open]{grid-template-columns:1fr;overflow-y:auto}
+  .lb-media{max-height:50vh;min-height:200px}
+  .lb-media img,.lb-media video{max-height:50vh}
+  .lb-side{max-height:none}
+}
+@media(max-width:480px){
+  .template-grid,.library-grid{grid-template-columns:1fr 1fr;gap:10px}
+  .template-info{padding:10px}
+  .template-info strong{font-size:12px}
+  .controls,.slider-grid{grid-template-columns:1fr}
+  .output-stage{min-height:330px}
+  .panel-body{padding:16px}
+  .panel-heading{padding:16px}
+  .heading-row .btn{width:100%}
+  .endpoint-field{flex-direction:column}
+  .footer{flex-direction:column}
+  .toast{left:16px;right:16px;max-width:none}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*:before{animation-duration:.01ms!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+    <div class="brand">
+      <div class="brand-symbol">✦</div>
+      NOIR<small>STUDIO</small>
+    </div>
+
+    <nav>
+      <div class="nav-label">Workspace</div>
+      <button class="nav-item active" data-view="studio" aria-current="page">
+        <span class="nav-icon">◈</span> Create Studio
+      </button>
+      <button class="nav-item" data-view="explore">
+        <span class="nav-icon">▦</span> Explore Templates
+      </button>
+      <button class="nav-item" data-view="library">
+        <span class="nav-icon">▧</span> My Creations
+        <span class="nav-count" id="libraryCount">0</span>
+      </button>
+
+      <div class="nav-label">Management</div>
+      <button class="nav-item" data-view="favorites">
+        <span class="nav-icon">♡</span> Favorites
+        <span class="nav-count" id="favoritesCount">0</span>
+      </button>
+      <button class="nav-item" data-view="settings">
+        <span class="nav-icon">⚙</span> Settings
+      </button>
+    </nav>
+
+    <div class="sidebar-bottom">
+      <div class="plan-card">
+        <div class="eyebrow">Local Workspace</div>
+        <h3>Creator Mode</h3>
+        <p class="muted">Build, preview and organize your creative projects.</p>
+        <div class="progress"><span id="usageBar"></span></div>
+        <div class="small muted">
+          <span id="usageCount">0</span> / <span id="usageMax">100</span> locally stored assets
+        </div>
+      </div>
+      <div class="profile">
+        <div class="avatar">J</div>
+        <div><strong>Creator Workspace</strong><span>Personal Studio</span></div>
+      </div>
+    </div>
+  </aside>
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+
+  <div class="workspace">
+    <header class="topbar">
+      <div style="display:flex;align-items:center;gap:14px">
+        <button class="icon-button menu-button" id="menuButton" aria-label="Toggle menu">☰</button>
+        <span class="breadcrumb" id="breadcrumb">Create Studio</span>
+      </div>
+      <div class="top-actions">
+        <span class="status"><span class="status-dot" id="statusDot"></span> <span id="statusText">Workspace ready</span></span>
+        <button class="icon-button" id="shortcutButton" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">⌘</button>
+        <button class="btn primary small-btn" id="headerCreate">✦ New Creation</button>
+      </div>
+    </header>
+
+    <main class="main">
+
+      <!-- CREATE STUDIO -->
+      <section class="view active" id="view-studio">
+        <div class="heading-row">
+          <div>
+            <div class="eyebrow">Your creative playground</div>
+            <h1>Imagine it. <span class="gradient-text">Create it.</span></h1>
+            <p>One workspace for prompts, media creation, and your visual library.</p>
+          </div>
+          <span class="tag">✦ Image demo available</span>
+        </div>
+
+        <div class="studio-grid">
+
+          <div class="panel">
+            <div class="panel-heading">
+              <h2>✦ Creation Engine</h2>
+              <span class="tag">Studio</span>
+            </div>
+            <div class="panel-body">
+              <div class="segment" id="modeSegment">
+                <button class="active" data-mode="image" aria-pressed="true">▧ Image</button>
+                <button data-mode="video" aria-pressed="false">▶ Video</button>
+              </div>
+
+              <div class="field-label">
+                <label for="prompt">Your prompt</label>
+                <span id="promptCount">0 characters</span>
+              </div>
+
+              <textarea id="prompt" maxlength="4000"
+                placeholder="Describe your vision in detail...&#10;&#10;Example: A black supercar parked on a rain-soaked Tokyo street at midnight, cinematic reflections, atmospheric neon lighting, wide-angle photography."></textarea>
+
+              <div class="prompt-actions">
+                <span class="char-count">Tip: Add lighting, camera angle and mood.</span>
+                <div class="prompt-buttons">
+                  <button class="btn small-btn hidden" id="undoEnhance">↶ Undo</button>
+                  <button class="btn small-btn" id="surprise" title="Fill in a random prompt">⚄ Surprise me</button>
+                  <button class="btn small-btn" id="enhancePrompt">✦ Enhance</button>
+                </div>
+              </div>
+
+              <div class="chip-row">
+                <button class="chip" data-add="cinematic lighting">Cinematic</button>
+                <button class="chip" data-add="photorealistic textures">Realistic</button>
+                <button class="chip" data-add="dramatic atmospheric depth">Atmospheric</button>
+                <button class="chip" data-add="highly detailed composition">Detailed</button>
+                <button class="chip" data-add="editorial photography">Editorial</button>
+              </div>
+
+              <details class="history" id="historyBox">
+                <summary>Recent prompts (<span id="historyCount">0</span>)</summary>
+                <div class="history-list" id="historyList"></div>
+              </details>
+
+              <div class="controls" style="margin-top:21px">
+                <label>Visual style
+                  <select id="style">
+                    <option value="cinematic">Cinematic</option>
+                    <option value="editorial">Editorial</option>
+                    <option value="cyberpunk">Cyberpunk</option>
+                    <option value="dreamscape">Dreamscape</option>
+                    <option value="minimal">Minimal Studio</option>
+                  </select>
+                </label>
+                <label>Output quality
+                  <select id="quality">
+                    <option value="standard">Standard (1×)</option>
+                    <option value="high">High (1.5×)</option>
+                    <option value="ultra">Ultra (2×)</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="field-label">Variations <span id="variationNote">Rendered in one batch</span></div>
+              <div class="segment compact" id="variationSegment">
+                <button class="active" data-variations="1" aria-pressed="true">×1</button>
+                <button data-variations="2" aria-pressed="false">×2</button>
+                <button data-variations="4" aria-pressed="false">×4</button>
+              </div>
+
+              <div class="field-label">Aspect ratio</div>
+              <div class="ratio-list" id="ratioList"></div>
+
+              <details class="advanced">
+                <summary>⚙ Advanced settings</summary>
+                <div class="field-label"><label for="negative">Negative prompt</label></div>
+                <textarea id="negative" placeholder="Elements to avoid..."></textarea>
+                <p class="caption">Negative prompts are forwarded to your connected generation API.</p>
+
+                <div class="field-label"><label for="seed">Seed</label><span>Same seed + settings = same image</span></div>
+                <div class="seed-row">
+                  <input id="seed" inputmode="numeric" maxlength="9" placeholder="Random each time">
+                  <button class="btn small-btn" id="randomSeed" title="Pick a random seed" aria-label="Pick a random seed">⚄</button>
+                </div>
+                <label class="inline-check"><input type="checkbox" id="lockSeed"> Lock seed between generations</label>
+
+                <div class="field-label">Finishing <span>Procedural demo only</span></div>
+                <div class="slider-grid">
+                  <label>Film grain <span id="grainValue">100%</span>
+                    <input type="range" id="grain" min="0" max="300" step="10" value="100"></label>
+                  <label>Vignette <span id="vignetteValue">100%</span>
+                    <input type="range" id="vignette" min="0" max="150" step="10" value="100"></label>
+                </div>
+              </details>
+
+              <button class="btn primary full generate-button" id="generate">
+                ✦ Generate Image
+              </button>
+              <p class="caption" style="text-align:center;margin:11px 0 0" id="engineNote">
+                Built-in procedural image demo. Connect an API for actual AI generation.
+              </p>
+            </div>
+          </div>
+
+          <div class="panel output-panel">
+            <div class="panel-heading">
+              <h2>Live Preview</h2>
+              <span class="small muted" id="previewStatus">Waiting for creation</span>
+            </div>
+            <div class="output-stage" id="outputStage">
+              <div class="output-placeholder" id="placeholder">
+                <div class="orb"></div>
+                <h2>Your next masterpiece starts here.</h2>
+                <p>Enter a prompt, choose your settings and create a visual preview.</p>
+              </div>
+            </div>
+            <div class="variants hidden" id="variants" aria-label="Variations"></div>
+            <div class="output-toolbar">
+              <span class="small muted" id="outputMeta">No output selected</span>
+              <div class="output-tools">
+                <button class="btn small-btn" id="expandOutput" disabled>⤢ View</button>
+                <button class="btn small-btn" id="download" disabled>↓ Download</button>
+                <button class="btn small-btn" id="favoriteOutput" disabled>♡ Favorite</button>
+                <button class="btn primary small-btn" id="regenerate">↻ Generate again</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="section-heading">
+          <div>
+            <h2>Start with inspiration</h2>
+            <p class="muted small" style="margin:5px 0 0">Choose a preset to populate the creation engine.</p>
+          </div>
+          <button class="btn ghost small-btn" data-goto="explore">View all →</button>
+        </div>
+        <div class="template-grid" id="featuredTemplates"></div>
+      </section>
+
+      <!-- EXPLORE -->
+      <section class="view" id="view-explore">
+        <div class="heading-row">
+          <div>
+            <div class="eyebrow">Discover your style</div>
+            <h1>Explore <span class="gradient-text">Templates.</span></h1>
+            <p>Curated creative directions ready for your next project.</p>
+          </div>
+          <button class="btn primary" data-goto="studio">+ Open Studio</button>
+        </div>
+
+        <div class="filter-row" id="templateFilters">
+          <button class="filter active" data-filter="All">All Templates</button>
+          <button class="filter" data-filter="Cinematic">Cinematic</button>
+          <button class="filter" data-filter="Portrait">Portrait</button>
+          <button class="filter" data-filter="Art">Art &amp; Design</button>
+          <button class="filter" data-filter="Landscape">Landscape</button>
+          <input class="search-field" id="templateSearch" type="search" placeholder="Search templates…  ( / )" aria-label="Search templates">
+        </div>
+        <div class="template-grid" id="allTemplates"></div>
+      </section>
+
+      <!-- LIBRARY -->
+      <section class="view" id="view-library">
+        <div class="heading-row">
+          <div>
+            <div class="eyebrow">Your creative archive</div>
+            <h1>My <span class="gradient-text">Creations.</span></h1>
+            <p>Find, download, reuse and organize your generated media.</p>
+          </div>
+          <button class="btn primary" data-goto="studio">+ Create New</button>
+        </div>
+        <div class="filter-row">
+          <input id="librarySearch" type="search" class="search-field" placeholder="Search your creations…  ( / )" aria-label="Search creations">
+          <select id="libraryKind" aria-label="Media type">
+            <option value="all">All media</option>
+            <option value="image">Images</option>
+            <option value="video">Videos</option>
+          </select>
+          <select id="libraryStyle" aria-label="Style">
+            <option value="all">All styles</option>
+            <option value="cinematic">Cinematic</option>
+            <option value="editorial">Editorial</option>
+            <option value="cyberpunk">Cyberpunk</option>
+            <option value="dreamscape">Dreamscape</option>
+            <option value="minimal">Minimal Studio</option>
+          </select>
+          <select id="librarySort" aria-label="Sort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="favorites">Favorites first</option>
+            <option value="title">Title A–Z</option>
+          </select>
+          <button class="btn small-btn" id="selectMode" aria-pressed="false">☐ Select</button>
+        </div>
+        <div class="bulk-bar hidden" id="bulkBar">
+          <strong id="bulkCount">0 selected</strong>
+          <button class="btn small-btn" data-bulk="all">Select all</button>
+          <button class="btn small-btn" data-bulk="fav">♥ Favorite</button>
+          <button class="btn small-btn" data-bulk="unfav">♡ Unfavorite</button>
+          <button class="btn small-btn danger" data-bulk="delete">× Delete</button>
+          <button class="btn small-btn ghost" data-bulk="done">Done</button>
+        </div>
+        <p class="small muted" id="libraryCountText"></p>
+        <div class="library-grid" id="libraryGrid"></div>
+      </section>
+
+      <!-- FAVORITES -->
+      <section class="view" id="view-favorites">
+        <div class="heading-row">
+          <div>
+            <div class="eyebrow">Your selected work</div>
+            <h1>Favorite <span class="gradient-text">Creations.</span></h1>
+            <p>Your most useful references and creative assets.</p>
+          </div>
+          <button class="btn primary" data-goto="library">View Library</button>
+        </div>
+        <div class="library-grid" id="favoritesGrid"></div>
+      </section>
+
+      <!-- SETTINGS -->
+      <section class="view" id="view-settings">
+        <div class="heading-row">
+          <div>
+            <div class="eyebrow">Configuration</div>
+            <h1>Studio <span class="gradient-text">Settings.</span></h1>
+            <p>Configure your generation backend and local workspace.</p>
+          </div>
+        </div>
+
+        <div class="panel setting-card">
+          <h2>Appearance</h2>
+          <p>Choose an accent color for the workspace.</p>
+          <div class="swatches" id="swatches">
+            <button class="swatch" data-theme-choice="ember" aria-pressed="true"><i style="background:#ff6a2f"></i>Ember</button>
+            <button class="swatch" data-theme-choice="moss" aria-pressed="false"><i style="background:#a3c46b"></i>Moss</button>
+            <button class="swatch" data-theme-choice="saffron" aria-pressed="false"><i style="background:#f2b134"></i>Saffron</button>
+            <button class="swatch" data-theme-choice="cobalt" aria-pressed="false"><i style="background:#6f9bff"></i>Cobalt</button>
+          </div>
+        </div>
+
+        <div class="panel setting-card">
+          <h2>AI Generation Backend</h2>
+          <p>Connect a server-side generation API. Leave this field empty to use the built-in procedural image preview. Video rendering requires a connected backend.</p>
+          <label class="field-label" for="endpoint">Generation endpoint</label>
+          <div class="endpoint-field">
+            <input id="endpoint" placeholder="/api/generate">
+            <button class="btn primary" id="saveEndpoint">Save</button>
+          </div>
+          <p class="caption">Use your own HTTPS endpoint or a same-origin route. Keep provider API keys on your server, not in this page. Variations are only available in the built-in demo renderer.</p>
+        </div>
+
+        <div class="panel setting-card">
+          <h2>API Request Contract</h2>
+          <p>Your endpoint receives a JSON request similar to:</p>
+          <pre class="code-sample">POST /api/generate
+Content-Type: application/json
+
+{
+  "type": "image",
+  "prompt": "A cinematic midnight scene",
+  "negative_prompt": "",
+  "style": "cinematic",
+  "aspect_ratio": "16:9",
+  "quality": "high",
+  "width": 960,
+  "height": 540,
+  "seed": 482913775
+}</pre>
+          <p>Return a completed image or video URL accessible to the browser:</p>
+          <pre class="code-sample">{
+  "image_url": "https://your-server.example/output.png"
+}
+
+OR
+
+{
+  "video_url": "https://your-server.example/output.mp4"
+}</pre>
+          <p class="caption">This client expects a completed media result. Async providers require a backend that resolves the job before responding. Cross-origin endpoints must allow your website's origin through CORS. Requests time out after 120 seconds and can be cancelled while running.</p>
+        </div>
+
+        <div class="panel setting-card">
+          <h2>Local Storage</h2>
+          <p>Creations and generation metadata are saved in this browser (IndexedDB), up to <span id="settingsMax">100</span> items. This is not cloud storage or account synchronization. Back up regularly if you rely on your library.</p>
+          <p><strong id="settingsAssetCount">0</strong> locally stored creations · <span id="storageEstimate">storage usage unavailable</span></p>
+          <div class="button-row">
+            <button class="btn" id="backupLibrary">↓ Backup library</button>
+            <button class="btn" id="restoreLibrary">↑ Restore backup</button>
+            <button class="btn" id="exportManifestSettings">↓ Export metadata only</button>
+            <button class="btn danger" id="clearLibrary">Delete Local Creations</button>
+          </div>
+          <input type="file" id="restoreFile" accept="application/json,.json" class="hidden" aria-label="Backup file">
+        </div>
+      </section>
+
+      <footer class="footer">
+        <span>© 2026 NOIR Creator Studio</span>
+        <span>Creative Workspace · Local Demo · Custom API Ready</span>
+      </footer>
+    </main>
+  </div>
+</div>
+
+<dialog id="lightbox" class="lightbox" aria-label="Creation viewer">
+  <div class="lb-media" id="lbMedia"></div>
+  <div class="lb-side">
+    <div class="lb-head">
+      <input id="lbTitle" maxlength="120" aria-label="Title">
+      <button class="icon-button" data-lb="close" aria-label="Close viewer" autofocus>✕</button>
+    </div>
+    <p class="lb-prompt" id="lbPrompt"></p>
+    <dl class="lb-meta" id="lbMeta"></dl>
+    <div class="lb-actions">
+      <button class="btn small-btn primary" data-lb="use">✎ Use in Studio</button>
+      <button class="btn small-btn" data-lb="copy">⧉ Copy prompt</button>
+      <button class="btn small-btn" data-lb="download">↓ Download</button>
+      <button class="btn small-btn" data-lb="favorite" id="lbFavorite">♡ Favorite</button>
+      <button class="btn small-btn danger" data-lb="delete" style="grid-column:1/-1">× Delete</button>
+    </div>
+    <div class="lb-nav">
+      <button class="btn small-btn" data-lb="prev" aria-label="Previous">←</button>
+      <span id="lbPos"></span>
+      <button class="btn small-btn" data-lb="next" aria-label="Next">→</button>
+    </div>
+  </div>
+</dialog>
+
+<dialog id="shortcutsDialog" class="shortcuts" aria-labelledby="shortcutsTitle">
+  <h2 id="shortcutsTitle">Keyboard shortcuts</h2>
+  <table>
+    <tr><td><kbd>⌘/Ctrl</kbd> + <kbd>Enter</kbd></td><td>Generate</td></tr>
+    <tr><td><kbd>Alt</kbd> + <kbd>1</kbd>–<kbd>5</kbd></td><td>Switch section</td></tr>
+    <tr><td><kbd>/</kbd></td><td>Focus search</td></tr>
+    <tr><td><kbd>?</kbd></td><td>Show this help</td></tr>
+    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Browse in viewer</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Close dialogs and menu</td></tr>
+  </table>
+  <button class="btn full" data-lb="close-shortcuts">Close</button>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+
+/* --------------------------------------------------
+   NOIR CREATOR STUDIO 2
+   Standalone frontend with:
+   - Procedural image previews (seeded, reproducible)
+   - Variations, seed lock, finishing controls
+   - Optional image/video API integration with cancel
+   - IndexedDB library with migration from v1
+   - Lightbox, sorting/filtering, bulk actions, undo
+   - Backup / restore, themes, keyboard shortcuts
+-------------------------------------------------- */
+
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
+
+const LEGACY_STORAGE_KEY = "noir_studio_assets_v1";
+const ENDPOINT_KEY = "noir_studio_endpoint_v1";
+const PREFS_KEY = "noir_studio_prefs_v2";
+const HISTORY_KEY = "noir_studio_history_v1";
+const DB_NAME = "noir_studio";
+const DB_STORE = "assets";
+const MAX_ASSETS = 100;
+const MAX_HISTORY = 12;
+const REQUEST_TIMEOUT_MS = 120000;
+const SRC_PATTERN = /^(https?:\/\/|data:image\/|data:video\/)/i;
+const QUALITY_SCALE = { standard: 1, high: 1.5, ultra: 2 };
+const QUALITY_JPEG = { standard: .83, high: .88, ultra: .92 };
+const STYLES = ["cinematic", "editorial", "cyberpunk", "dreamscape", "minimal"];
+const THEMES = ["ember", "moss", "saffron", "cobalt"];
+const NAMES = {
+  studio: "Create Studio", explore: "Explore Templates", library: "My Creations",
+  favorites: "Favorites", settings: "Settings"
+};
+const VIEW_ORDER = ["studio", "explore", "library", "favorites", "settings"];
+
+const RATIOS = {
+  "1:1": [800, 800],
+  "16:9": [960, 540],
+  "9:16": [540, 960],
+  "4:3": [880, 660],
+  "3:4": [660, 880],
+  "21:9": [1050, 450]
+};
+
+const templates = [
+  {
+    id: "midnight", title: "Midnight Run", category: "Cinematic", style: "cinematic",
+    desc: "Automotive · Night",
+    prompt: "A midnight black supercar on a rain-soaked street in Tokyo, moody neon reflections, cinematic 35mm lens, dramatic lighting, atmospheric fog, low camera angle, premium automotive photography."
+  },
+  {
+    id: "portrait", title: "Ember Muse", category: "Portrait", style: "editorial",
+    desc: "Fashion · Editorial",
+    prompt: "High-fashion editorial portrait in a dark studio, dramatic warm rim lighting, premium magazine photography, precise facial details, natural skin texture, soft volumetric atmosphere."
+  },
+  {
+    id: "cyber", title: "Neon District", category: "Cinematic", style: "cyberpunk",
+    desc: "Futuristic · City",
+    prompt: "A futuristic cyberpunk city at night with amber-lit towers, teal signage, reflective streets, atmospheric perspective, cinematic science fiction environment."
+  },
+  {
+    id: "alpine", title: "Beyond the Summit", category: "Landscape", style: "dreamscape",
+    desc: "Nature · Adventure",
+    prompt: "Majestic alpine mountain peaks under a glowing amber sunrise, misty valleys, layered ridgelines, breathtaking landscape composition, atmospheric light, cinematic travel photography."
+  },
+  {
+    id: "glass", title: "Liquid Form", category: "Art", style: "minimal",
+    desc: "Abstract · Design",
+    prompt: "Abstract sculptural glass object floating inside a minimal dark gallery, iridescent transparent material, soft teal reflections, precise studio lighting, elegant contemporary product design."
+  },
+  {
+    id: "desert", title: "Dusk Horizon", category: "Landscape", style: "cinematic",
+    desc: "Desert · Sunset",
+    prompt: "An expansive desert at dusk with sculptural sand dunes, glowing pink horizon, atmospheric haze, distant sun, elegant minimalist landscape photography."
+  },
+  {
+    id: "orbit", title: "Celestial", category: "Art", style: "dreamscape",
+    desc: "Space · Surreal",
+    prompt: "A surreal celestial planet suspended in a deep indigo nebula, luminous orbital rings, stardust, dreamy cinematic space art and soft cosmic glow."
+  },
+  {
+    id: "architecture", title: "Monolith", category: "Art", style: "minimal",
+    desc: "Architecture · Minimal",
+    prompt: "A monumental modernist building with stark geometric forms, deep indigo atmosphere, perfectly balanced architectural composition, soft studio-like ambient light."
+  },
+  {
+    id: "ocean", title: "Moonlit Tide", category: "Landscape", style: "dreamscape",
+    desc: "Sea · Moonlight",
+    prompt: "A calm moonlit ocean at night, silver reflections rippling across the waves, deep blue horizon, quiet atmosphere, long exposure seascape photography."
+  },
+  {
+    id: "aurora", title: "Polar Veil", category: "Landscape", style: "cinematic",
+    desc: "Arctic · Aurora",
+    prompt: "Green and gold aurora ribbons dancing over a frozen arctic ridgeline, star-filled sky, crisp cold air, wide-angle night landscape photography."
+  }
+];
+
+const palettes = {
+  midnight: ["#0c0a08", "#2e1c14", "#ff6a2f"],
+  portrait: ["#140e0b", "#4a2a1f", "#ffa36b"],
+  cyber: ["#0a0d12", "#12303a", "#ffb347"],
+  alpine: ["#16222b", "#9a7b6a", "#ffd9a8"],
+  glass: ["#0c1214", "#24403f", "#9fe0d0"],
+  desert: ["#1c0f0a", "#a8502d", "#ffb36b"],
+  orbit: ["#090a12", "#2a2a4a", "#f2c98a"],
+  architecture: ["#0e1113", "#3a4146", "#e8a96a"],
+  ocean: ["#06101a", "#10394a", "#8fd5d0"],
+  aurora: ["#06100f", "#0f3a35", "#9be07a"]
+};
+
+const ENHANCERS = {
+  cinematic: ["cinematic lighting", "anamorphic depth of field", "filmic color grading"],
+  editorial: ["editorial lighting", "magazine-quality retouching", "elegant posing"],
+  cyberpunk: ["neon rim lighting", "wet reflective surfaces", "dense atmospheric haze"],
+  dreamscape: ["ethereal glow", "soft volumetric light", "surreal atmospheric depth"],
+  minimal: ["clean negative space", "precise studio lighting", "restrained color palette"]
+};
+const BASE_ENHANCERS = [
+  "intentional visual composition", "detailed material textures",
+  "balanced color grading", "strong subject separation"
+];
+const SURPRISE = {
+  subject: [
+    "a lone astronaut", "a glass greenhouse", "a vintage motorcycle", "a floating lantern festival",
+    "a marble statue", "a neon-lit ramen stall", "a wandering fox", "a brutalist lighthouse"
+  ],
+  setting: [
+    "on a misty cliff at dawn", "in a rain-soaked alley", "inside an empty gallery",
+    "above a sea of clouds", "in a snow-covered forest", "at the edge of a salt desert"
+  ],
+  light: [
+    "dramatic rim lighting", "soft golden hour glow", "moody neon reflections",
+    "volumetric god rays", "cold moonlight"
+  ],
+  camera: [
+    "wide-angle lens", "35mm film look", "low camera angle", "shallow depth of field", "aerial perspective"
+  ]
+};
+
+const state = {
+  view: "studio",
+  mode: "image",
+  ratio: "1:1",
+  variations: 1,
+  filter: "All",
+  theme: "ember",
+  assets: [],
+  batch: [],
+  currentId: null,
+  busy: false,
+  cancelled: false,
+  abort: null,
+  endpoint: "",
+  toastTimer: null,
+  selectMode: false,
+  selection: new Set(),
+  lightboxIds: [],
+  lightboxId: null,
+  lastFocus: null,
+  history: [],
+  preEnhance: null,
+  storage: "indexeddb"
+};
+
+/* --------------------------------------------------
+   UTILITIES
+-------------------------------------------------- */
+
+function toast(message, action) {
+  const el = $("#toast");
+  el.textContent = "";
+  const text = document.createElement("span");
+  text.textContent = message;
+  el.appendChild(text);
+
+  if (action) {
+    const button = document.createElement("button");
+    button.className = "toast-action";
+    button.textContent = action.label;
+    button.addEventListener("click", () => {
+      el.classList.remove("show");
+      action.run();
+    });
+    el.appendChild(button);
+  }
+
+  el.classList.add("show");
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => el.classList.remove("show"), action ? 7000 : 3600);
+}
+
+function escapeHTML(value) {
+  return String(value).replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  })[ch]);
+}
+
+function uid() {
+  return window.crypto?.randomUUID?.() ||
+    "asset-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+}
+
+function debounce(fn, ms) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
+function slugify(text) {
+  return String(text).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "creation";
+}
+
+function randomSeedValue() {
+  return 1 + Math.floor(Math.random() * 999999998);
+}
+
+function pick(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function formatDate(iso) {
+  const date = new Date(iso);
+  return isNaN(date) ? "Unknown" : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes)) return "unknown";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(0) + " KB";
+  if (bytes < 1024 ** 3) return (bytes / 1024 ** 2).toFixed(1) + " MB";
+  return (bytes / 1024 ** 3).toFixed(1) + " GB";
+}
+
+function nextFrame() {
+  return new Promise((resolve) => setTimeout(resolve, 30));
+}
+
+/* --------------------------------------------------
+   STORAGE (IndexedDB with graceful fallback)
+-------------------------------------------------- */
+
+let dbPromise = null;
+
+function openDB() {
+  if (dbPromise) return dbPromise;
+  dbPromise = new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("IndexedDB is unavailable"));
+      return;
+    }
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => request.result.createObjectStore(DB_STORE, { keyPath: "id" });
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error("IndexedDB is blocked"));
+  });
+  return dbPromise;
+}
+
+async function dbRun(mode, work) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(DB_STORE, mode);
+    const request = work(transaction.objectStore(DB_STORE));
+    transaction.oncomplete = () => resolve(request ? request.result : undefined);
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () => reject(transaction.error || new Error("Storage transaction aborted"));
+  });
+}
+
+const dbGetAll = () => dbRun("readonly", (store) => store.getAll());
+const dbPut = (list) => dbRun("readwrite", (store) => { list.forEach((item) => store.put(item)); });
+const dbDelete = (ids) => dbRun("readwrite", (store) => { ids.forEach((id) => store.delete(id)); });
+
+// Persistence failures should never break the UI; they are surfaced once.
+async function persist(operation) {
+  if (state.storage === "memory") return false;
+  try {
+    await operation();
+    return true;
+  } catch (error) {
+    const quota = error && /quota/i.test(error.name + " " + error.message);
+    toast(quota
+      ? "Browser storage is full. Delete creations or back up your library."
+      : "Could not save to browser storage. Changes may be lost on reload.");
+    return false;
+  }
+}
+
+function sanitizeAsset(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const src = typeof raw.src === "string" ? raw.src : "";
+  if (!SRC_PATTERN.test(src)) return null;
+
+  const text = (value, max, fallback = "") => typeof value === "string" ? value.slice(0, max) : fallback;
+  const number = (value, fallback) => Number.isFinite(Number(value)) && value !== null && value !== "" ? Number(value) : fallback;
+  const created = new Date(raw.createdAt);
+  const prompt = text(raw.prompt, 4000);
+
+  return {
+    id: text(raw.id, 100) || uid(),
+    title: text(raw.title, 120) || prompt.slice(0, 48) || "Untitled",
+    prompt,
+    negative: text(raw.negative, 4000),
+    kind: raw.kind === "video" ? "video" : "image",
+    source: raw.source === "API" ? "API" : "Demo",
+    style: STYLES.includes(raw.style) ? raw.style : "cinematic",
+    ratio: RATIOS[raw.ratio] ? raw.ratio : "1:1",
+    quality: QUALITY_SCALE[raw.quality] ? raw.quality : "standard",
+    seed: number(raw.seed, null),
+    grain: number(raw.grain, 100),
+    vignette: number(raw.vignette, 100),
+    src,
+    favorite: Boolean(raw.favorite),
+    createdAt: isNaN(created) ? new Date().toISOString() : created.toISOString()
+  };
+}
+
+function sortAssets() {
+  state.assets.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+async function loadAssets() {
+  try {
+    const stored = await dbGetAll();
+    state.assets = stored.map(sanitizeAsset).filter(Boolean);
+  } catch {
+    state.storage = "memory";
+    state.assets = [];
+  }
+
+  // One-time migration from the v1 localStorage library
+  try {
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY) || "[]");
+    if (Array.isArray(legacy) && legacy.length) {
+      const known = new Set(state.assets.map((a) => a.id));
+      const migrated = legacy.map(sanitizeAsset).filter((a) => a && !known.has(a.id));
+      state.assets.push(...migrated);
+      if (migrated.length && await persist(() => dbPut(migrated))) {
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      } else if (!migrated.length) {
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+    }
+  } catch { /* ignore malformed legacy data */ }
+
+  sortAssets();
+}
+
+function loadSettings() {
+  try {
+    state.endpoint = localStorage.getItem(ENDPOINT_KEY) || "";
+    const history = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+    state.history = Array.isArray(history) ? history.filter((p) => typeof p === "string").slice(0, MAX_HISTORY) : [];
+  } catch {
+    state.endpoint = "";
+    state.history = [];
+  }
+  $("#endpoint").value = state.endpoint;
+}
+
+function loadPrefs() {
+  let prefs = {};
+  try { prefs = JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") || {}; } catch { /* ignore */ }
+
+  const setSelect = (selector, value) => {
+    const el = $(selector);
+    if (typeof value === "string" && [...el.options].some((o) => o.value === value)) el.value = value;
+  };
+
+  if (THEMES.includes(prefs.theme)) state.theme = prefs.theme;
+  if (typeof prefs.prompt === "string") $("#prompt").value = prefs.prompt.slice(0, 4000);
+  if (typeof prefs.negative === "string") $("#negative").value = prefs.negative.slice(0, 4000);
+  setSelect("#style", prefs.style);
+  setSelect("#quality", prefs.quality);
+  if (typeof prefs.seed === "string" && /^\d{1,9}$/.test(prefs.seed)) $("#seed").value = prefs.seed;
+  $("#lockSeed").checked = Boolean(prefs.lockSeed);
+  if (Number.isFinite(prefs.grain)) $("#grain").value = Math.min(300, Math.max(0, prefs.grain));
+  if (Number.isFinite(prefs.vignette)) $("#vignette").value = Math.min(150, Math.max(0, prefs.vignette));
+
+  state.mode = prefs.mode === "video" ? "video" : "image";
+  state.ratio = RATIOS[prefs.ratio] ? prefs.ratio : "1:1";
+  state.variations = [1, 2, 4].includes(prefs.variations) ? prefs.variations : 1;
+}
+
+function savePrefs() {
+  try {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({
+      theme: state.theme,
+      mode: state.mode,
+      ratio: state.ratio,
+      variations: state.variations,
+      prompt: $("#prompt").value,
+      negative: $("#negative").value,
+      style: $("#style").value,
+      quality: $("#quality").value,
+      seed: $("#seed").value,
+      lockSeed: $("#lockSeed").checked,
+      grain: Number($("#grain").value),
+      vignette: Number($("#vignette").value)
+    }));
+  } catch { /* preferences are best-effort */ }
+}
+const savePrefsSoon = debounce(savePrefs, 300);
+
+function pushHistory(prompt) {
+  state.history = [prompt, ...state.history.filter((p) => p !== prompt)].slice(0, MAX_HISTORY);
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(state.history)); } catch { /* ignore */ }
+  renderHistory();
+}
+
+/* --------------------------------------------------
+   NAVIGATION AND CHROME
+-------------------------------------------------- */
+
+function updateCounts() {
+  const count = state.assets.length;
+  const favorites = state.assets.filter((a) => a.favorite).length;
+  $("#libraryCount").textContent = count;
+  $("#favoritesCount").textContent = favorites;
+  $("#usageCount").textContent = count;
+  $("#usageMax").textContent = MAX_ASSETS;
+  $("#settingsMax").textContent = MAX_ASSETS;
+  $("#settingsAssetCount").textContent = count;
+  $("#usageBar").style.width = Math.min(count / MAX_ASSETS * 100, 100) + "%";
+
+  const dot = $("#statusDot");
+  const warn = state.storage === "memory";
+  dot.classList.toggle("warn", warn);
+  $("#statusText").textContent = warn ? "Session-only storage" : "Workspace ready";
+}
+
+async function updateStorageEstimate() {
+  const el = $("#storageEstimate");
+  if (state.storage === "memory") {
+    el.textContent = "browser storage is unavailable; creations last only for this session";
+    return;
+  }
+  try {
+    const { usage, quota } = await navigator.storage.estimate();
+    el.textContent = "using " + formatBytes(usage) + " of " + formatBytes(quota) + " available to this site";
+  } catch {
+    el.textContent = "storage usage unavailable";
+  }
+}
+
+function setSidebar(open) {
+  $("#sidebar").classList.toggle("open", open);
+  $("#sidebarBackdrop").classList.toggle("show", open);
+}
+
+function navigate(view) {
+  if (!NAMES[view]) return;
+  state.view = view;
+
+  $$(".view").forEach((el) => el.classList.remove("active"));
+  $("#view-" + view).classList.add("active");
+
+  $$(".nav-item").forEach((el) => {
+    const active = el.dataset.view === view;
+    el.classList.toggle("active", active);
+    if (active) el.setAttribute("aria-current", "page");
+    else el.removeAttribute("aria-current");
+  });
+
+  $("#breadcrumb").textContent = NAMES[view];
+  setSidebar(false);
+
+  if (view === "library") renderLibrary();
+  if (view === "favorites") renderFavorites();
+  if (view === "explore") renderTemplates();
+  if (view === "settings") updateStorageEstimate();
+
+  window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
+
+function applyTheme(theme) {
+  state.theme = THEMES.includes(theme) ? theme : "ember";
+  document.documentElement.dataset.theme = state.theme;
+  $$("[data-theme-choice]").forEach((el) =>
+    el.setAttribute("aria-pressed", String(el.dataset.themeChoice === state.theme)));
+}
+
+/* --------------------------------------------------
+   PROCEDURAL DEMO RENDERER
+   These previews are deterministic canvas artwork,
+   not AI-generated images.
+-------------------------------------------------- */
+
+function randomGenerator(seed) {
+  let value = seed >>> 0;
+  return () => {
+    value = (1664525 * value + 1013904223) >>> 0;
+    return value / 4294967296;
+  };
+}
+
+function hashString(str) {
+  let h = 2166136261;
+  for (const ch of str) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function chooseScene(prompt, style) {
+  const p = prompt.toLowerCase();
+
+  if (/\b(aurora|northern lights|arctic|polar|glacier|snow)/.test(p)) return "aurora";
+  if (/\b(car|cars|vehicle|supercar|automotive|racing|race)\b/.test(p)) return "midnight";
+  if (/\b(portrait|fashion|model|face|person)/.test(p)) return "portrait";
+  if (/\b(cyber|city|street|neon|tokyo)/.test(p)) return "cyber";
+  if (/\b(mountain|alpine|summit|valley|forest)/.test(p)) return "alpine";
+  if (/\b(ocean|sea|seascape|waves?|tide|beach|moonlit|harbor)/.test(p)) return "ocean";
+  if (/\b(glass|sculpture|product|object)/.test(p)) return "glass";
+  if (/\b(desert|dunes?|sand)/.test(p)) return "desert";
+  if (/\b(space|planet|celestial|cosmic|orbit)/.test(p)) return "orbit";
+  if (/\b(building|architecture|monolith)/.test(p)) return "architecture";
+
+  return {
+    editorial: "portrait",
+    cyberpunk: "cyber",
+    dreamscape: "orbit",
+    minimal: "glass",
+    cinematic: "midnight"
+  }[style] || "midnight";
+}
+
+function demoArt(scene, width = 800, height = 600, seed = 1, options = {}) {
+  const { scale = 1, grain = 1, vignette: vignetteAmount = 1, quality = .83 } = options;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(width * scale);
+  canvas.height = Math.round(height * scale);
+
+  const ctx = canvas.getContext("2d");
+  ctx.scale(scale, scale);
+  const rnd = randomGenerator(seed);
+  const [top, bottom, accent] = palettes[scene] || palettes.midnight;
+  const w = width, h = height;
+
+  const sky = ctx.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, top);
+  sky.addColorStop(.65, bottom);
+  sky.addColorStop(1, "#0a0908");
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+
+  function glow(x, y, r, color, opacity = .65) {
+    ctx.save();
+    ctx.globalAlpha = opacity;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, color);
+    g.addColorStop(1, "transparent");
+    ctx.fillStyle = g;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+    ctx.restore();
+  }
+
+  function circle(x, y, r, color) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  function polygon(points, color) {
+    ctx.beginPath();
+    points.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+
+  function ridges(colors, baseline, step, amplitude, layerGap) {
+    colors.forEach((color, layer) => {
+      const y = h * (baseline + layer * layerGap);
+      const points = [[0, h]];
+      for (let x = 0; x <= w + w * step; x += w * step) {
+        points.push([x, y + (rnd() - .5) * h * amplitude]);
+      }
+      points.push([w, h]);
+      polygon(points, color);
+    });
+  }
+
+  glow(w * .52, h * .47, w * .52, accent, .35);
+
+  if (["alpine", "desert"].includes(scene)) {
+    circle(w * .7, h * .36, w * .095, scene === "desert" ? "#ffcb9e" : "#ffe4cc");
+    glow(w * .7, h * .36, w * .30, accent, .6);
+    ridges(["#4a3a33", "#352a28", "#241e1e", "#171516", "#0d0c0d"], .52, .12,
+      scene === "alpine" ? .36 : .12, .11);
+  }
+
+  if (["midnight", "cyber"].includes(scene)) {
+    const horizon = h * .67;
+    for (let i = 0; i < 45; i++) {
+      const x = rnd() * w;
+      const bw = w * (.018 + rnd() * .07);
+      const bh = h * (.06 + rnd() * .37);
+      ctx.fillStyle = rnd() > .45 ? "#0f1113" : "#171a1d";
+      ctx.fillRect(x, horizon - bh, bw, bh);
+
+      ctx.fillStyle = rnd() > .5 ? "#ffb347" : "#7fd0c4";
+      for (let yy = horizon - bh + 12; yy < horizon - 6; yy += 13) {
+        for (let xx = x + 7; xx < x + bw - 5; xx += 10) {
+          if (rnd() > .73) ctx.fillRect(xx, yy, 2, 5);
+        }
+      }
+    }
+
+    polygon([[0, h], [w * .38, horizon], [w * .62, horizon], [w, h]], "#0a0a0b");
+
+    for (let i = 0; i < 23; i++) {
+      ctx.strokeStyle = i % 2 ? "#ff8a3d33" : "#7fd0c422";
+      ctx.lineWidth = 1 + rnd() * 3;
+      ctx.beginPath();
+      ctx.moveTo(rnd() * w, horizon);
+      ctx.lineTo(rnd() * w, h);
+      ctx.stroke();
+    }
+
+    if (scene === "midnight") {
+      const cy = h * .77, cx = w * .5;
+      glow(cx, cy, w * .35, "#ff6a2f", .3);
+      polygon([
+        [cx - w * .24, cy + h * .06], [cx - w * .18, cy - h * .05],
+        [cx - w * .09, cy - h * .11], [cx + w * .11, cy - h * .11],
+        [cx + w * .20, cy - h * .04], [cx + w * .25, cy + h * .06]
+      ], "#060505");
+      ctx.fillStyle = "#ff5a1f";
+      ctx.fillRect(cx - w * .22, cy + h * .007, w * .075, h * .013);
+      ctx.fillRect(cx + w * .145, cy + h * .007, w * .075, h * .013);
+      glow(cx - w * .18, cy + h * .015, w * .09, "#ff7a3a", .75);
+      glow(cx + w * .18, cy + h * .015, w * .09, "#ff7a3a", .75);
+    }
+  }
+
+  if (scene === "portrait") {
+    glow(w * .50, h * .46, w * .41, "#ff8a5c", .6);
+    glow(w * .26, h * .58, w * .22, "#ffb36b", .3);
+
+    circle(w * .5, h * .38, h * .14, "#1f130d");
+    ctx.beginPath();
+    ctx.ellipse(w * .5, h * .97, w * .33, h * .38, 0, Math.PI, 0);
+    ctx.fillStyle = "#17100c";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.ellipse(w * .5, h * .43, w * .12, h * .19, 0, 0, Math.PI * 2);
+    ctx.fillStyle = "#9a6246";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(w * .50, h * .28, h * .16, Math.PI * .95, Math.PI * 2.05);
+    ctx.lineWidth = w * .07;
+    ctx.strokeStyle = "#1a110c";
+    ctx.stroke();
+
+    glow(w * .65, h * .43, w * .15, "#ffd9b0", .20);
+  }
+
+  if (scene === "glass") {
+    glow(w * .51, h * .52, w * .35, "#7fd0c4", .3);
+
+    for (let i = 5; i >= 0; i--) {
+      ctx.beginPath();
+      ctx.ellipse(w * .5, h * .53, w * (.09 + i * .035), h * (.24 + i * .023), i * .2, 0, Math.PI * 2);
+      ctx.strokeStyle = i % 2 ? "#ffc58a" : "#9fe8da";
+      ctx.globalAlpha = .18 + i * .1;
+      ctx.lineWidth = 3 + i;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    glow(w * .5, h * .5, w * .2, "#ffb36b", .4);
+  }
+
+  if (scene === "orbit") {
+    circle(w * .51, h * .49, w * .20, "#25233f");
+    glow(w * .47, h * .42, w * .30, "#f2c98a", .5);
+
+    ctx.save();
+    ctx.translate(w * .5, h * .5);
+    ctx.rotate(-.32);
+    ctx.strokeStyle = "#f6d9a8";
+    ctx.lineWidth = w * .012;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, w * .37, h * .11, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    circle(w * .50, h * .47, w * .16, "#34315a");
+    glow(w * .46, h * .42, w * .14, "#ffe2b0", .55);
+  }
+
+  if (scene === "architecture") {
+    glow(w * .66, h * .46, w * .45, "#e8a96a", .3);
+    polygon([[w * .21, h], [w * .21, h * .29], [w * .64, h * .19], [w * .64, h]], "#22262a");
+    polygon([[w * .64, h * .19], [w * .83, h * .32], [w * .83, h], [w * .64, h]], "#121416");
+    polygon([[w * .30, h * .83], [w * .30, h * .46], [w * .54, h * .41], [w * .54, h * .83]], "#3f4448");
+    ctx.fillStyle = "#f0c08a44";
+    ctx.fillRect(w * .38, h * .43, w * .018, h * .38);
+  }
+
+  if (scene === "ocean") {
+    const horizon = h * .58;
+    const mx = w * (.3 + rnd() * .4), my = h * .27;
+    glow(mx, my, w * .32, accent, .55);
+    circle(mx, my, Math.min(w, h) * .07, "#f1f7ff");
+
+    ctx.fillStyle = "#070c12";
+    ctx.fillRect(0, horizon, w, h - horizon);
+
+    for (let y = horizon; y < h; y += 4) {
+      const t = (y - horizon) / (h - horizon);
+      const half = w * (.02 + t * .09) * (.6 + rnd() * .8);
+      ctx.globalAlpha = .5 * (1 - t * .6);
+      ctx.fillStyle = "#cfe9ff";
+      ctx.fillRect(mx - half + (rnd() - .5) * w * .03, y, half * 2, 1.6);
+    }
+    ctx.globalAlpha = 1;
+
+    for (let i = 0; i < 30; i++) {
+      const y = horizon + Math.pow(rnd(), 1.6) * (h - horizon);
+      const x0 = rnd() * w, len = w * (.08 + rnd() * .2);
+      ctx.strokeStyle = "rgba(140,200,255," + (.06 + rnd() * .14).toFixed(3) + ")";
+      ctx.lineWidth = 1 + rnd() * 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x0, y);
+      ctx.quadraticCurveTo(x0 + len / 2, y - 3 - rnd() * 4, x0 + len, y);
+      ctx.stroke();
+    }
+  }
+
+  if (scene === "aurora") {
+    for (let i = 0; i < 4; i++) {
+      const baseY = h * (.22 + i * .07);
+      const phase = rnd() * 2;
+      const g = ctx.createLinearGradient(0, baseY - h * .2, 0, baseY + h * .25);
+      g.addColorStop(0, "transparent");
+      g.addColorStop(.5, i % 2 ? "#6fd0b0" : accent);
+      g.addColorStop(1, "transparent");
+      ctx.save();
+      ctx.globalAlpha = .34 - i * .05;
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(0, baseY);
+      for (let x = 0; x <= w; x += w / 24) {
+        ctx.lineTo(x, baseY + Math.sin(x / w * (5 + i) + phase) * h * .07);
+      }
+      ctx.lineTo(w, baseY + h * .3);
+      ctx.lineTo(0, baseY + h * .3);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+    ridges(["#1c2b2a", "#111c1c", "#0a1110"], .74, .1, .16, .08);
+  }
+
+  // Fine stars and luminous particles
+  for (let i = 0; i < 110; i++) {
+    const x = rnd() * w, y = rnd() * h;
+    const r = .25 + rnd() * 1.5;
+    ctx.globalAlpha = .15 + rnd() * .53;
+    circle(x, y, r, rnd() > .7 ? accent : "#fff");
+  }
+  ctx.globalAlpha = 1;
+
+  // Cinematic edge falloff
+  if (vignetteAmount > 0) {
+    const vignette = ctx.createRadialGradient(w * .5, h * .48, w * .10, w * .5, h * .5, w * .8);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, "rgba(0,0,0," + Math.min(1, .71 * vignetteAmount).toFixed(3) + ")");
+    ctx.fillStyle = vignette;
+    ctx.fillRect(0, 0, w, h);
+  }
+
+  // Film grain
+  const grainCount = Math.round(1500 * grain * (w * h) / (800 * 600));
+  for (let i = 0; i < grainCount; i++) {
+    ctx.fillStyle = rnd() > .5 ? "#ffffff09" : "#00000010";
+    ctx.fillRect(rnd() * w, rnd() * h, 1, 1);
+  }
+
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
+/* --------------------------------------------------
+   TEMPLATE SYSTEM
+-------------------------------------------------- */
+
+const thumbnailCache = new Map();
+
+function thumbnailFor(template) {
+  if (!thumbnailCache.has(template.id)) {
+    thumbnailCache.set(template.id, demoArt(template.id, 420, 315, hashString(template.id)));
+  }
+  return thumbnailCache.get(template.id);
+}
+
+function templateCard(t) {
+  return `
+    <article class="template" data-template="${escapeHTML(t.id)}"
+      tabindex="0" role="button"
+      aria-label="Use ${escapeHTML(t.title)} template">
+      <div class="template-art">
+        <img src="${thumbnailFor(t)}" alt="${escapeHTML(t.title)} demo artwork" loading="lazy">
+        <span class="template-category">${escapeHTML(t.category)}</span>
+      </div>
+      <div class="template-info">
+        <strong>${escapeHTML(t.title)}</strong>
+        <p>${escapeHTML(t.desc)}</p>
+      </div>
+    </article>`;
+}
+
+function renderTemplates() {
+  $("#featuredTemplates").innerHTML = templates.slice(0, 4).map(templateCard).join("");
+
+  const query = ($("#templateSearch")?.value || "").toLowerCase().trim();
+  const filtered = templates.filter((t) =>
+    (state.filter === "All" || t.category === state.filter) &&
+    (t.title + " " + t.desc + " " + t.prompt).toLowerCase().includes(query)
+  );
+
+  $("#allTemplates").innerHTML = filtered.length
+    ? filtered.map(templateCard).join("")
+    : '<div class="empty-state" style="grid-column:1/-1">No matching templates.</div>';
+}
+
+function useTemplate(id) {
+  const t = templates.find((item) => item.id === id);
+  if (!t) return;
+
+  $("#prompt").value = t.prompt;
+  $("#style").value = t.style;
+  clearEnhanceUndo();
+  updatePromptCount();
+
+  setMode("image");
+  navigate("studio");
+  savePrefsSoon();
+  toast(t.title + " template loaded.");
+  $("#prompt").focus();
+}
+
+/* --------------------------------------------------
+   PROMPT TOOLS
+-------------------------------------------------- */
+
+function updatePromptCount() {
+  const length = $("#prompt").value.length;
+  $("#promptCount").textContent = length + (length === 1 ? " character" : " characters");
+}
+
+function clearEnhanceUndo() {
+  state.preEnhance = null;
+  $("#undoEnhance").classList.add("hidden");
+}
+
+function enhancePrompt() {
+  const prompt = $("#prompt");
+  if (!prompt.value.trim()) {
+    toast("Enter a prompt before enhancing it.");
+    return;
+  }
+
+  const additions = [...(ENHANCERS[$("#style").value] || []), ...BASE_ENHANCERS];
+  const original = prompt.value;
+  let value = original.trim().replace(/[.,\s]+$/, "");
+  let added = 0;
+
+  for (const part of additions) {
+    if (added === 4) break;
+    if (!value.toLowerCase().includes(part.toLowerCase())) {
+      value += ", " + part;
+      added++;
+    }
+  }
+
+  if (!added) {
+    toast("Your prompt already covers these details.");
+    return;
+  }
+
+  state.preEnhance = original;
+  prompt.value = (value + ".").slice(0, 4000);
+  $("#undoEnhance").classList.remove("hidden");
+  updatePromptCount();
+  savePrefsSoon();
+  toast("Composition details added to your prompt.");
+}
+
+function undoEnhance() {
+  if (state.preEnhance === null) return;
+  $("#prompt").value = state.preEnhance;
+  clearEnhanceUndo();
+  updatePromptCount();
+  savePrefsSoon();
+}
+
+function surprisePrompt() {
+  const { subject, setting, light, camera } = SURPRISE;
+  const prompt = `${pick(subject)} ${pick(setting)}, ${pick(light)}, ${pick(camera)}, highly detailed composition.`;
+  $("#prompt").value = prompt.charAt(0).toUpperCase() + prompt.slice(1);
+  $("#style").value = pick(STYLES);
+  clearEnhanceUndo();
+  updatePromptCount();
+  savePrefsSoon();
+}
+
+function renderHistory() {
+  $("#historyCount").textContent = state.history.length;
+  $("#historyList").innerHTML = state.history.length
+    ? state.history.map((p, i) =>
+        `<button class="history-item" data-history="${i}" title="${escapeHTML(p)}">${escapeHTML(p)}</button>`
+      ).join("") +
+      '<button class="btn small-btn ghost" data-history-clear="1" style="align-self:flex-start">Clear history</button>'
+    : '<span class="caption">Prompts you generate appear here.</span>';
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  $$("#modeSegment button").forEach((b) => {
+    const active = b.dataset.mode === mode;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-pressed", String(active));
+  });
+  if (!state.busy) $("#generate").textContent = generateLabel();
+  updateEngineNote();
+}
+
+function generateLabel() {
+  return state.mode === "image" ? "✦ Generate Image" : "▶ Generate Video";
+}
+
+function updateEngineNote() {
+  $("#engineNote").textContent = state.mode === "video"
+    ? "Video generation requires a connected server-side API."
+    : state.endpoint
+      ? "Images are generated by your connected API."
+      : "Built-in procedural image demo. Connect an API for actual AI generation.";
+
+  const demo = !state.endpoint && state.mode === "image";
+  $$("#variationSegment button").forEach((b) => { b.disabled = !demo; });
+  $("#variationNote").textContent = demo ? "Rendered in one batch" : "Demo renderer only";
+}
+
+function setVariations(count) {
+  state.variations = [1, 2, 4].includes(count) ? count : 1;
+  $$("#variationSegment button").forEach((b) => {
+    const active = Number(b.dataset.variations) === state.variations;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-pressed", String(active));
+  });
+}
+
+function renderRatios() {
+  $("#ratioList").innerHTML = Object.entries(RATIOS).map(([ratio, [rw, rh]]) => {
+    const long = 26, shapeW = rw >= rh ? long : Math.round(long * rw / rh), shapeH = rh >= rw ? long : Math.round(long * rh / rw);
+    return `<button class="ratio-option" data-ratio="${ratio}" aria-pressed="false">
+      <span class="ratio-shape" style="width:${shapeW}px;height:${shapeH}px"></span>${ratio}</button>`;
+  }).join("");
+}
+
+function setRatio(ratio) {
+  state.ratio = RATIOS[ratio] ? ratio : "1:1";
+  $$(".ratio-option").forEach((b) => {
+    const active = b.dataset.ratio === state.ratio;
+    b.classList.toggle("active", active);
+    b.setAttribute("aria-pressed", String(active));
+  });
+}
+
+/* --------------------------------------------------
+   GENERATION
+-------------------------------------------------- */
+
+function setBusy(busy) {
+  state.busy = busy;
+  $("#generate").disabled = busy;
+  $("#regenerate").disabled = busy;
+  $("#generate").textContent = busy ? "Generating..." : generateLabel();
+}
+
+function showLoading(message, cancellable) {
+  $("#outputStage").innerHTML = `
+    <div class="output-placeholder">
+      <div class="loading-ring"></div>
+      <h2>Creating your vision</h2>
+      <p id="loadingText">${escapeHTML(message)}</p>
+      ${cancellable ? '<button class="btn small-btn" data-action="cancel">Cancel</button>' : ""}
+    </div>`;
+  $("#previewStatus").textContent = "Processing";
+}
+
+function readSeed() {
+  const raw = $("#seed").value.trim();
+  if (!raw) return { seed: randomSeedValue(), valid: true };
+  if (!/^\d{1,9}$/.test(raw) || Number(raw) < 1) return { valid: false };
+  return { seed: Number(raw), valid: true };
+}
+
+async function requestMedia(payload) {
+  const controller = new AbortController();
+  state.abort = controller;
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(state.endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      credentials: "same-origin",
+      signal: controller.signal
+    });
+
+    if (!response.ok) throw new Error("Generation API returned HTTP " + response.status);
+
+    const data = await response.json();
+    const result = data.image_url || data.video_url || data.data_url ||
+      data.output_url || (typeof data.output === "string" ? data.output : null);
+
+    if (!result || typeof result !== "string") {
+      throw new Error("API response did not contain a supported media URL.");
+    }
+    if (!SRC_PATTERN.test(result)) throw new Error("API returned an unsupported media URL.");
+    return result;
+  } catch (error) {
+    if (error.name === "AbortError") {
+      throw new Error(timedOut ? "The request timed out after 120 seconds." : "Generation cancelled.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    state.abort = null;
+  }
+}
+
+async function generate() {
+  if (state.busy) return;
+
+  const prompt = $("#prompt").value.trim();
+  if (!prompt) {
+    toast("Describe what you want to create first.");
+    $("#prompt").focus();
+    return;
+  }
+
+  if (state.mode === "video" && !state.endpoint) {
+    toast("Connect a generation API in Settings to create video.");
+    return;
+  }
+
+  const seedInfo = readSeed();
+  if (!seedInfo.valid) {
+    toast("Seed must be a whole number between 1 and 999999999.");
+    $("#seed").closest("details").open = true;
+    $("#seed").focus();
+    return;
+  }
+
+  const locked = $("#lockSeed").checked && $("#seed").value.trim() !== "";
+  const seed = locked ? seedInfo.seed : randomSeedValue();
+  const [w, h] = RATIOS[state.ratio];
+  const quality = $("#quality").value;
+  const grain = Number($("#grain").value);
+  const vignette = Number($("#vignette").value);
+  const demo = !state.endpoint && state.mode === "image";
+  const count = demo ? state.variations : 1;
+
+  const payload = {
+    type: state.mode,
+    prompt,
+    negative_prompt: $("#negative").value.trim(),
+    style: $("#style").value,
+    aspect_ratio: state.ratio,
+    quality,
+    width: w,
+    height: h,
+    seed
+  };
+
+  state.cancelled = false;
+  setBusy(true);
+  showLoading("Processing the selected settings...", !demo);
+  pushHistory(prompt);
+
+  try {
+    const created = [];
+    const makeAsset = (src, kind, source, assetSeed) => ({
+      id: uid(),
+      title: prompt.slice(0, 48),
+      prompt,
+      negative: payload.negative_prompt,
+      kind,
+      source,
+      style: payload.style,
+      ratio: payload.aspect_ratio,
+      quality,
+      seed: assetSeed,
+      grain,
+      vignette,
+      src,
+      favorite: false,
+      createdAt: new Date().toISOString()
+    });
+
+    if (!demo) {
+      const src = await requestMedia(payload);
+      created.push(makeAsset(src, state.mode, "API", seed));
+    } else {
+      const scene = chooseScene(prompt, payload.style);
+      for (let i = 0; i < count; i++) {
+        if (state.cancelled) throw new Error("Generation cancelled.");
+        if (count > 1) {
+          const text = $("#loadingText");
+          if (text) text.textContent = `Rendering variation ${i + 1} of ${count}...`;
+        }
+        await nextFrame();
+        const assetSeed = seed + i * 7919;
+        const src = demoArt(scene, w, h, assetSeed, {
+          scale: QUALITY_SCALE[quality],
+          grain: grain / 100,
+          vignette: vignette / 100,
+          quality: QUALITY_JPEG[quality]
+        });
+        created.push(makeAsset(src, "image", "Demo", assetSeed));
+      }
+    }
+
+    // Distinct timestamps keep the first variation the newest item in the library
+    const base = Date.now();
+    created.forEach((asset, i) => { asset.createdAt = new Date(base + created.length - 1 - i).toISOString(); });
+    const batch = created;
+
+    state.assets.unshift(...batch);
+    sortAssets();
+    state.batch = batch.map((a) => a.id);
+    await enforceCapacity();
+    await persist(() => dbPut(batch.filter((a) => state.assets.includes(a))));
+
+    if (!locked) $("#seed").value = String(seed);
+    savePrefs();
+    updateCounts();
+    displayAsset(batch[0]);
+    refreshLists();
+
+    toast(!demo
+      ? "Generation completed."
+      : count > 1
+        ? count + " variations created and saved locally."
+        : "Procedural demo artwork created and saved locally.");
+  } catch (error) {
+    const cancelled = /cancelled/i.test(error.message);
+    $("#outputStage").innerHTML = `
+      <div class="output-placeholder">
+        <h2>${cancelled ? "Generation cancelled" : "Generation failed"}</h2>
+        <p>${escapeHTML(error.message)}</p>
+      </div>`;
+    $("#previewStatus").textContent = cancelled ? "Cancelled" : "Error";
+    toast(cancelled ? "Generation cancelled." : "Unable to complete generation.");
+  } finally {
+    setBusy(false);
+    state.cancelled = false;
+  }
+}
+
+function cancelGeneration() {
+  state.cancelled = true;
+  state.abort?.abort();
+}
+
+// Keep the library within capacity, dropping the oldest non-favorites first.
+async function enforceCapacity() {
+  const overflow = state.assets.length - MAX_ASSETS;
+  if (overflow <= 0) return;
+
+  const removable = state.assets.slice().reverse()
+    .filter((a) => !a.favorite && !state.batch.includes(a.id))
+    .slice(0, overflow);
+  if (!removable.length) {
+    toast("Library is full of favorites. Delete some to keep saving new creations.");
+    return;
+  }
+  const ids = removable.map((a) => a.id);
+  state.assets = state.assets.filter((a) => !ids.includes(a.id));
+  await persist(() => dbDelete(ids));
+  toast(ids.length + " oldest creation" + (ids.length > 1 ? "s were" : " was") + " removed to stay within " + MAX_ASSETS + " items.");
+}
+
+function displayAsset(asset) {
+  state.currentId = asset.id;
+  const stage = $("#outputStage");
+  stage.innerHTML = "";
+
+  const media = document.createElement(asset.kind === "video" ? "video" : "img");
+  media.src = asset.src;
+  media.className = asset.kind === "video" ? "output-video" : "output-image";
+
+  if (asset.kind === "video") {
+    media.controls = true;
+    media.playsInline = true;
+  } else {
+    media.alt = asset.prompt;
+    media.addEventListener("click", () => openLightbox(asset.id, state.batch.length > 1 ? state.batch : [asset.id]));
+  }
+
+  media.onerror = () => {
+    $("#previewStatus").textContent = "Media unavailable";
+    toast("The saved media URL is no longer accessible.");
+  };
+
+  stage.appendChild(media);
+
+  $("#previewStatus").textContent = asset.source + " · Completed";
+  const seedText = asset.seed ? " · seed " + asset.seed : "";
+  $("#outputMeta").textContent = asset.ratio + " · " + asset.style + " · " + asset.quality + seedText;
+
+  updateOutputControls();
+  renderVariants();
+}
+
+function updateOutputControls() {
+  const asset = currentAsset();
+  $("#download").disabled = !asset;
+  $("#expandOutput").disabled = !asset;
+  $("#favoriteOutput").disabled = !asset;
+  $("#favoriteOutput").textContent = asset?.favorite ? "♥ Favorited" : "♡ Favorite";
+}
+
+function renderVariants() {
+  const box = $("#variants");
+  const items = state.batch.map((id) => state.assets.find((a) => a.id === id)).filter(Boolean);
+  box.classList.toggle("hidden", items.length < 2);
+  box.innerHTML = items.length < 2 ? "" : items.map((a, i) => `
+    <button class="variant ${a.id === state.currentId ? "active" : ""}" data-action="show"
+      data-id="${escapeHTML(a.id)}" aria-label="Show variation ${i + 1}">
+      <img src="${escapeHTML(a.src)}" alt="">
+    </button>`).join("");
+}
+
+function resetOutput(message = "Ready for your next creation.") {
+  state.currentId = null;
+  $("#outputMeta").textContent = "No output selected";
+  $("#previewStatus").textContent = "Waiting for creation";
+  $("#outputStage").innerHTML = `
+    <div class="output-placeholder">
+      <div class="orb"></div>
+      <h2>${escapeHTML(message)}</h2>
+      <p>Generate a new visual to see it here.</p>
+    </div>`;
+  updateOutputControls();
+  renderVariants();
+}
+
+function currentAsset() {
+  return state.assets.find((a) => a.id === state.currentId);
+}
+
+async function downloadAsset(asset) {
+  if (!asset) return;
+
+  try {
+    const response = await fetch(asset.src);
+    if (!response.ok) throw new Error("Unable to retrieve the media.");
+    const blob = await response.blob();
+    const extension = {
+      "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+      "image/svg+xml": "svg", "video/mp4": "mp4", "video/webm": "webm"
+    }[blob.type] || (asset.kind === "video" ? "mp4" : "jpg");
+    const filename = "NOIR-" + slugify(asset.title) + "-" + asset.id.slice(0, 6) + "." + extension;
+    const url = URL.createObjectURL(blob);
+
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch {
+    if (asset.src.startsWith("http")) {
+      window.open(asset.src, "_blank", "noopener,noreferrer");
+      toast("Opened the remote media. Save it from the new tab.");
+    } else {
+      toast("Download failed.");
+    }
+  }
+}
+
+async function toggleFavorite(id) {
+  const asset = state.assets.find((a) => a.id === id);
+  if (!asset) return;
+  asset.favorite = !asset.favorite;
+  await persist(() => dbPut([asset]));
+  updateCounts();
+  refreshLists();
+  updateOutputControls();
+  if (state.lightboxId === id) renderLightbox();
+  toast(asset.favorite ? "Added to favorites." : "Removed from favorites.");
+}
+
+async function removeAssets(ids) {
+  const removed = state.assets.filter((a) => ids.includes(a.id));
+  if (!removed.length) return;
+
+  state.assets = state.assets.filter((a) => !ids.includes(a.id));
+  ids.forEach((id) => state.selection.delete(id));
+  state.batch = state.batch.filter((id) => !ids.includes(id));
+  if (ids.includes(state.currentId)) resetOutput();
+
+  await persist(() => dbDelete(ids));
+  updateCounts();
+  refreshLists();
+  renderVariants();
+
+  toast(removed.length + (removed.length === 1 ? " creation deleted." : " creations deleted."), {
+    label: "Undo",
+    run: () => restoreAssets(removed)
+  });
+}
+
+async function restoreAssets(list) {
+  const known = new Set(state.assets.map((a) => a.id));
+  const restored = list.filter((a) => !known.has(a.id));
+  state.assets.push(...restored);
+  sortAssets();
+  await persist(() => dbPut(restored));
+  updateCounts();
+  refreshLists();
+  toast("Restored " + restored.length + (restored.length === 1 ? " creation." : " creations."));
+}
+
+/* --------------------------------------------------
+   LIBRARY AND FAVORITES
+-------------------------------------------------- */
+
+function assetCard(a, selectable) {
+  const media = a.kind === "video"
+    ? `<video src="${escapeHTML(a.src)}" muted preload="metadata"></video>`
+    : `<img src="${escapeHTML(a.src)}" alt="${escapeHTML(a.title)}" loading="lazy">`;
+  const selected = state.selection.has(a.id);
+  const id = escapeHTML(a.id);
+
+  return `
+    <article class="asset-card ${selected ? "selected" : ""}" data-card="${id}">
+      <div class="asset-preview">
+        ${media}
+        <button class="preview-hit" data-action="view" data-id="${id}"
+          aria-label="${selectable && state.selectMode ? "Select" : "View"} ${escapeHTML(a.title)}"></button>
+        ${a.kind === "video" ? '<span class="badge">▶ Video</span>' : ""}
+        ${selectable && state.selectMode
+          ? `<button class="sel ${selected ? "active" : ""}" data-action="select" data-id="${id}"
+              aria-pressed="${selected}" aria-label="Select ${escapeHTML(a.title)}">${selected ? "✓" : ""}</button>`
+          : ""}
+        <button class="fav ${a.favorite ? "active" : ""}"
+          data-action="favorite" data-id="${id}"
+          aria-pressed="${a.favorite}" aria-label="Toggle favorite">
+          ${a.favorite ? "♥" : "♡"}
+        </button>
+      </div>
+      <div class="asset-body">
+        <strong>${escapeHTML(a.title)}</strong>
+        <p>${escapeHTML(a.prompt)}</p>
+        <div class="asset-actions">
+          <button class="btn" data-action="open" data-id="${id}">Open</button>
+          <button class="btn" data-action="download" data-id="${id}">↓ Save</button>
+          <button class="btn" data-action="delete" data-id="${id}" aria-label="Delete">×</button>
+        </div>
+      </div>
+    </article>`;
+}
+
+function libraryItems() {
+  const query = $("#librarySearch").value.toLowerCase().trim();
+  const kind = $("#libraryKind").value;
+  const style = $("#libraryStyle").value;
+  const sort = $("#librarySort").value;
+
+  const items = state.assets.filter((a) =>
+    (kind === "all" || a.kind === kind) &&
+    (style === "all" || a.style === style) &&
+    (a.prompt + " " + a.title + " " + a.style).toLowerCase().includes(query)
+  );
+
+  const byDate = (a, b) => b.createdAt.localeCompare(a.createdAt);
+  const sorters = {
+    newest: byDate,
+    oldest: (a, b) => -byDate(a, b),
+    favorites: (a, b) => (Number(b.favorite) - Number(a.favorite)) || byDate(a, b),
+    title: (a, b) => a.title.localeCompare(b.title)
+  };
+  return items.sort(sorters[sort] || byDate);
+}
+
+function renderLibrary() {
+  const items = libraryItems();
+  state.selection.forEach((id) => { if (!state.assets.some((a) => a.id === id)) state.selection.delete(id); });
+
+  $("#libraryCountText").textContent = state.assets.length
+    ? "Showing " + items.length + " of " + state.assets.length + " creations"
+    : "";
+
+  $("#libraryGrid").innerHTML = items.length
+    ? items.map((a) => assetCard(a, true)).join("")
+    : state.assets.length
+      ? `<div class="empty-state" style="grid-column:1/-1">
+          <div class="empty-symbol">◇</div>
+          <h2>No matching creations</h2>
+          <p>Adjust your search or filters.</p>
+        </div>`
+      : `<div class="empty-state" style="grid-column:1/-1">
+          <div class="empty-symbol">◇</div>
+          <h2>No creations found</h2>
+          <p>Create your first image or restore a backup from Settings.</p>
+          <button class="btn primary" data-goto="studio">Open Studio</button>
+        </div>`;
+  updateBulkBar();
+}
+
+function favoriteItems() {
+  return state.assets.filter((a) => a.favorite);
+}
+
+function renderFavorites() {
+  const items = favoriteItems();
+
+  $("#favoritesGrid").innerHTML = items.length
+    ? items.map((a) => assetCard(a, false)).join("")
+    : `<div class="empty-state" style="grid-column:1/-1">
+        <div class="empty-symbol">♡</div>
+        <h2>No favorites yet</h2>
+        <p>Save favorite creations using the heart icon.</p>
+        <button class="btn primary" data-goto="library">Browse Creations</button>
+      </div>`;
+}
+
+function refreshLists() {
+  renderLibrary();
+  renderFavorites();
+  renderVariants();
+}
+
+function setSelectMode(on) {
+  state.selectMode = on;
+  if (!on) state.selection.clear();
+  $("#selectMode").setAttribute("aria-pressed", String(on));
+  $("#selectMode").textContent = on ? "☑ Selecting" : "☐ Select";
+  $("#bulkBar").classList.toggle("hidden", !on);
+  renderLibrary();
+}
+
+function updateBulkBar() {
+  $("#bulkCount").textContent = state.selection.size + " selected";
+  $$("[data-bulk='fav'],[data-bulk='unfav'],[data-bulk='delete']").forEach((b) => {
+    b.disabled = state.selection.size === 0;
+  });
+}
+
+function toggleSelect(id) {
+  if (state.selection.has(id)) state.selection.delete(id);
+  else state.selection.add(id);
+
+  const card = document.querySelector(`[data-card="${CSS.escape(id)}"]`);
+  if (card) {
+    const on = state.selection.has(id);
+    card.classList.toggle("selected", on);
+    const box = card.querySelector(".sel");
+    if (box) {
+      box.classList.toggle("active", on);
+      box.textContent = on ? "✓" : "";
+      box.setAttribute("aria-pressed", String(on));
+    }
+  }
+  updateBulkBar();
+}
+
+async function bulkAction(action) {
+  const ids = [...state.selection];
+  switch (action) {
+    case "all":
+      libraryItems().forEach((a) => state.selection.add(a.id));
+      renderLibrary();
+      break;
+    case "fav":
+    case "unfav": {
+      const wanted = action === "fav";
+      const changed = state.assets.filter((a) => ids.includes(a.id) && a.favorite !== wanted);
+      changed.forEach((a) => { a.favorite = wanted; });
+      await persist(() => dbPut(changed));
+      updateCounts();
+      refreshLists();
+      updateOutputControls();
+      toast(changed.length + (wanted ? " added to favorites." : " removed from favorites."));
+      break;
+    }
+    case "delete":
+      state.selection.clear();
+      await removeAssets(ids);
+      break;
+    case "done":
+      setSelectMode(false);
+      break;
+  }
+}
+
+/* --------------------------------------------------
+   LIGHTBOX
+-------------------------------------------------- */
+
+function openLightbox(id, ids) {
+  const list = ids || (state.view === "favorites" ? favoriteItems() : libraryItems()).map((a) => a.id);
+  state.lightboxIds = list.includes(id) ? list : [id];
+  state.lightboxId = id;
+  state.lastFocus = document.activeElement;
+  renderLightbox();
+  const dialog = $("#lightbox");
+  if (!dialog.open) dialog.showModal();
+}
+
+function renderLightbox() {
+  const asset = state.assets.find((a) => a.id === state.lightboxId);
+  if (!asset) {
+    $("#lightbox").close();
+    return;
+  }
+
+  const media = document.createElement(asset.kind === "video" ? "video" : "img");
+  media.src = asset.src;
+  if (asset.kind === "video") media.controls = true;
+  else media.alt = asset.prompt;
+  $("#lbMedia").replaceChildren(media);
+
+  $("#lbTitle").value = asset.title;
+  $("#lbPrompt").textContent = asset.prompt;
+
+  const rows = [
+    ["Type", asset.kind === "video" ? "Video" : "Image"],
+    ["Source", asset.source],
+    ["Style", asset.style],
+    ["Ratio", asset.ratio],
+    ["Quality", asset.quality],
+    ["Seed", asset.seed ?? "—"],
+    ["Created", formatDate(asset.createdAt)]
+  ];
+  if (asset.negative) rows.push(["Avoid", asset.negative]);
+  $("#lbMeta").innerHTML = rows.map(([k, v]) =>
+    `<dt>${escapeHTML(k)}</dt><dd>${escapeHTML(v)}</dd>`).join("");
+
+  $("#lbFavorite").textContent = asset.favorite ? "♥ Favorited" : "♡ Favorite";
+  const index = state.lightboxIds.indexOf(asset.id);
+  $("#lbPos").textContent = (index + 1) + " of " + state.lightboxIds.length;
+  $("[data-lb='prev']").disabled = state.lightboxIds.length < 2;
+  $("[data-lb='next']").disabled = state.lightboxIds.length < 2;
+}
+
+function stepLightbox(delta) {
+  const ids = state.lightboxIds.filter((id) => state.assets.some((a) => a.id === id));
+  if (ids.length < 2) return;
+  state.lightboxIds = ids;
+  const index = ids.indexOf(state.lightboxId);
+  state.lightboxId = ids[(index + delta + ids.length) % ids.length];
+  renderLightbox();
+}
+
+async function lightboxAction(action) {
+  const asset = state.assets.find((a) => a.id === state.lightboxId);
+  switch (action) {
+    case "close": $("#lightbox").close(); break;
+    case "close-shortcuts": $("#shortcutsDialog").close(); break;
+    case "prev": stepLightbox(-1); break;
+    case "next": stepLightbox(1); break;
+    case "favorite": if (asset) toggleFavorite(asset.id); break;
+    case "download": downloadAsset(asset); break;
+    case "use":
+      if (asset) {
+        $("#lightbox").close();
+        loadIntoStudio(asset);
+      }
+      break;
+    case "copy":
+      if (!asset) break;
+      try {
+        await navigator.clipboard.writeText(asset.prompt);
+        toast("Prompt copied.");
+      } catch {
+        toast("Copy is not available in this browser context.");
+      }
+      break;
+    case "delete":
+      if (asset) {
+        const ids = state.lightboxIds.filter((id) => id !== asset.id);
+        const next = ids[Math.min(state.lightboxIds.indexOf(asset.id), ids.length - 1)];
+        state.lightboxIds = ids;
+        await removeAssets([asset.id]);
+        if (next) {
+          state.lightboxId = next;
+          renderLightbox();
+        } else {
+          $("#lightbox").close();
+        }
+      }
+      break;
+  }
+}
+
+function loadIntoStudio(asset) {
+  $("#prompt").value = asset.prompt;
+  $("#negative").value = asset.negative || "";
+  $("#style").value = asset.style;
+  $("#quality").value = asset.quality;
+  $("#grain").value = asset.grain;
+  $("#vignette").value = asset.vignette;
+  syncSliderLabels();
+  setRatio(asset.ratio);
+  setMode(asset.kind);
+
+  if (asset.seed) {
+    $("#seed").value = String(asset.seed);
+    $("#lockSeed").checked = true;
+  }
+
+  clearEnhanceUndo();
+  updatePromptCount();
+  displayAsset(asset);
+  navigate("studio");
+  savePrefs();
+  toast(asset.seed ? "Settings restored with seed locked." : "Settings restored.");
+}
+
+/* --------------------------------------------------
+   EXPORT / BACKUP / RESTORE
+-------------------------------------------------- */
+
+function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function exportManifest() {
+  if (!state.assets.length) {
+    toast("Nothing to export yet.");
+    return;
+  }
+  const metadata = state.assets.map(({ src, ...rest }) => ({
+    ...rest,
+    media_reference: src.startsWith("data:") ? "local embedded media" : src
+  }));
+  saveBlob(new Blob([JSON.stringify(metadata, null, 2)], { type: "application/json" }),
+    "noir-creations-metadata.json");
+  toast("Metadata exported.");
+}
+
+function backupLibrary() {
+  if (!state.assets.length) {
+    toast("Nothing to back up yet.");
+    return;
+  }
+  const backup = { app: "noir-studio", version: 2, exportedAt: new Date().toISOString(), assets: state.assets };
+  saveBlob(new Blob([JSON.stringify(backup)], { type: "application/json" }),
+    "noir-backup-" + new Date().toISOString().slice(0, 10) + ".json");
+  toast("Backup saved with " + state.assets.length + " creations.");
+}
+
+async function restoreLibrary(file) {
+  if (!file) return;
+  try {
+    if (file.size > 400 * 1024 * 1024) throw new Error("too large");
+    const data = JSON.parse(await file.text());
+    const list = Array.isArray(data) ? data : data?.assets;
+    if (!Array.isArray(list)) throw new Error("invalid");
+
+    const known = new Set(state.assets.map((a) => a.id));
+    const incoming = list.map(sanitizeAsset).filter((a) => a && !known.has(a.id));
+    const room = Math.max(0, MAX_ASSETS - state.assets.length);
+    const accepted = incoming.slice(0, room);
+
+    if (!incoming.length) {
+      toast("No new creations were found in that file.");
+      return;
+    }
+
+    state.assets.push(...accepted);
+    sortAssets();
+    await persist(() => dbPut(accepted));
+    updateCounts();
+    refreshLists();
+    updateStorageEstimate();
+
+    const skipped = incoming.length - accepted.length;
+    toast("Restored " + accepted.length + " creations." +
+      (skipped ? " " + skipped + " skipped because the library is full." : ""));
+  } catch {
+    toast("That file isn't a valid NOIR backup.");
+  } finally {
+    $("#restoreFile").value = "";
+  }
+}
+
+/* --------------------------------------------------
+   EVENT HANDLERS
+-------------------------------------------------- */
+
+function syncSliderLabels() {
+  $("#grainValue").textContent = $("#grain").value + "%";
+  $("#vignetteValue").textContent = $("#vignette").value + "%";
+}
+
+document.addEventListener("click", (event) => {
+  const nav = event.target.closest("[data-view]");
+  if (nav && nav.classList.contains("nav-item")) {
+    navigate(nav.dataset.view);
+    return;
+  }
+
+  const goto = event.target.closest("[data-goto]");
+  if (goto) {
+    navigate(goto.dataset.goto);
+    return;
+  }
+
+  const template = event.target.closest("[data-template]");
+  if (template) {
+    useTemplate(template.dataset.template);
+    return;
+  }
+
+  const chip = event.target.closest("[data-add]");
+  if (chip) {
+    const field = $("#prompt");
+    const addition = chip.dataset.add;
+
+    if (!field.value.toLowerCase().includes(addition.toLowerCase())) {
+      field.value = field.value.trim()
+        ? field.value.trim().replace(/[.,\s]+$/, "") + ", " + addition
+        : addition;
+    }
+    updatePromptCount();
+    savePrefsSoon();
+    return;
+  }
+
+  const historyItem = event.target.closest("[data-history]");
+  if (historyItem) {
+    const prompt = state.history[Number(historyItem.dataset.history)];
+    if (prompt) {
+      $("#prompt").value = prompt;
+      clearEnhanceUndo();
+      updatePromptCount();
+      savePrefsSoon();
+      $("#prompt").focus();
+    }
+    return;
+  }
+
+  if (event.target.closest("[data-history-clear]")) {
+    state.history = [];
+    try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
+    renderHistory();
+    return;
+  }
+
+  const theme = event.target.closest("[data-theme-choice]");
+  if (theme) {
+    applyTheme(theme.dataset.themeChoice);
+    savePrefs();
+    return;
+  }
+
+  const variations = event.target.closest("[data-variations]");
+  if (variations) {
+    setVariations(Number(variations.dataset.variations));
+    savePrefsSoon();
+    return;
+  }
+
+  const bulk = event.target.closest("[data-bulk]");
+  if (bulk) {
+    bulkAction(bulk.dataset.bulk);
+    return;
+  }
+
+  const lb = event.target.closest("[data-lb]");
+  if (lb) {
+    lightboxAction(lb.dataset.lb);
+    return;
+  }
+
+  const action = event.target.closest("[data-action]");
+  if (action) {
+    const id = action.dataset.id;
+    const asset = state.assets.find((a) => a.id === id);
+
+    switch (action.dataset.action) {
+      case "cancel":
+        cancelGeneration();
+        break;
+      case "favorite":
+        toggleFavorite(id);
+        break;
+      case "delete":
+        removeAssets([id]);
+        break;
+      case "download":
+        downloadAsset(asset);
+        break;
+      case "select":
+        toggleSelect(id);
+        break;
+      case "view":
+        if (state.selectMode && state.view === "library") toggleSelect(id);
+        else if (asset) openLightbox(id);
+        break;
+      case "show":
+        if (asset) displayAsset(asset);
+        break;
+      case "open":
+        if (asset) loadIntoStudio(asset);
+        break;
+    }
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  const target = event.target;
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable;
+
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    if (state.view !== "studio") navigate("studio");
+    generate();
+    return;
+  }
+
+  if (event.key === "Escape") {
+    const openDialog = $$("dialog[open]").pop();
+    if (openDialog) openDialog.close();
+    setSidebar(false);
+    return;
+  }
+
+  const card = target.closest?.("[data-template]");
+  if (card && (event.key === "Enter" || event.key === " ")) {
+    event.preventDefault();
+    useTemplate(card.dataset.template);
+    return;
+  }
+
+  if ($("#lightbox").open) {
+    if (!typing && event.key === "ArrowLeft") { event.preventDefault(); stepLightbox(-1); }
+    if (!typing && event.key === "ArrowRight") { event.preventDefault(); stepLightbox(1); }
+    return;
+  }
+
+  if (event.altKey && /^Digit[1-5]$/.test(event.code)) {
+    event.preventDefault();
+    navigate(VIEW_ORDER[Number(event.code.slice(5)) - 1]);
+    return;
+  }
+
+  if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+
+  if (event.key === "?") {
+    event.preventDefault();
+    $("#shortcutsDialog").showModal();
+  } else if (event.key === "/") {
+    const field = state.view === "explore" ? $("#templateSearch")
+      : state.view === "library" ? $("#librarySearch") : null;
+    if (field) {
+      event.preventDefault();
+      field.focus();
+    }
+  }
+});
+
+["#lightbox", "#shortcutsDialog"].forEach((selector) => {
+  const dialog = $(selector);
+  dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+  dialog.addEventListener("close", () => {
+    if (selector === "#lightbox") {
+      $("#lbMedia").replaceChildren();
+      state.lightboxId = null;
+    }
+    state.lastFocus?.focus?.();
+    state.lastFocus = null;
+  });
+});
+
+$("#lbTitle").addEventListener("change", async () => {
+  const asset = state.assets.find((a) => a.id === state.lightboxId);
+  if (!asset) return;
+  const title = $("#lbTitle").value.trim().slice(0, 120);
+  if (!title) {
+    $("#lbTitle").value = asset.title;
+    return;
+  }
+  asset.title = title;
+  await persist(() => dbPut([asset]));
+  refreshLists();
+});
+
+$("#prompt").addEventListener("input", () => {
+  updatePromptCount();
+  clearEnhanceUndo();
+});
+$("#view-studio").addEventListener("input", savePrefsSoon);
+$("#view-studio").addEventListener("change", savePrefsSoon);
+$("#grain").addEventListener("input", syncSliderLabels);
+$("#vignette").addEventListener("input", syncSliderLabels);
+
+$("#enhancePrompt").addEventListener("click", enhancePrompt);
+$("#undoEnhance").addEventListener("click", undoEnhance);
+$("#surprise").addEventListener("click", surprisePrompt);
+$("#generate").addEventListener("click", generate);
+$("#regenerate").addEventListener("click", generate);
+
+$("#randomSeed").addEventListener("click", () => {
+  $("#seed").value = String(randomSeedValue());
+  savePrefsSoon();
+});
+
+$("#modeSegment").addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-mode]");
+  if (btn) {
+    setMode(btn.dataset.mode);
+    savePrefsSoon();
+  }
+});
+
+$("#ratioList").addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-ratio]");
+  if (btn) {
+    setRatio(btn.dataset.ratio);
+    savePrefsSoon();
+  }
+});
+
+$("#templateFilters").addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-filter]");
+  if (!btn) return;
+  state.filter = btn.dataset.filter;
+  $$(".filter").forEach((el) => el.classList.toggle("active", el === btn));
+  renderTemplates();
+});
+
+$("#templateSearch").addEventListener("input", renderTemplates);
+["#librarySearch", "#libraryKind", "#libraryStyle", "#librarySort"].forEach((selector) => {
+  $(selector).addEventListener("input", renderLibrary);
+});
+$("#selectMode").addEventListener("click", () => setSelectMode(!state.selectMode));
+
+$("#download").addEventListener("click", () => downloadAsset(currentAsset()));
+$("#expandOutput").addEventListener("click", () => {
+  const asset = currentAsset();
+  if (asset) openLightbox(asset.id, state.batch.length > 1 && state.batch.includes(asset.id) ? state.batch : [asset.id]);
+});
+$("#favoriteOutput").addEventListener("click", () => {
+  if (state.currentId) toggleFavorite(state.currentId);
+});
+
+$("#headerCreate").addEventListener("click", () => {
+  navigate("studio");
+  $("#prompt").value = "";
+  clearEnhanceUndo();
+  updatePromptCount();
+  savePrefsSoon();
+  $("#prompt").focus();
+});
+
+$("#menuButton").addEventListener("click", () => setSidebar(!$("#sidebar").classList.contains("open")));
+$("#sidebarBackdrop").addEventListener("click", () => setSidebar(false));
+$("#shortcutButton").addEventListener("click", () => $("#shortcutsDialog").showModal());
+
+$("#exportManifestSettings").addEventListener("click", exportManifest);
+$("#backupLibrary").addEventListener("click", backupLibrary);
+$("#restoreLibrary").addEventListener("click", () => $("#restoreFile").click());
+$("#restoreFile").addEventListener("change", (event) => restoreLibrary(event.target.files[0]));
+
+$("#saveEndpoint").addEventListener("click", () => {
+  const value = $("#endpoint").value.trim();
+
+  if (value && !(
+    value.startsWith("/") && !value.startsWith("//")
+    || /^https?:\/\//i.test(value)
+  )) {
+    toast("Use an absolute HTTP(S) URL or a same-origin path beginning with /.");
+    return;
+  }
+
+  if (/^http:\/\//i.test(value) &&
+    location.protocol === "https:" &&
+    !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//i.test(value)) {
+    toast("HTTPS pages require a secure HTTPS generation endpoint.");
+    return;
+  }
+
+  state.endpoint = value;
+  updateEngineNote();
+  try {
+    if (value) localStorage.setItem(ENDPOINT_KEY, value);
+    else localStorage.removeItem(ENDPOINT_KEY);
+    toast(value ? "Generation endpoint saved." : "Demo renderer enabled.");
+  } catch {
+    toast("Could not save settings in this browser.");
+  }
+});
+
+$("#clearLibrary").addEventListener("click", () => {
+  if (!state.assets.length) {
+    toast("There are no local creations to delete.");
+    return;
+  }
+  if (!confirm("Delete all " + state.assets.length + " locally saved creations? You can undo right after.")) return;
+  removeAssets(state.assets.map((a) => a.id)).then(updateStorageEstimate);
+});
+
+window.addEventListener("beforeunload", savePrefs);
+
+/* --------------------------------------------------
+   INITIALIZATION
+-------------------------------------------------- */
+
+async function init() {
+  loadSettings();
+  loadPrefs();
+  applyTheme(state.theme);
+  renderRatios();
+  renderHistory();
+  renderTemplates();
+
+  setRatio(state.ratio);
+  setVariations(state.variations);
+  setMode(state.mode);
+  syncSliderLabels();
+  updatePromptCount();
+
+  await loadAssets();
+  updateCounts();
+  refreshLists();
+
+  const match = location.hash.match(/^#template=([\w-]+)$/);
+  if (match && templates.some((t) => t.id === match[1])) useTemplate(match[1]);
+}
+
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#f1ebe0">
+<title>NOIR — A quiet studio for making pictures</title>
+<meta name="description" content="NOIR is a private, local-first studio for making pictures. Write a prompt, render seeded variations, keep your library on your own device, and connect your own AI backend if you want one.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="NOIR — A quiet studio for making pictures">
+<meta property="og:description" content="Prompts, seeded variations and a private library that lives on your device. No account, no upload.">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23e8431a'/%3E%3Ccircle cx='32' cy='32' r='13' fill='%231a1712'/%3E%3C/svg%3E">
+<script>document.documentElement.classList.add("js")</script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap');
+
+:root{
+  --paper:#f1ebe0;
+  --paper-2:#e8e0d1;
+  --ink:#1a1712;
+  --ink-2:#4b453a;
+  --muted:#6f6858;
+  --rule:#1a171233;
+  --red:#e8431a;
+  --forest:#1f3d2e;
+  --butter:#f3c64d;
+  --clay:#d9a58b;
+  --serif:'Instrument Serif',Georgia,'Times New Roman',serif;
+  --sans:'Instrument Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --maxw:1160px;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:90px;overflow-x:clip}
+body{
+  margin:0;background:var(--paper);color:var(--ink);font:400 18px/1.6 var(--sans);
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+/* paper grain */
+body:before{
+  content:"";position:fixed;inset:0;z-index:200;pointer-events:none;opacity:.07;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+h1,h2,h3{font-family:var(--serif);font-weight:400;margin:0;line-height:1;letter-spacing:-.015em}
+h3{font-family:var(--sans);font-weight:600;letter-spacing:-.01em;line-height:1.2}
+p{margin:0}
+a{color:inherit}
+img,svg{display:block;max-width:100%}
+em{font-style:italic}
+:focus-visible{outline:3px solid var(--red);outline-offset:3px;border-radius:4px}
+.wrap{width:min(var(--maxw),100% - 48px);margin-inline:auto}
+.skip{position:absolute;left:16px;top:-60px;z-index:300;background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:8px;font-weight:600}
+.skip:focus{top:14px}
+.label{font:600 12px/1 var(--sans);letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2)}
+.label:before{content:"";display:inline-block;width:22px;height:2px;background:var(--red);vertical-align:middle;margin-right:12px}
+
+/* Buttons: they sit on a hard shadow and press down */
+.btn{
+  display:inline-flex;align-items:center;gap:10px;padding:15px 26px;border-radius:999px;
+  font:600 16px var(--sans);text-decoration:none;cursor:pointer;
+  color:var(--ink);background:var(--paper);border:2px solid var(--ink);
+  box-shadow:4px 4px 0 var(--ink);transition:transform .12s,box-shadow .12s,background .12s;
+}
+.btn:hover{transform:translate(2px,2px);box-shadow:2px 2px 0 var(--ink)}
+.btn:active{transform:translate(4px,4px);box-shadow:0 0 0 var(--ink)}
+.btn.red{background:var(--red);color:#fff}
+.btn.ink{background:var(--ink);color:var(--paper);box-shadow:4px 4px 0 var(--red)}
+.btn.small{padding:9px 18px;font-size:14px;box-shadow:3px 3px 0 var(--ink)}
+
+/* Nav */
+.nav{position:fixed;inset:0 0 auto;z-index:60;background:var(--paper);border-bottom:2px solid var(--ink)}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;height:68px}
+.logo{display:flex;align-items:center;gap:10px;font:400 30px var(--serif);text-decoration:none;letter-spacing:.02em}
+.logo i{width:20px;height:20px;border-radius:50%;background:var(--red);border:2px solid var(--ink);display:block}
+.nav-links{display:flex;gap:30px;font-size:15px;font-weight:500}
+.nav-links a{text-decoration:none;background:linear-gradient(var(--red),var(--red)) 0 100%/0 2px no-repeat;transition:background-size .25s;padding-bottom:3px}
+.nav-links a:hover{background-size:100% 2px}
+.nav-cta{display:flex;align-items:center;gap:12px}
+.menu-toggle{display:none;width:44px;height:44px;border-radius:10px;background:var(--paper);border:2px solid var(--ink);font-size:18px;cursor:pointer;color:var(--ink)}
+
+/* Hero */
+.hero{padding:150px 0 70px;position:relative;overflow-x:clip}
+.hero-grid{display:grid;grid-template-columns:1fr;gap:34px}
+.hero h1{font-size:clamp(54px,9vw,128px);margin:28px 0 56px;max-width:9.5em;text-wrap:balance;letter-spacing:-.03em}
+.hero h1 em{position:relative;white-space:nowrap}
+.hero h1 em svg{position:absolute;left:-1%;bottom:-.14em;width:102%;height:.24em;overflow:visible}
+.hero h1 em path{fill:none;stroke:var(--red);stroke-width:5;stroke-linecap:round;stroke-dasharray:420;stroke-dashoffset:420;animation:draw 1.1s .5s cubic-bezier(.6,0,.2,1) forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.hero-bottom{display:flex;justify-content:space-between;align-items:flex-end;gap:40px;flex-wrap:wrap}
+.hero .lead{max-width:520px;font-size:clamp(18px,1.8vw,21px);color:var(--ink-2)}
+.hero-actions{display:flex;gap:16px;flex-wrap:wrap;margin-top:30px}
+.sticker{
+  position:absolute;right:max(24px,calc(50% - 560px));top:120px;width:148px;height:148px;
+  display:grid;place-items:center;transform:rotate(8deg);
+}
+.sticker svg{width:100%;height:100%;animation:spin 22s linear infinite}
+.sticker b{position:absolute;font:400 38px var(--serif);color:var(--red)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.sticker text{font:600 11.5px var(--sans);letter-spacing:.22em;text-transform:uppercase;fill:var(--ink)}
+
+.frame{
+  margin-top:64px;border:2px solid var(--ink);border-radius:16px;overflow:hidden;
+  box-shadow:14px 14px 0 var(--ink);background:#12110e;
+}
+.frame-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--butter);border-bottom:2px solid var(--ink)}
+.frame-bar i{width:12px;height:12px;border-radius:50%;border:2px solid var(--ink);background:var(--paper)}
+.frame-bar span{margin-left:12px;font:600 12px var(--sans);letter-spacing:.04em}
+.frame iframe{display:block;width:100%;height:min(760px,78vh);border:0}
+
+/* Ticker */
+.ticker{margin-top:90px;background:var(--red);color:#fff;border-block:2px solid var(--ink);overflow:hidden;transform:rotate(-1.2deg);width:104%;margin-left:-2%}
+.ticker-track{display:flex;width:max-content;animation:slide 32s linear infinite}
+.ticker span{font:400 clamp(28px,3.6vw,44px)/1 var(--serif);padding:18px 26px;white-space:nowrap}
+.ticker span:nth-child(even){font-style:italic;color:var(--ink)}
+@keyframes slide{to{transform:translateX(-50%)}}
+
+/* Sections */
+.section{padding:140px 0 0}
+.section-head{max-width:760px;margin-bottom:60px}
+.section-head h2{font-size:clamp(42px,6vw,80px);margin:22px 0 0;letter-spacing:-.025em}
+.section-head h2 em{color:var(--red)}
+.section-head p{margin-top:22px;color:var(--ink-2);max-width:560px}
+
+/* Facts */
+.facts{display:grid;grid-template-columns:repeat(4,1fr);border-top:2px solid var(--ink);margin-top:90px}
+.fact{padding:30px 22px 30px 0;border-right:1px solid var(--rule)}
+.fact+.fact{padding-left:26px}
+.fact:last-child{border-right:0}
+.fact strong{display:block;font:400 clamp(56px,7vw,96px)/1 var(--serif);letter-spacing:-.03em}
+.fact span{color:var(--muted);font-size:15px}
+
+/* Feature blocks */
+.blocks{display:grid;grid-template-columns:repeat(6,1fr);gap:0;border:2px solid var(--ink);border-radius:18px;overflow:hidden;background:var(--ink)}
+.block{padding:34px 32px 38px;display:flex;flex-direction:column;gap:12px;min-height:270px;border:1px solid var(--ink);margin:-1px;transition:background .25s}
+.block.s2{grid-column:span 2}.block.s3{grid-column:span 3}.block.s4{grid-column:span 4}
+.block .n{font:400 22px var(--serif);font-style:italic;opacity:.7}
+.block h3{font-size:25px;margin-top:auto}
+.block p{font-size:16px;line-height:1.55;max-width:46ch}
+.block.paper{background:var(--paper)}
+.block.butter{background:var(--butter)}
+.block.forest{background:var(--forest);color:var(--paper)}
+.block.red{background:var(--red);color:#fff}
+.block.clay{background:var(--clay)}
+.block.paper:hover{background:var(--paper-2)}
+.tags{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.tags span{padding:5px 13px;border:1.5px solid currentColor;border-radius:99px;font-size:13px;font-weight:600}
+.mono{font:500 13px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace;margin-top:6px;padding:12px 14px;background:#1a171214;border-radius:8px}
+
+/* Steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:50px}
+.step{border-top:2px solid var(--ink);padding-top:22px}
+.step b{display:block;font:400 clamp(80px,9vw,128px)/.9 var(--serif);color:var(--red);margin-bottom:18px}
+.step h3{font-size:24px;margin-bottom:10px}
+.step p{color:var(--ink-2);font-size:17px}
+
+/* Scenes as prints */
+.scenes{display:grid;grid-template-columns:repeat(5,1fr);gap:26px 22px}
+.print{text-decoration:none;display:block;rotate:var(--r,0deg);transition:rotate .3s cubic-bezier(.3,1.4,.5,1),opacity .7s ease,transform .7s cubic-bezier(.2,.7,.2,1)}
+.print:hover{rotate:0deg;transform:translateY(-8px)}
+.print .img{
+  position:relative;aspect-ratio:3/4;border:2px solid var(--ink);border-radius:4px;overflow:hidden;
+  background:var(--ink);box-shadow:6px 6px 0 var(--ink);
+}
+.print .img img{width:100%;height:100%;object-fit:cover}
+.print:hover .img{box-shadow:10px 10px 0 var(--red)}
+.print .cap{padding:14px 2px 0}
+.print strong{display:block;font:400 24px/1.1 var(--serif)}
+.print span{font-size:13px;color:var(--muted)}
+
+/* Developers */
+.dev-band{background:var(--butter);border-block:2px solid var(--ink);margin-top:140px;padding:110px 0}
+.dev{display:grid;grid-template-columns:1fr 1.05fr;gap:60px;align-items:center}
+.dev h2{font-size:clamp(40px,5.4vw,72px);margin:22px 0 22px}
+.dev h2 em{color:var(--forest)}
+.dev p{color:var(--ink-2);max-width:480px}
+.checks{list-style:none;padding:0;margin:30px 0 0;display:grid;gap:12px}
+.checks li{display:flex;gap:14px;font-weight:500;font-size:17px}
+.checks li:before{content:"→";color:var(--red);font-weight:700}
+.code{background:var(--ink);color:#e9e1cf;border:2px solid var(--ink);border-radius:14px;box-shadow:10px 10px 0 var(--red);overflow:hidden}
+.code-head{padding:12px 18px;border-bottom:1px solid #ffffff22;font:600 12px var(--sans);letter-spacing:.12em;text-transform:uppercase;color:#a89f8a}
+.code pre{margin:0;padding:24px;overflow-x:auto;font:14px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace}
+.code .k{color:#f3c64d}.code .s{color:#9fd3a8}.code .n{color:#ff9b73}.code .c{color:#8a826f}
+
+/* Privacy */
+.privacy{background:var(--forest);color:var(--paper);margin-top:0;padding:120px 0;border-bottom:2px solid var(--ink)}
+.privacy .label{color:var(--paper)}
+.privacy-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:70px;align-items:start}
+.privacy h2{font-size:clamp(42px,6vw,84px);margin:22px 0 24px}
+.privacy h2 em{color:var(--butter)}
+.privacy p{color:#d6dccf;max-width:480px}
+.privacy-list{display:grid;gap:0;border-top:1px solid #ffffff44}
+.privacy-list div{padding:24px 0;border-bottom:1px solid #ffffff44}
+.privacy-list b{display:block;font:400 28px var(--serif);margin-bottom:4px}
+.privacy-list span{color:#cdd5c6;font-size:16px}
+
+/* FAQ */
+.faq{max-width:860px;border-top:2px solid var(--ink)}
+.faq details{border-bottom:1px solid var(--rule)}
+.faq summary{
+  list-style:none;cursor:pointer;padding:26px 0;display:flex;justify-content:space-between;align-items:center;gap:24px;
+  font:400 clamp(24px,3vw,34px)/1.15 var(--serif);
+}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary:after{content:"+";font:400 40px/1 var(--sans);color:var(--red);transition:transform .25s}
+.faq details[open] summary:after{transform:rotate(45deg)}
+.faq details p{padding:0 60px 28px 0;color:var(--ink-2);max-width:62ch}
+
+/* CTA */
+.cta{background:var(--red);color:#fff;margin-top:140px;padding:130px 0;text-align:center;border-block:2px solid var(--ink);overflow:hidden}
+.cta h2{font-size:clamp(56px,10vw,150px);letter-spacing:-.035em;line-height:.92}
+.cta h2 em{color:var(--ink)}
+.cta p{margin:28px auto 40px;max-width:460px;font-size:20px}
+
+footer{background:var(--ink);color:#bdb4a0;padding:46px 0;font-size:14px}
+.foot{display:flex;justify-content:space-between;gap:24px;flex-wrap:wrap;align-items:center}
+.foot .logo{color:var(--paper);font-size:26px}
+.foot nav{display:flex;gap:26px}
+.foot a{text-decoration:none}
+.foot a:hover{color:#fff}
+
+/* Reveal */
+.js .reveal{opacity:0;transform:translateY(22px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.7,.2,1);transition-delay:var(--d,0s)}
+.js .reveal.in{opacity:1;transform:none}
+.js .print.reveal.in:hover{transform:translateY(-8px)}
+
+@media(max-width:1000px){
+  .blocks{grid-template-columns:repeat(2,1fr)}
+  .block.s2,.block.s3,.block.s4{grid-column:span 2}
+  .scenes{grid-template-columns:repeat(3,1fr)}
+  .dev,.privacy-grid{grid-template-columns:1fr;gap:44px}
+  .steps{grid-template-columns:1fr;gap:34px}
+  .sticker{display:none}
+}
+@media(max-width:800px){
+  .nav-links{
+    position:fixed;inset:68px 0 auto;flex-direction:column;gap:0;background:var(--paper);
+    border-bottom:2px solid var(--ink);padding:6px 24px 18px;display:none;
+  }
+  .nav-links.open{display:flex}
+  .nav-links a{padding:15px 0;font-size:20px;border-bottom:1px solid var(--rule)}
+  .menu-toggle{display:grid;place-items:center}
+  .nav-cta .btn{display:none}
+  .hero{padding-top:120px}
+  .facts{grid-template-columns:1fr 1fr}
+  .fact:nth-child(2){border-right:0}
+  .fact:nth-child(3){padding-left:0}
+  .fact:nth-child(-n+2){border-bottom:1px solid var(--rule)}
+  .section{padding-top:96px}
+  .scenes{grid-template-columns:repeat(2,1fr)}
+  .blocks{grid-template-columns:1fr}
+  .block.s2,.block.s3,.block.s4{grid-column:span 1}
+  .frame{box-shadow:8px 8px 0 var(--ink)}
+  .dev-band,.privacy{padding:80px 0}
+  .cta{padding:90px 0}
+}
+@media(prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  *,*:before,*:after{animation:none!important;transition-duration:.01ms!important}
+  .hero h1 em path{stroke-dashoffset:0}
+  .js .reveal{opacity:1;transform:none}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav">
+  <div class="wrap nav-inner">
+    <a class="logo" href="#top" aria-label="NOIR home"><i></i>Noir</a>
+    <nav class="nav-links" id="navLinks" aria-label="Primary">
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#scenes">Templates</a>
+      <a href="#developers">Developers</a>
+      <a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-cta">
+      <a class="btn small red" href="noir-studio.html">Open the studio →</a>
+      <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-expanded="false" aria-controls="navLinks">☰</button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" id="top">
+    <div class="sticker" aria-hidden="true">
+      <svg viewBox="0 0 160 160"><defs><path id="circ" d="M80,80 m-58,0 a58,58 0 1,1 116,0 a58,58 0 1,1 -116,0"/></defs>
+        <circle cx="80" cy="80" r="76" fill="#f3c64d" stroke="#1a1712" stroke-width="2.5"/>
+        <text><textPath href="#circ">no account · no upload · no fuss · </textPath></text></svg>
+      <b>✺</b>
+    </div>
+    <div class="wrap">
+      <span class="label reveal">Local-first creator studio</span>
+      <h1 class="reveal" style="--d:.06s">A quiet studio for making <em>pictures.<svg viewBox="0 0 400 20" preserveAspectRatio="none" aria-hidden="true"><path d="M3 12 C 60 2, 110 18, 170 9 S 290 4, 397 11"/></svg></em></h1>
+      <div class="hero-bottom">
+        <div class="reveal" style="--d:.14s">
+          <p class="lead">Write what you can see in your head, render a few takes, and keep the ones you like. Everything stays on your computer unless you decide to connect something.</p>
+          <div class="hero-actions">
+            <a class="btn red" href="noir-studio.html">Start making →</a>
+            <a class="btn" href="#how">How it works</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="frame reveal" style="--d:.1s">
+        <div class="frame-bar"><i></i><i></i><i></i><span>noir-studio.html — live, try it</span></div>
+        <iframe src="noir-studio.html" title="NOIR studio live preview" loading="lazy"></iframe>
+      </div>
+    </div>
+
+    <div class="ticker" aria-hidden="true">
+      <div class="ticker-track">
+        <span>Seeded</span><span>private</span><span>Offline</span><span>yours</span><span>Reproducible</span><span>simple</span><span>Backed up</span><span>fast</span>
+        <span>Seeded</span><span>private</span><span>Offline</span><span>yours</span><span>Reproducible</span><span>simple</span><span>Backed up</span><span>fast</span>
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <div class="facts reveal" aria-label="At a glance">
+      <div class="fact"><strong data-count="10">10</strong><span>built-in scenes to start from</span></div>
+      <div class="fact"><strong data-count="6">6</strong><span>aspect ratios, up to 21:9</span></div>
+      <div class="fact"><strong data-count="100">100</strong><span>creations kept on your device</span></div>
+      <div class="fact"><strong>0</strong><span>accounts or uploads</span></div>
+    </div>
+  </div>
+
+  <section class="section" id="features">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="label">What's inside</span>
+        <h2>Small tools, <em>done properly.</em></h2>
+        <p>No dashboards, no credits, no feed. Just the things you reach for when you're making and sorting images.</p>
+      </div>
+
+      <div class="blocks reveal">
+        <article class="block s4 butter">
+          <span class="n">01</span>
+          <h3>Every image remembers its seed</h3>
+          <p>Lock the seed and you get the identical picture back. Change it and you get a fresh take. Reopen any creation and its exact settings come with it.</p>
+          <div class="mono" aria-hidden="true">seed 482913 · 16:9 → picture A<br>seed 482913 · 16:9 → same picture ✓</div>
+        </article>
+        <article class="block s2 forest">
+          <span class="n">02</span>
+          <h3>Variations</h3>
+          <p>Render one, two or four options at once and flip between them.</p>
+        </article>
+        <article class="block s2 paper">
+          <span class="n">03</span>
+          <h3>Prompt helpers</h3>
+          <p>Enhance with one-click undo, a surprise button for when you're stuck, and your recent prompts close by.</p>
+        </article>
+        <article class="block s2 clay">
+          <span class="n">04</span>
+          <h3>A library that holds up</h3>
+          <p>Stored in IndexedDB. Full-screen viewer, search, sorting, filters and bulk actions.</p>
+        </article>
+        <article class="block s2 red">
+          <span class="n">05</span>
+          <h3>Undo and backup</h3>
+          <p>Deleted the wrong thing? Undo it. Back up or restore the whole library as one file.</p>
+        </article>
+        <article class="block s3 paper">
+          <span class="n">06</span>
+          <h3>Bring your own backend</h3>
+          <p>Point NOIR at any HTTPS or same-origin endpoint. Requests can be cancelled, time out safely, and replies are checked before they're shown.</p>
+          <div class="tags"><span>Image</span><span>Video</span><span>CORS-ready</span></div>
+        </article>
+        <article class="block s3 forest">
+          <span class="n">07</span>
+          <h3>Made for keyboards and small screens</h3>
+          <p>⌘/Ctrl + Enter to generate, Alt + 1–5 to move around, ? for the full list. Four accent colours, and it all works on a phone.</p>
+          <div class="tags"><span>Ember</span><span>Moss</span><span>Saffron</span><span>Cobalt</span></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="how">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="label">How it works</span>
+        <h2>Three steps, <em>no detours.</em></h2>
+      </div>
+      <div class="steps">
+        <div class="step reveal"><b>1</b><h3>Describe it</h3><p>Start from a template or write your own. Pick a style, quality and shape, and adjust grain and vignette if you like.</p></div>
+        <div class="step reveal" style="--d:.1s"><b>2</b><h3>Render it</h3><p>Use the built-in renderer for an instant result, or send the same request to your own AI backend.</p></div>
+        <div class="step reveal" style="--d:.2s"><b>3</b><h3>Keep what's good</h3><p>Favorite, rename and download. Reopen anything later with its seed and settings restored, then keep going.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="scenes">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="label">Starting points</span>
+        <h2>Ten scenes <em>to riff on.</em></h2>
+        <p>The built-in renderer paints procedural artwork, not AI images. Pick one and it opens in the studio with its prompt filled in.</p>
+      </div>
+      <div class="scenes" id="scenes-grid"></div>
+    </div>
+  </section>
+
+  <section class="dev-band" id="developers">
+    <div class="wrap dev">
+      <div class="reveal">
+        <span class="label">For developers</span>
+        <h2>One request, <em>one reply.</em></h2>
+        <p>NOIR is a static front end. Keep your provider keys on your server, expose a single endpoint, and send back a finished media URL.</p>
+        <ul class="checks">
+          <li>JSON in, media URL out. No SDK, no build step.</li>
+          <li>Width, height and seed go out with every request.</li>
+          <li>https, data: and same-origin results are accepted.</li>
+          <li>A 120 second timeout, and a cancel button for the user.</li>
+        </ul>
+      </div>
+      <div class="code reveal" style="--d:.1s">
+        <div class="code-head">POST /api/generate</div>
+<pre><span class="c">// request</span>
+{
+  <span class="k">"type"</span>: <span class="s">"image"</span>,
+  <span class="k">"prompt"</span>: <span class="s">"A calm moonlit ocean"</span>,
+  <span class="k">"negative_prompt"</span>: <span class="s">""</span>,
+  <span class="k">"style"</span>: <span class="s">"cinematic"</span>,
+  <span class="k">"aspect_ratio"</span>: <span class="s">"16:9"</span>,
+  <span class="k">"quality"</span>: <span class="s">"high"</span>,
+  <span class="k">"width"</span>: <span class="n">960</span>,
+  <span class="k">"height"</span>: <span class="n">540</span>,
+  <span class="k">"seed"</span>: <span class="n">482913775</span>
+}
+
+<span class="c">// reply</span>
+{ <span class="k">"image_url"</span>: <span class="s">"https://your-server.example/out.png"</span> }</pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="privacy" id="privacy">
+    <div class="wrap privacy-grid">
+      <div class="reveal">
+        <span class="label">Privacy</span>
+        <h2>Your work stays <em>with you.</em></h2>
+        <p>NOIR keeps creations in your browser. Nothing is uploaded unless you connect your own endpoint, and then only the request you send goes to it.</p>
+      </div>
+      <div class="privacy-list reveal" style="--d:.1s">
+        <div><b>Stored locally</b><span>Creations and settings live in IndexedDB and localStorage.</span></div>
+        <div><b>You choose the backend</b><span>Generation only leaves the browser once you set an endpoint.</span></div>
+        <div><b>Easy to take with you</b><span>Export a full backup whenever you like and restore it anywhere.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="faq">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="label">Questions</span>
+        <h2>Straight <em>answers.</em></h2>
+      </div>
+      <div class="faq reveal">
+        <details><summary>Does NOIR include real AI image generation?</summary><p>Not by itself. The built-in renderer makes deterministic procedural artwork so you can try the whole workflow offline. For a real AI model, connect your own server endpoint in Settings.</p></details>
+        <details><summary>Where are my creations stored?</summary><p>In your browser, using IndexedDB, up to 100 items. It isn't cloud storage, so clearing site data removes them. Use Backup library in Settings to keep a copy.</p></details>
+        <details><summary>Can I make video?</summary><p>Only with a connected backend that returns a finished video URL. The built-in renderer makes images.</p></details>
+        <details><summary>What does it cost?</summary><p>NOIR is a front-end project you run yourself, so it's free. Any cost comes from a generation service you choose to connect.</p></details>
+        <details><summary>Does it work on a phone?</summary><p>Yes. The layout adapts down to small screens, with a slide-out menu and touch-friendly controls.</p></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="wrap">
+      <h2 class="reveal">Go make <em>something.</em></h2>
+      <p class="reveal" style="--d:.08s">Open the studio and have your first picture in a few seconds.</p>
+      <a class="btn ink reveal" style="--d:.16s" href="noir-studio.html">Open the studio →</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <a class="logo" href="#top"><i></i>Noir</a>
+    <nav aria-label="Footer"><a href="#features">Features</a><a href="#developers">Developers</a><a href="#faq">FAQ</a><a href="noir-studio.html">Studio</a></nav>
+    <span>© 2026 NOIR Creator Studio</span>
+  </div>
+</footer>
+
+<script>
+"use strict";
+
+// Prints are real renders from the studio's procedural engine
+const scenes = [
+  ["midnight", "Midnight Run", "Automotive · Night"],
+  ["portrait", "Ember Muse", "Fashion · Editorial"],
+  ["cyber", "Neon District", "Futuristic · City"],
+  ["alpine", "Beyond the Summit", "Nature · Adventure"],
+  ["glass", "Liquid Form", "Abstract · Design"],
+  ["desert", "Dusk Horizon", "Desert · Sunset"],
+  ["orbit", "Celestial", "Space · Surreal"],
+  ["architecture", "Monolith", "Architecture · Minimal"],
+  ["ocean", "Moonlit Tide", "Sea · Moonlight"],
+  ["aurora", "Polar Veil", "Arctic · Aurora"]
+];
+const tilt = [-1.6, 1.2, -.8, 1.8, -1.2, 1, -1.8, .8, -1, 1.5];
+
+document.getElementById("scenes-grid").innerHTML = scenes.map(([id, title, desc], i) => `
+  <a class="print reveal" href="noir-studio.html#template=${id}" style="--r:${tilt[i]}deg;--d:${(i % 5) * .05}s"
+     aria-label="Open ${title} in the studio">
+    <div class="img"><img src="noir-assets/${id}.jpg" alt="${title} sample render" width="600" height="800" loading="lazy"></div>
+    <div class="cap"><strong>${title}</strong><span>${desc}</span></div>
+  </a>`).join("");
+
+// Mobile menu
+const links = document.getElementById("navLinks");
+const toggle = document.getElementById("menuToggle");
+function setMenu(open) {
+  links.classList.toggle("open", open);
+  toggle.setAttribute("aria-expanded", String(open));
+}
+toggle.addEventListener("click", () => setMenu(!links.classList.contains("open")));
+links.addEventListener("click", (e) => { if (e.target.closest("a")) setMenu(false); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") setMenu(false); });
+
+// Scroll reveal
+const revealEls = document.querySelectorAll(".reveal");
+if ("IntersectionObserver" in window) {
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add("in");
+        io.unobserve(entry.target);
+      }
+    });
+  }, { threshold: .1, rootMargin: "0px 0px -5% 0px" });
+  revealEls.forEach((el) => io.observe(el));
+} else {
+  revealEls.forEach((el) => el.classList.add("in"));
+}
+
+// Count-up for the headline numbers
+if (!matchMedia("(prefers-reduced-motion: reduce)").matches && "IntersectionObserver" in window) {
+  const counter = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      if (!entry.isIntersecting) return;
+      counter.unobserve(entry.target);
+      const el = entry.target, end = Number(el.dataset.count), start = performance.now();
+      const tick = (now) => {
+        const t = Math.min((now - start) / 1000, 1);
+        el.textContent = Math.round(end * (1 - Math.pow(1 - t, 3)));
+        if (t < 1) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  }, { threshold: .6 });
+  document.querySelectorAll("[data-count]").forEach((el) => counter.observe(el));
+}
+</script>
+</body>
+</html>
